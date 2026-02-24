@@ -13,7 +13,7 @@ Out.txt : main Makefile
 main : main.o
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
 
-main.o : main.cc matrix.h gaussian.h
+main.o : main.cc matrix.h gaussian.h hamiltonian.h jacobian.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean :

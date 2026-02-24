@@ -220,7 +220,7 @@ struct matrix {
         return SELF;} 
 
 
-    long double determinat() const {
+    long double determinant() const {
     size_t n = SELF.size1();
     size_t m = SELF.size2();
     assert(n == m); // Determinant only exists for square matrices
