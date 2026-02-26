@@ -8,59 +8,144 @@
 namespace qm {
 struct hamiltonian {
     long double m_n, m_p, m_e; // Masses 
-    long double hbar_c = 1973.27; // eV
+    long double hbar_c = 197.3; // MeV * fm
+    long double alpha = 1.0 / 137.035999; // Fine structure
 
     matrix overlap_matrix (const std::vector<gaus>& basis) {
         size_t n = basis.size();
         matrix N(n, n);
-        for(size_t i=0;i<n;i++) for(size_t j=0;j<n;j++) {
-            N(i, j) = overlap(basis[i], basis[j]); // eq(6)
+        vector norms(n);
+
+        for(size_t i=0; i<n; i++) {
+            norms[i] = std::sqrt(overlap(basis[i], basis[i]));
         }
+
+        FOR_MAT(N) N(i, j) = overlap(basis[i], basis[j]) / (norms[i] * norms[j]); // eq(6)
         return N;
     }
 
     matrix hamiltonian_matrix(const std::vector<gaus>& basis, const jacobian& J, bool relativistic) {
-        size_t n_g = basis.size();
-        size_t n_jacobi = J.dim(); // N-1 coordinates
-        matrix H(n_g, n_g);
+        size_t n = basis.size();
+        size_t n_jacobi = J.dim(); 
+        matrix H(n, n);
+        vector norms(n);
 
-        for (size_t i = 0; i < n_g; ++i) {
-            for (size_t k = 0; k < n_g; ++k) {
-                long double K_total = 0;
-                long double V_total = 0;
+        for(size_t i=0; i<n; i++) {
+            norms[i] = std::sqrt(overlap(basis[i], basis[i]));
+        }
 
-                // Sum kinetic energy over all Jacobi coordinates [cite: 481, 482]
-                for (size_t d = 0; d < n_jacobi; ++d) {
-                    vector c = J.c(d);
-                    long double mass_eff = J.mu(d);
+        FOR_MAT(H) {
+            long double K_total = 0;
+            long double V_total = 0;
+
+            // 1. Kinetic energy (Sums over Jacobi coordinates)
+            for (size_t d = 0; d < n_jacobi; d++) {
+                vector c = J.c(d);
+                long double mass_eff = J.mu(d);
+                
+                if (relativistic) {
+                    K_total += K_rel(basis[i], basis[j], c, mass_eff);
+                } else {
+                    K_total += K_cla(basis[i], basis[j], c, mass_eff);
+                }
+            }
+
+            // 2. Potential energy (Sums over all particle pairs)
+            for (size_t p1 = 0; p1 < J.num_particles(); p1++) {
+                for (size_t p2 = p1 + 1; p2 < J.num_particles(); p2++) {
                     
-                    if (relativistic) {
-                        K_total += K_rel(basis[i], basis[k], c, mass_eff);
-                    } else {
-                        K_total += K_cla(basis[i], basis[k], c, mass_eff);
+                    // Check if both particles have a charge
+                    if (J.charges[p1] != 0 && J.charges[p2] != 0) {
+                        vector c_pair = J.w(p1, p2);
+                        long double charge_factor = J.charges[p1] * J.charges[p2];
+                        
+                        // Multiply the integral result by the physical constants
+                        V_total += charge_factor * alpha * hbar_c * V_cou(basis[i], basis[j], c_pair);
                     }
                     
-                    // Example: Add Coulomb potential for each coordinate
-                    V_total += V_cou(basis[i], basis[k], c); 
+                    // NOTE: If you add a Nuclear strong force potential (e.g. Gaussian potential) 
+                    // between the proton and neutron, you would add it right here!
                 }
-
-                H(i, k) = K_total + V_total;
             }
+
+            H(i, j) = (K_total + V_total) / (norms[i] * norms[j]);
         }
         return H;
     }
 
+    
+
+    // Generalized Coupling Operator W for any N -> N+1 system
+    long double W_couple(const gaus& g_n, const gaus& g_n1) {
+    // Add your model parameters
+        long double S_pi = 20.0 * 1e6; // Coupling strength in eV 
+        long double b_pi = 3;         // Range parameter fm
+
+        size_t d1 = g_n.A.size1();   // Dimension of the smaller system
+        size_t d2 = g_n1.A.size1();  // Dimension of the larger system
+
+        // Safety check: The ket must have exactly one more Jacobi coordinate than the bra
+        if (d2 != d1 + 1) {
+            std::cerr << "Error: W_couple requires the ket to have exactly one more dimension than the bra." << std::endl;
+            return 0.0;
+        }
+
+        long double w = 1.0 / (b_pi * b_pi);
+
+        // 1. Create the temporary "upgraded" Gaussian |A'> with the larger dimension
+        gaus g_prime(d2); 
+
+        // 2. Embed A_n into the top-left of A', and apply the coupling 'w'
+        FOR_MAT(g_prime.A) {
+            if (i < d1 && j < d1) {
+                // Top-left block: Copy A_n 
+                g_prime.A(i, j) = g_n.A(i, j);
+                
+                // Add the coupling term to the diagonal of the existing coordinates
+                if (i == j) g_prime.A(i, j) += w; 
+            } 
+            else if (i == d1 && j == d1) {
+                // The brand new dimension's diagonal gets the w term
+                g_prime.A(i, j) = w;
+            } 
+            else {
+                // The off-diagonals connecting the old system to the new particle are 0
+                g_prime.A(i, j) = 0.0;
+            }
+        }
+
+        // 3. Set the shift vectors for |A'>
+        for (size_t i = 0; i < d2; ++i) {
+            for (int d = 0; d < 3; ++d) {
+                if (i < d1) {
+                    g_prime.s(i, d) = g_n.s(i, d); // Copy existing spatial shifts
+                } else {
+                    g_prime.s(i, d) = 0.0;         // The new coordinate has no shift
+                }
+            }
+        }
+
+        // Normalize using the individual norms of the bra and ket
+        long double norm_n = std::sqrt(overlap(g_n, g_n));
+        long double norm_n1 = std::sqrt(overlap(g_n1, g_n1));
+
+        // 4. Calculate the analytical integral in the larger space
+        return S_pi * overlap(g_prime, g_n1) / (norm_n * norm_n1);
+    }
+
     long double calc_beta (const gaus& gi, const gaus& gj, const vector& c) {
         matrix R = (gj.A + gi.A).inverse();
-        size_t n = gj.A.size1();
         long double cRc = 0;
-        for(size_t i=0;i<n;i++) for(size_t j=0;j<n;j++) {
-            cRc += c[i]*R(i, j)*c[j];
-        }
-        return cRc;
+        FOR_MAT(R) cRc += c[i]*R(i, j)*c[j];
+        return 1.0/cRc;
     }
+
     long double calc_gamma (const gaus& gi, const gaus& gj, const vector& c) {
-        return 0.25/calc_beta(gi, gj, c);
+        matrix R = (gj.A + gi.A).inverse();
+        matrix BRA = gj.A * R * gi.A;
+        long double cBRAc = 0;
+        FOR_MAT(BRA) cBRAc += c[i]*BRA(i, j)*c[j];
+        return 0.25/cBRAc;
     }
 
     long double calc_q (const gaus& gi, const gaus& gj, const vector& c) {
@@ -88,7 +173,7 @@ struct hamiltonian {
         size_t n = gj.A.size1();
         
         vector Ra(n), Rb(n);
-        for(size_t i=0;i<n;i++) for(size_t j=0;j<n;j++) {
+        FOR_MAT(R) {
             Ra[i] += R(i, j) * gi.s[j].norm(); 
             Rb[i] += R(i, j) * gj.s[j].norm();
         }
@@ -106,11 +191,14 @@ struct hamiltonian {
     }
 
     long double calculate_integrand(long double x, long double gamma, long double eta, long double mass) {
-        long double f_val = sqrt(std::pow(hbar_c,2) * std::pow(x,2) + std::pow(mass,2));
+        long double p = hbar_c * x;
+        // long double f_val = sqrt(p*p + mass*mass) - mass;
+        // Use Conjugate trict to eliminate "-"
+        long double f_val = (p*p) / (std::sqrt(p*p + mass*mass) + mass);
         long double base = x * f_val * std::exp(-gamma * x * x);
 
         // Handling the limit as eta -> 0 to avoid division by zero 
-        if (std::abs(eta) < 1e-15) {
+        if (std::abs(gamma * eta) < ZERO_LIMIT) {
             // eq (A.26)
             return 2.0 * x * base;
         } else {
@@ -152,12 +240,27 @@ struct hamiltonian {
         return ov * solve_J_rel(gamma, eta, mass);
     }
 
-    long double K_cla (const gaus& gi, const gaus& gj, const vector& c, const long double& mass) { //eq(A.23)
+    long double K_cla(const gaus& gi, const gaus& gj, const vector& c, const long double& mass) { 
         long double ov = overlap(gi, gj); 
-        long double gamma = calc_gamma(gi, gj, c);
         long double eta = calc_eta(gi, gj, c);
 
-        return ov * (3.0/2.0 * 1.0/gamma - eta * eta);
+        long double prefactor = std::pow(hbar_c, 2) / (2.0 * mass);
+
+        if (std::abs(eta) < ZERO_LIMIT) {
+            // η -> 0
+            matrix R = (gi.A + gj.A).inverse();
+            matrix BRA = gj.A * R * gi.A;
+            long double cBRAc = 0;
+            FOR_MAT(BRA) {
+                cBRAc += c[i] * BRA(i, j) * c[j];
+            }
+
+            return ov * prefactor * 6.0 * cBRAc;
+        } else {
+            long double gamma = calc_gamma(gi, gj, c);
+
+            return ov * prefactor * (3.0/2.0 * 1.0/gamma - eta * eta);
+        }
     }
 
     long double V_cou (const gaus& gi, const gaus& gj, const vector& c) { //eq(22-24)
@@ -167,7 +270,7 @@ struct hamiltonian {
 
         long double J;
         // Handling the limit as q -> 0 to avoid division by zero 
-        if (std::abs(q) < 1e-15) {
+        if (std::abs(q) < ZERO_LIMIT) {
             // q -> 0
             J = 2 * std::sqrt(beta) / std::sqrt(pi);
         } else {

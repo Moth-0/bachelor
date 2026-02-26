@@ -7,18 +7,18 @@
 #include"hamiltonian.h"
 #include"jacobian.h"
 
-// System Builder: Fills the total H and N block matrices for the coupled pn / pnπ system
+// System Builder: Fills the total H and N block matrices for the coupled pn / pns system
 void build_coupled_matrices(
     const std::vector<qm::gaus>& basis_pn, 
-    const std::vector<qm::gaus>& basis_pnπ, 
+    const std::vector<qm::gaus>& basis_pns, 
     qm::hamiltonian& h_calc, 
     const qm::jacobian& J_pn, 
-    const qm::jacobian& J_pnπ,
+    const qm::jacobian& J_pns,
     qm::matrix& H_tot, 
     qm::matrix& N_tot) 
 {
     size_t n1 = basis_pn.size();
-    size_t n2 = basis_pnπ.size();
+    size_t n2 = basis_pns.size();
 
     // --- 1. Fill Block 1,1 (Deuterium Channel) ---
     qm::matrix N_pn = h_calc.overlap_matrix(basis_pn);
@@ -29,18 +29,18 @@ void build_coupled_matrices(
     }
 
     // --- 2. Fill Block 2,2 (Pion-Deuteron Channel) ---
-    qm::matrix N_pnπ = h_calc.overlap_matrix(basis_pnπ);
-    qm::matrix H_pnπ = h_calc.hamiltonian_matrix(basis_pnπ, J_pnπ, true); // true = relativistic pion
-    FOR_MAT(H_pnπ) {
-        N_tot(n1 + i, n1 + j) = N_pnπ(i, j);
-        H_tot(n1 + i, n1 + j) = H_pnπ(i, j);
+    qm::matrix N_pns = h_calc.overlap_matrix(basis_pns);
+    qm::matrix H_pns = h_calc.hamiltonian_matrix(basis_pns, J_pns, false); 
+    FOR_MAT(H_pns) {
+        N_tot(n1 + i, n1 + j) = N_pns(i, j);
+        H_tot(n1 + i, n1 + j) = H_pns(i, j);
     }
 
     // --- 3. Fill Blocks 1,2 and 2,1 (The Coupling W) ---
     for(size_t i = 0; i < n1; i++) {
         for(size_t j = 0; j < n2; j++) {
             size_t row_2 = j + n1; 
-            long double w_val = h_calc.W_couple(basis_pn[i], basis_pnπ[j]);
+            long double w_val = h_calc.W_couple(basis_pn[i], basis_pns[j]);
             H_tot(i, row_2) = w_val;
             H_tot(row_2, i) = w_val;
         }
@@ -74,12 +74,12 @@ long double get_ground_state_energy(const qm::matrix& H, const qm::matrix& N) {
 
 int main() {
     // Particle masses in MeV
-    long double m_n  = 939.56542052; 
-    long double m_p  = 938.27208816; 
-    long double m_pi = 139.5703900;
+    long double m_n  = 939.0; 
+    long double m_p  = 939.0; 
+    long double m_s = 500.0;
 
     qm::jacobian J_pn({m_p, m_n}, {1, 0});
-    qm::jacobian J_pnπ({m_p, m_n, m_pi}, {1, 0, -1});
+    qm::jacobian J_pns({m_p, m_n, m_s}, {1, 0, -1});
     qm::hamiltonian h_calc;
 
     // --- The Search Range Variables ---
@@ -91,9 +91,9 @@ int main() {
     size_t N_tot = n1 + n2;
 
     std::vector<qm::gaus> basis_pn(n1);
-    std::vector<qm::gaus> basis_pnπ(n2);
+    std::vector<qm::gaus> basis_pns(n2);
     for(size_t i = 0; i < n1; i++) basis_pn[i] = qm::gaus(1, min_A, max_A);
-    for(size_t i = 0; i < n2; i++) basis_pnπ[i] = qm::gaus(2, min_A, max_A);
+    for(size_t i = 0; i < n2; i++) basis_pns[i] = qm::gaus(2, min_A, max_A);
 
     // Build Hamiltonian and overlap matrices
     qm::matrix H(N_tot, N_tot);
@@ -106,9 +106,9 @@ int main() {
     // --- The "Keep Rolling" Loop ---
     while (std::isnan(E_best)) {
         for(size_t i = 0; i < n1; i++) basis_pn[i] = qm::gaus(1, min_A, max_A);
-        for(size_t i = 0; i < n2; i++) basis_pnπ[i] = qm::gaus(2, min_A, max_A);
+        for(size_t i = 0; i < n2; i++) basis_pns[i] = qm::gaus(2, min_A, max_A);
 
-        build_coupled_matrices(basis_pn, basis_pnπ, h_calc, J_pn, J_pnπ, H, N);
+        build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N);
         E_best = get_ground_state_energy(H, N);
     }
 
@@ -129,7 +129,7 @@ int main() {
             qm::gaus old_g = basis_pn[k];
             basis_pn[k] = qm::gaus(1, min_A, max_A); 
             
-            build_coupled_matrices(basis_pn, basis_pnπ, h_calc, J_pn, J_pnπ, H, N);
+            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N);
             long double E_trial = get_ground_state_energy(H, N);
             
             if (E_trial < E_best && !std::isnan(E_trial)) {
@@ -141,17 +141,17 @@ int main() {
         } 
         else {
             int k = dist_n2(gen);
-            qm::gaus old_g = basis_pnπ[k];
-            basis_pnπ[k] = qm::gaus(2, min_A, max_A); 
+            qm::gaus old_g = basis_pns[k];
+            basis_pns[k] = qm::gaus(2, min_A, max_A); 
             
-            build_coupled_matrices(basis_pn, basis_pnπ, h_calc, J_pn, J_pnπ, H, N);
+            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N);
             long double E_trial = get_ground_state_energy(H, N);
             
             if (E_trial < E_best && !std::isnan(E_trial)) {
                 E_best = E_trial;
-                std::cout << "Step " << step << " | New Best (pnπ mutated): " << E_best << " MeV\n";
+                std::cout << "Step " << step << " | New Best (pns mutated): " << E_best << " MeV\n";
             } else {
-                basis_pnπ[k] = old_g; 
+                basis_pns[k] = old_g; 
             }
         }
     }

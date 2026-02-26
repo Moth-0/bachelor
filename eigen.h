@@ -19,10 +19,18 @@ matrix cholesky(const matrix& A) {
             }
 
             if (i == j) {
-                // Diagonal elements
-                L(i, j) = std::sqrt(A(i, i) - sum);
+                // DIAGONAL ELEMENTS: Calculate value before square root
+                long double val_under_sqrt = A(i, i) - sum;
+                
+                // Only diagonals must be strictly positive
+                if (val_under_sqrt <= ZERO_LIMIT) { 
+                    std::cerr << "Rejected step: Matrix ill-conditioned." << std::endl;
+                    return matrix(0, 0);
+                }
+                
+                L(i, j) = std::sqrt(val_under_sqrt);
             } else {
-                // Off-diagonal elements
+                // OFF-DIAGONAL ELEMENTS: No square root, use A(i,j), can be negative/zero
                 L(i, j) = (1.0 / L(j, j)) * (A(i, j) - sum);
             }
         }
@@ -35,7 +43,7 @@ matrix cholesky(const matrix& A) {
 vector jacobi_eigenvalues(const matrix& M) {
     matrix A = M;
     size_t n = A.size1();
-    long double tolerance = 1e-12; // Stop when off-diagonals are tiny
+    long double tolerance = ZERO_LIMIT; // Stop when off-diagonals are tiny
     int max_iterations = 1000;
     
     for (int iter = 0; iter < max_iterations; iter++) {

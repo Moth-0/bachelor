@@ -24,37 +24,37 @@ struct gaus {
     
     // Default constructor
     gaus() = default;
+    ~gaus() = default;
     
     // Constructor to generate a random Gaussian of dimension 'dim'
-    gaus(size_t dim) {
+    gaus(size_t dim, long double min_A = 0.001, long double max_A = 0.1) {
         A = matrix(dim, dim);
         s = matrix(dim, 3); // Assuming spatial shift vectors are 3D
 
         // 1. Generate random positive-definite A using A = B * B^T trick
         matrix B(dim, dim);
-        for(size_t i = 0; i < dim; i++) {
-            for(size_t j = 0; j < dim; j++) {
-                B(i, j) = random_double(0.0, 1.0); // Adjust range as needed
-            }
+        FOR_MAT(B) {
+            min_A = std::log(min_A);
+            max_A = std::log(max_A);
+            long double rd = random_double(min_A, max_A);
+            B(i, j) = std::exp(rd); 
         }
         
-        for(size_t i = 0; i < dim; i++) {
-            for(size_t j = 0; j < dim; j++) {
-                long double sum = 0;
-                for(size_t k = 0; k < dim; k++) {
-                    sum += B(i, k) * B(j, k);
-                }
-                // Add shift to diagonal for strict positive-definiteness
-                if (i == j) sum += 0.1; 
-                A(i, j) = sum;
+        FOR_MAT(B) {
+            long double sum = 0;
+            for(size_t k = 0; k < dim; k++) {
+                sum += B(i, k) * B(j, k);
             }
+            // Add shift to diagonal for strict positive-definiteness
+            if (i == j) sum += 1e-15; 
+            A(i, j) = sum;
         }
 
         // 2. Generate random shift vectors s
         // For ground state L=0, you often keep these small or zero.
         for(size_t i = 0; i < dim; i++) {
             for(size_t j = 0; j < 3; j++) {
-                s(i, j) = random_double(-0.5, 0.5); 
+                s(i, j) = random_double(-0.0, 0.0); 
             }
         }
     }
@@ -77,6 +77,8 @@ struct gaus {
         A = A_new; 
         s = s_new;
     }
+
+    size_t dim() const { return A.size1(); }
 };
 
 inline long double overlap(const gaus& a, const gaus& b) {
