@@ -1,11 +1,11 @@
 #include<iostream>
 #include<vector>
 #include<random>
-#include"matrix.h"
-#include"eigen.h"
-#include"gaussian.h"
-#include"hamiltonian.h"
-#include"jacobian.h"
+#include"qm/matrix.h"
+#include"qm/eigen.h"
+#include"qm/gaussian.h"
+#include"qm/hamiltonian.h"
+#include"qm/jacobian.h"
 
 // System Builder: Fills the total H and N block matrices for the coupled pn / pns system
 void build_coupled_matrices(
@@ -15,7 +15,11 @@ void build_coupled_matrices(
     const qm::jacobian& J_pn, 
     const qm::jacobian& J_pns,
     qm::matrix& H_tot, 
-    qm::matrix& N_tot) 
+    qm::matrix& N_tot,
+    long double S,
+    long double b,
+    long double m_s,
+    bool relativistic) 
 {
     size_t n1 = basis_pn.size();
     size_t n2 = basis_pns.size();
@@ -30,17 +34,17 @@ void build_coupled_matrices(
 
     // --- 2. Fill Block 2,2 (Pion-Deuteron Channel) ---
     qm::matrix N_pns = h_calc.overlap_matrix(basis_pns);
-    qm::matrix H_pns = h_calc.hamiltonian_matrix(basis_pns, J_pns, false); 
+    qm::matrix H_pns = h_calc.hamiltonian_matrix(basis_pns, J_pns, relativistic); 
     FOR_MAT(H_pns) {
         N_tot(n1 + i, n1 + j) = N_pns(i, j);
-        H_tot(n1 + i, n1 + j) = H_pns(i, j);
+        H_tot(n1 + i, n1 + j) = H_pns(i, j) + (m_s * N_pns(i, j));
     }
 
     // --- 3. Fill Blocks 1,2 and 2,1 (The Coupling W) ---
     for(size_t i = 0; i < n1; i++) {
         for(size_t j = 0; j < n2; j++) {
             size_t row_2 = j + n1; 
-            long double w_val = h_calc.W_couple(basis_pn[i], basis_pns[j]);
+            long double w_val = h_calc.W_couple(basis_pn[i], basis_pns[j], S, b);
             H_tot(i, row_2) = w_val;
             H_tot(row_2, i) = w_val;
         }
@@ -78,16 +82,23 @@ int main() {
     long double m_p  = 939.0; 
     long double m_s = 500.0;
 
+    // Coupeling variables 
+    long double S = 20.35;  // MeV
+    long double b = 3.0;    // fm
+
+    // Relativistic? 
+    bool r = true;
+
     qm::jacobian J_pn({m_p, m_n}, {1, 0});
-    qm::jacobian J_pns({m_p, m_n, m_s}, {1, 0, -1});
+    qm::jacobian J_pns({m_p, m_n, m_s}, {1, 0, 0});
     qm::hamiltonian h_calc;
 
     // --- The Search Range Variables ---
-    long double min_A = 0.001;
-    long double max_A = 100.0;
+    long double min_A = 1e-2;
+    long double max_A = 1e2;
 
     size_t n1 = 8;
-    size_t n2 = 8;
+    size_t n2 = 10;
     size_t N_tot = n1 + n2;
 
     std::vector<qm::gaus> basis_pn(n1);
@@ -108,7 +119,7 @@ int main() {
         for(size_t i = 0; i < n1; i++) basis_pn[i] = qm::gaus(1, min_A, max_A);
         for(size_t i = 0; i < n2; i++) basis_pns[i] = qm::gaus(2, min_A, max_A);
 
-        build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N);
+        build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N, S, b, m_s, r);
         E_best = get_ground_state_energy(H, N);
     }
 
@@ -118,7 +129,7 @@ int main() {
     std::uniform_int_distribution<int> dist_n1(0, n1 - 1);
     std::uniform_int_distribution<int> dist_n2(0, n2 - 1);
 
-    int max_iterations = 5000;
+    int max_iterations = 10000;
 
     // --- The Stochastic Loop ---
     for (int step = 1; step <= max_iterations; step++) {
@@ -129,7 +140,7 @@ int main() {
             qm::gaus old_g = basis_pn[k];
             basis_pn[k] = qm::gaus(1, min_A, max_A); 
             
-            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N);
+            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N, S, b, m_s, r);
             long double E_trial = get_ground_state_energy(H, N);
             
             if (E_trial < E_best && !std::isnan(E_trial)) {
@@ -144,7 +155,7 @@ int main() {
             qm::gaus old_g = basis_pns[k];
             basis_pns[k] = qm::gaus(2, min_A, max_A); 
             
-            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N);
+            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N, S, b, m_s, r);
             long double E_trial = get_ground_state_energy(H, N);
             
             if (E_trial < E_best && !std::isnan(E_trial)) {

@@ -22,7 +22,7 @@
 namespace qm{
 struct vector {
 	std::vector<long double> data;
-	vector(size_t n) : data(n) {}
+	vector(size_t n) : data(n, 0.0) {}
 
 	vector(std::initializer_list<long double> list) :
 		data(list.begin(),list.end()) {}

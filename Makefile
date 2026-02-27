@@ -1,28 +1,20 @@
 # Variables
-CXXFLAGS = -Wall -Werror -O -std=c++23
+CXXFLAGS = -Wall -Werror -O -std=c++23 -fopenmp
 CXX = c++
+LDFLAGS += -fopenmp
 LDLIBS = -lstdc++ -lm
 RM = rm -f
 
-all : Out.txt
+all : main
 
-Out.txt : main Makefile
-	./main 2> out.log
+QM : 
 
-main : main.o
-	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
-
-main.o : main.cc matrix.h gaussian.h hamiltonian.h jacobian.h eigen.h
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-hyd : hyd.o
+% : %.o
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
 	./$@ 2> $@.log
 
-hyd.o : hyd.cc matrix.h gaussian.h hamiltonian.h jacobian.h eigen.h
+%.o : %.cc matrix.h gaussian.h hamiltonian.h jacobian.h eigen.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-
 
 clean :
 	$(RM) *.o *.txt *.log

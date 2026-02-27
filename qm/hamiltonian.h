@@ -1,9 +1,10 @@
 #pragma once
 
 #include<cmath>
-#include"matrix.h"
-#include"gaussian.h"
-#include"jacobian.h"
+#include<omp.h>
+#include"qm/matrix.h"
+#include"qm/gaussian.h"
+#include"qm/jacobian.h"
 
 namespace qm {
 struct hamiltonian {
@@ -20,6 +21,7 @@ struct hamiltonian {
             norms[i] = std::sqrt(overlap(basis[i], basis[i]));
         }
 
+        #pragma omp parallel for
         FOR_MAT(N) N(i, j) = overlap(basis[i], basis[j]) / (norms[i] * norms[j]); // eq(6)
         return N;
     }
@@ -34,6 +36,7 @@ struct hamiltonian {
             norms[i] = std::sqrt(overlap(basis[i], basis[i]));
         }
 
+        #pragma omp parallel for 
         FOR_MAT(H) {
             long double K_total = 0;
             long double V_total = 0;
@@ -76,11 +79,7 @@ struct hamiltonian {
     
 
     // Generalized Coupling Operator W for any N -> N+1 system
-    long double W_couple(const gaus& g_n, const gaus& g_n1) {
-    // Add your model parameters
-        long double S_pi = 20.0 * 1e6; // Coupling strength in eV 
-        long double b_pi = 3;         // Range parameter fm
-
+    long double W_couple(const gaus& g_n, const gaus& g_n1, const long double& S, const long double& b) {
         size_t d1 = g_n.A.size1();   // Dimension of the smaller system
         size_t d2 = g_n1.A.size1();  // Dimension of the larger system
 
@@ -90,7 +89,7 @@ struct hamiltonian {
             return 0.0;
         }
 
-        long double w = 1.0 / (b_pi * b_pi);
+        long double w = 1.0 / (b * b);
 
         // 1. Create the temporary "upgraded" Gaussian |A'> with the larger dimension
         gaus g_prime(d2); 
@@ -130,7 +129,7 @@ struct hamiltonian {
         long double norm_n1 = std::sqrt(overlap(g_n1, g_n1));
 
         // 4. Calculate the analytical integral in the larger space
-        return S_pi * overlap(g_prime, g_n1) / (norm_n * norm_n1);
+        return S * overlap(g_prime, g_n1) / (norm_n * norm_n1);
     }
 
     long double calc_beta (const gaus& gi, const gaus& gj, const vector& c) {

@@ -2,7 +2,7 @@
 
 #include<cmath>
 #include<vector>
-#include"matrix.h"
+#include"qm/matrix.h"
 
 namespace qm {
 // Decomposes a symmetric positive-definite matrix A into L * L^T

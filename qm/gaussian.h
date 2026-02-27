@@ -4,7 +4,7 @@
 #include <numbers>
 #include <initializer_list>
 #include <random>
-#include "matrix.h"
+#include "qm/matrix.h"
 
 const long double pi = std::numbers::pi_v<long double>;
 
@@ -33,11 +33,19 @@ struct gaus {
 
         // 1. Generate random positive-definite A using A = B * B^T trick
         matrix B(dim, dim);
+        long double log_min = std::log(std::sqrt(min_A));
+        long double log_max = std::log(std::sqrt(max_A));
+        
         FOR_MAT(B) {
-            min_A = std::log(min_A);
-            max_A = std::log(max_A);
-            long double rd = random_double(min_A, max_A);
-            B(i, j) = std::exp(rd); 
+            long double random_exponent = random_double(log_min, log_max);
+            long double val = std::exp(random_exponent);
+            
+            // CRITICAL FIX: Give it a 50% chance to be negative!
+            // This prevents the vectors from collapsing onto the same axis
+            if (random_double(-1.0, 1.0) < 0.0) {
+                val = -val;
+            }
+            B(i, j) = val; 
         }
         
         FOR_MAT(B) {
@@ -45,8 +53,10 @@ struct gaus {
             for(size_t k = 0; k < dim; k++) {
                 sum += B(i, k) * B(j, k);
             }
-            // Add shift to diagonal for strict positive-definiteness
-            if (i == j) sum += 1e-15; 
+            
+            // Bump the safety shift to 1e-8 for nuclear scales
+            if (i == j) sum += 1e-8; 
+            
             A(i, j) = sum;
         }
 
