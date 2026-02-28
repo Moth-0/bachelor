@@ -12,7 +12,7 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/jacobian.h qm/eigen.h
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
-	./$@ 2> $@.log
+	./$@ 1> $@.txt 2> $@.log
 
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

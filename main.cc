@@ -101,16 +101,16 @@ int main() {
     long double min_A = 1e-2;
     long double max_A = 1e2;
 
-    size_t n1 = 10;
-    size_t n2 = 20;
+    size_t n1 = 20;
+    size_t n2 = 60;
     size_t N_tot = n1 + n2;
 
     long double E_best = std::numeric_limits<long double>::quiet_NaN();
 
 
     // Loop to find optimal S for Classic energy 
-    for (int b_step=1; b_step<=5; b_step++) {
-    for (int S_step=1; S_step<=5; S_step++) {
+    for (int b_step=1; b_step<=10; b_step++) {
+    for (int S_step=1; S_step<=10; S_step++) {
         std::cout << "\n--- TUNING STEP " << b_step * S_step << " | Current S: " << S << " MeV, b: " << b << " fm ---" << std::endl;
 
         // Build starting gaussians 
@@ -141,7 +141,7 @@ int main() {
         std::uniform_int_distribution<int> dist_n1(0, n1 - 1);
         std::uniform_int_distribution<int> dist_n2(0, n2 - 1);
 
-        int max_iterations = 5000;
+        int max_iterations = 10000;
 
         // SVM loop for updating gaussians and recalculating schrödinger
         for (int step = 1; step <= max_iterations; step++) {
@@ -183,13 +183,13 @@ int main() {
 
         // Adjust S for the next tuning step
         long double error = target - E_best; 
-        S += error * 0.5;
+        S -= error;
     }
         std::cout << "Best Energy at S=" << S << ", b=" << b << " : " << E_best << " MeV" << std::endl;
 
         // Adjust b
         long double error = std::pow(target - E_best, 2); 
-        b += error * 0.1;
+        b -= error * 0.1;
     }
 
     return 0;
