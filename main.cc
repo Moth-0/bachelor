@@ -58,9 +58,9 @@ long double get_ground_state_energy(const qm::matrix& H, const qm::matrix& N) {
     // 1. Cholesky-factorization
     qm::matrix L = qm::cholesky(N);
     
-    // SAFETY CATCH: If matrix is bad, reject step instantly
-    if (L.size1() == 0) {
-        return std::numeric_limits<long double>::quiet_NaN();
+    // Check if the basis is getting too "thin"
+    for(size_t i=0; i<L.size1(); i++) {
+        if (std::abs(L(i,i)) < 1e-10) return std::numeric_limits<long double>::quiet_NaN();
     }
 
     qm::matrix L_inv = L.inverse(); 

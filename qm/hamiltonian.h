@@ -22,7 +22,7 @@ struct hamiltonian {
             norms[i] = std::sqrt(overlap(basis[i], basis[i]));
         }
 
-        #pragma omp parallel for num_threads(8)
+        #pragma omp parallel for
         FOR_MAT(N) N(i, j) = overlap(basis[i], basis[j]) / (norms[i] * norms[j]); // eq(6)
         return N;
     }
@@ -37,7 +37,7 @@ struct hamiltonian {
             norms[i] = std::sqrt(overlap(basis[i], basis[i]));
         }
 
-        #pragma omp parallel for num_threads(8)
+        #pragma omp parallel for
         FOR_MAT(H) {
             long double K_total = 0;
             long double V_total = 0;
@@ -96,7 +96,7 @@ struct hamiltonian {
         gaus g_prime(d2); 
 
         // 2. Embed A_n into the top-left of A', and apply the coupling 'w'
-        #pragma omp parallel for num_threads(8)
+        #pragma omp parallel for
         FOR_MAT(g_prime.A) {
             if (i < d1 && j < d1) {
                 // Top-left block: Copy A_n 
