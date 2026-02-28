@@ -1,3 +1,4 @@
+MAKEFLAGS += -r
 # Variables
 CXXFLAGS = -Wall -Werror -O -std=c++23 -fopenmp
 CXX = c++
@@ -7,13 +8,13 @@ RM = rm -f
 
 all : main
 
-QM : 
+HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/jacobian.h qm/eigen.h
 
-% : %.o
+% : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
 	./$@ 2> $@.log
 
-%.o : %.cc matrix.h gaussian.h hamiltonian.h jacobian.h eigen.h
+%.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean :

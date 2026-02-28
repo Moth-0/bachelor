@@ -1,6 +1,6 @@
 #pragma once
 #include <vector>
-#include "qm/matrix.h"
+#include "matrix.h"
 
 namespace qm {
 struct jacobian {

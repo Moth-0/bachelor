@@ -4,7 +4,7 @@
 #include <numbers>
 #include <initializer_list>
 #include <random>
-#include "qm/matrix.h"
+#include "matrix.h"
 
 const long double pi = std::numbers::pi_v<long double>;
 

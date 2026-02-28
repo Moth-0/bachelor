@@ -84,7 +84,7 @@ int main() {
 
     // Coupeling variables 
     long double S = 20.35;  // MeV
-    long double b = 3.0;    // fm
+    long double b = 1.5;    // fm
 
     // Relativistic? 
     bool r = true;
@@ -145,7 +145,7 @@ int main() {
             
             if (E_trial < E_best && !std::isnan(E_trial)) {
                 E_best = E_trial;
-                std::cout << "Step " << step << " | New Best (pn mutated): " << E_best << " MeV\n";
+                //std::cout << "Step " << step << " | New Best (pn mutated): " << E_best << " MeV\n";
             } else {
                 basis_pn[k] = old_g; 
             }
@@ -160,7 +160,7 @@ int main() {
             
             if (E_trial < E_best && !std::isnan(E_trial)) {
                 E_best = E_trial;
-                std::cout << "Step " << step << " | New Best (pns mutated): " << E_best << " MeV\n";
+                //std::cout << "Step " << step << " | New Best (pns mutated): " << E_best << " MeV\n";
             } else {
                 basis_pns[k] = old_g; 
             }
