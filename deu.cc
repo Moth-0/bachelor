@@ -128,45 +128,55 @@ int main() {
     std::uniform_int_distribution<int> dist_channel(1, 2);
     std::uniform_int_distribution<int> dist_n1(0, n1 - 1);
     std::uniform_int_distribution<int> dist_n2(0, n2 - 1);
+    
+    int max_iterations = 1000;
+    int num_candidates = 20; // Size of the competitive pool
 
-    int max_iterations = 10000;
-
-    // --- The Stochastic Loop ---
     for (int step = 1; step <= max_iterations; step++) {
+        // 1. Pick a channel and a specific basis function to "refine"
         int channel = dist_channel(gen);
+        int k = (channel == 1) ? dist_n1(gen) : dist_n2(gen);
         
-        if (channel == 1) {
-            int k = dist_n1(gen);
-            qm::gaus old_g = basis_pn[k];
-            basis_pn[k] = qm::gaus(1, min_A, max_A); 
-            
-            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N, S, b, m_s, r);
+        // Store the original so we can revert if no candidate wins
+        qm::gaus original_g = (channel == 1) ? basis_pn[k] : basis_pnπ[k];
+        long double E_best_this_round = E_best;
+        qm::gaus winning_candidate = original_g;
+        bool improved = false;
+
+        // 2. THE COMPETITION: Try multiple random candidates for this specific slot 'k'
+        for (int c = 0; c < num_candidates; c++) {
+            qm::gaus trial_g = original_g; // Copy structure
+            trial_g.randomize(min_A, max_A); // Generate new parameters using the new engine
+
+            // Place candidate in the basis
+            if (channel == 1) basis_pn[k] = trial_g;
+            else basis_pnπ[k] = trial_g;
+
+            // 3. Evaluate the candidate
+            build_coupled_matrices(basis_pn, basis_pnπ, h_calc, J_pn, J_pnπ, H, N, S, b, m_π, relativistic);
             long double E_trial = get_ground_state_energy(H, N);
-            
-            if (E_trial < E_best && !std::isnan(E_trial)) {
-                E_best = E_trial;
-                //std::cout << "Step " << step << " | New Best (pn mutated): " << E_best << " MeV\n";
-            } else {
-                basis_pn[k] = old_g; 
-            }
-        } 
-        else {
-            int k = dist_n2(gen);
-            qm::gaus old_g = basis_pns[k];
-            basis_pns[k] = qm::gaus(2, min_A, max_A); 
-            
-            build_coupled_matrices(basis_pn, basis_pns, h_calc, J_pn, J_pns, H, N, S, b, m_s, r);
-            long double E_trial = get_ground_state_energy(H, N);
-            
-            if (E_trial < E_best && !std::isnan(E_trial)) {
-                E_best = E_trial;
-                //std::cout << "Step " << step << " | New Best (pns mutated): " << E_best << " MeV\n";
-            } else {
-                basis_pns[k] = old_g; 
+
+            // 4. Update the "Leaderboard"
+            if (!std::isnan(E_trial) && E_trial < E_best_this_round) {
+                E_best_this_round = E_trial;
+                winning_candidate = trial_g;
+                improved = true;
             }
         }
-    }
 
+        // 5. FINAL SELECTION: The winner of the pool replaces the old Gaussian
+        if (improved) {
+            if (channel == 1) basis_pn[k] = winning_candidate;
+            else basis_pnπ[k] = winning_candidate;
+            
+            E_best = E_best_this_round;
+            file << "Step " << step << " | Slot " << k << " improved to: " << E_best << " MeV\n";
+        } else {
+            // No candidate was better than the original; revert
+            if (channel == 1) basis_pn[k] = original_g;
+            else basis_pnπ[k] = original_g;
+        }
+    }
     std::cout << "\nOptimization Complete.\nFinal Ground State Energy: " << E_best << " MeV\n";
     return 0;
 }

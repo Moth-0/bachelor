@@ -25,7 +25,7 @@ struct jacobian {
         return v;
     }
 
-    // NEW: Automatically calculates the 'c' vector for ANY pair of particles (p1, p2)
+    // Calculates the 'c' vector for ANY pair of particles (p1, p2)
     vector w(size_t p1, size_t p2) const {
         vector c(dim());
         for (size_t k = 0; k < dim(); ++k) {

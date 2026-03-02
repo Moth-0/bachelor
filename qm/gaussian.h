@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <numbers>
-#include <initializer_list>
 #include <random>
 #include "matrix.h"
 
@@ -12,8 +11,9 @@ namespace qm {
 
 // Helper function to generate random long doubles
 inline long double random_double(long double min, long double max) {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
+    // Thread_local ensures thread safety if you decide to parallelize the candidate loop later!
+    thread_local std::random_device rd;
+    thread_local std::mt19937 gen(rd());
     std::uniform_real_distribution<long double> dis(min, max);
     return dis(gen);
 }
@@ -26,50 +26,50 @@ struct gaus {
     gaus() = default;
     ~gaus() = default;
     
-    // Constructor to generate a random Gaussian of dimension 'dim'
+    // Constructor allocates memory and immediately randomizes
     gaus(size_t dim, long double min_A = 0.001, long double max_A = 0.1) {
         A = matrix(dim, dim);
-        s = matrix(dim, 3); // Assuming spatial shift vectors are 3D
+        s = matrix(dim, 3); 
+        randomize(min_A, max_A);
+    }
 
-        // 1. Generate random positive-definite A using A = B * B^T trick
+    gaus(const matrix& A_in, const matrix& s_in) : A(A_in), s(s_in) {}
+
+    // NEW: Method to randomize an existing Gaussian without reallocating memory
+    void randomize(long double min_A, long double max_A) {
+        size_t dim = A.size1();
         matrix B(dim, dim);
         long double log_min = std::log(std::sqrt(min_A));
         long double log_max = std::log(std::sqrt(max_A));
         
+        // 1. Generate random matrix B
         FOR_MAT(B) {
             long double random_exponent = random_double(log_min, log_max);
             long double val = std::exp(random_exponent);
             
-            // CRITICAL FIX: Give it a 50% chance to be negative!
-            // This prevents the vectors from collapsing onto the same axis
             if (random_double(-1.0, 1.0) < 0.0) {
                 val = -val;
             }
             B(i, j) = val; 
         }
         
-        FOR_MAT(B) {
+        // 2. Ensure positive-definiteness via A = B * B^T
+        FOR_MAT(A) {
             long double sum = 0;
             for(size_t k = 0; k < dim; k++) {
                 sum += B(i, k) * B(j, k);
             }
-            
-            // Bump the safety shift to 1e-8 for nuclear scales
-            if (i == j) sum += 1e-8; 
-            
+            if (i == j) sum += 1e-8; // Safety shift
             A(i, j) = sum;
         }
 
-        // 2. Generate random shift vectors s
-        // For ground state L=0, you often keep these small or zero.
+        // 3. Generate random shift vectors s
         for(size_t i = 0; i < dim; i++) {
             for(size_t j = 0; j < 3; j++) {
-                s(i, j) = random_double(-0.0, 0.0); 
+                s(i, j) = 0.0; // Keeping 0.0 for now as per your original logic
             }
         }
     }
-
-    gaus(const matrix& A_in, const matrix& s_in) : A(A_in), s(s_in) {}
 
     long double operator()(const matrix& r) const {
         long double rAr = 0; 
