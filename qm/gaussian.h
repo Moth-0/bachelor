@@ -49,22 +49,28 @@ struct gaus {
             
             // The off-diagonals can be negative or positive.
             for(size_t j = 0; j < i; j++) {
-                // Bounding the off-diagonals relative to the diagonals 
-                // prevents extreme condition numbers (long, hyper-thin Gaussians)
-                long double bound = std::min(L(i, i), L(j, j));
-                L(i, j) = random_double(-bound, bound); 
-                L(j, i) = 0.0; // Upper triangle remains zero
+                    if (j < i) {
+                    // Lower triangle: Below the diagonal
+                    long double bound = std::min(L(i, i), L(j, j));
+                    L(i, j) = random_double(-bound, bound);
+                } 
+                else if (j > i) {
+                    // Upper triangle: Must be zero for a Lower Triangular matrix
+                    L(i, j) = 0.0;
+                }
             }
         }
-        
+        std::cout << L(0, 1) << "\n" << std::endl;
+
         // 2. Ensure positive-definiteness via A = L * L^T
         FOR_MAT(A) {
             long double sum = 0;
-            for(size_t k = 0; k < std::min(i, j); k++) {
+            for(size_t k = 0; k <= std::min(i, j); k++) {
                 sum += L(i, k) * L(j, k);
             }
             A(i, j) = sum;
         }
+        //std::cout << A << "\n" <<std::endl;
 
         // 3. Generate random shift vectors s
         for(size_t i = 0; i < dim; i++) {
@@ -94,7 +100,7 @@ struct gaus {
     size_t dim() const { return A.size1(); }
 };
 
-inline long double overlap(const gaus& a, const gaus& b) {
+long double overlap(const gaus& a, const gaus& b) {
     matrix v = a.s + b.s;
     matrix B = a.A + b.A;
     size_t n = B.size1();

@@ -69,7 +69,7 @@ long double get_ground_state_energy(const qm::matrix& H, const qm::matrix& N) {
         }
     }
 
-    qm::matrix L_inv = L.inverse(); 
+    qm::matrix L_inv = L.inverse_lower(); 
     qm::matrix H_prime = L_inv * H * L_inv.transpose();
 
     // 2. Solve for eigenvalues

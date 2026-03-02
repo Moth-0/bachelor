@@ -294,8 +294,8 @@ struct matrix {
             // 3. Scale the pivot row to 1
             long double divisor = temp(i, i);
             if (std::abs(divisor) < 1e-18) {
-                throw std::runtime_error("Matrix is singular");
-                //std::cerr << "Matrix is singular" << std::endl;
+                std::cerr << "Matrix is singular" << std::endl;
+                return SELF;
             }
 
             for (size_t k = 0; k < n; ++k) {
@@ -315,6 +315,31 @@ struct matrix {
             }
         }
         return result;
+    }
+
+    // Inverts a Lower Triangular Matrix (Perfectly stable, no pivoting needed)
+    matrix inverse_lower() const {
+        size_t n = size1();
+        matrix res(n, n); // Initializes to 0.0
+
+        for (size_t i = 0; i < n; i++) {
+            // The diagonal of the inverse
+            if (std::abs(SELF(i, i)) < ZERO_LIMIT) {
+                // Return empty matrix on failure instead of crashing
+                return matrix(0, 0); 
+            }
+            res(i, i) = 1.0 / SELF(i, i);
+
+            // The off-diagonals (i > j)
+            for (size_t j = 0; j < i; j++) {
+                long double sum = 0;
+                for (size_t k = j; k < i; k++) {
+                    sum += SELF(i, k) * res(k, j);
+                }
+                res(i, j) = -sum / SELF(i, i);
+            }
+        }
+        return res;
     }
 };
 
