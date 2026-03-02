@@ -11,7 +11,7 @@ namespace qm {
 
 // Helper function to generate random long doubles
 inline long double random_double(long double min, long double max) {
-    // Thread_local ensures thread safety if you decide to parallelize the candidate loop later!
+    // Thread_local ensures thread safety for multithreading
     thread_local std::random_device rd;
     thread_local std::mt19937 gen(rd());
     std::uniform_real_distribution<long double> dis(min, max);
@@ -35,38 +35,41 @@ struct gaus {
 
     gaus(const matrix& A_in, const matrix& s_in) : A(A_in), s(s_in) {}
 
-    // NEW: Method to randomize an existing Gaussian without reallocating memory
+    // Method to randomize an existing Gaussian without reallocating memory
     void randomize(long double min_A, long double max_A) {
         size_t dim = A.size1();
-        matrix B(dim, dim);
+        matrix L(dim, dim);
         long double log_min = std::log(std::sqrt(min_A));
         long double log_max = std::log(std::sqrt(max_A));
-        
-        // 1. Generate random matrix B
-        FOR_MAT(B) {
-            long double random_exponent = random_double(log_min, log_max);
-            long double val = std::exp(random_exponent);
+
+        // 1. Build the Lower Triangular matrix L
+        for(size_t i = 0; i < dim; i++) {
+            // The diagonal MUST be strictly positive. 
+            L(i, i) = std::exp(random_double(log_min, log_max));
             
-            if (random_double(-1.0, 1.0) < 0.0) {
-                val = -val;
+            // The off-diagonals can be negative or positive.
+            for(size_t j = 0; j < i; j++) {
+                // Bounding the off-diagonals relative to the diagonals 
+                // prevents extreme condition numbers (long, hyper-thin Gaussians)
+                long double bound = std::min(L(i, i), L(j, j));
+                L(i, j) = random_double(-bound, bound); 
+                L(j, i) = 0.0; // Upper triangle remains zero
             }
-            B(i, j) = val; 
         }
         
-        // 2. Ensure positive-definiteness via A = B * B^T
+        // 2. Ensure positive-definiteness via A = L * L^T
         FOR_MAT(A) {
             long double sum = 0;
-            for(size_t k = 0; k < dim; k++) {
-                sum += B(i, k) * B(j, k);
+            for(size_t k = 0; k < std::min(i, j); k++) {
+                sum += L(i, k) * L(j, k);
             }
-            if (i == j) sum += 1e-8; // Safety shift
             A(i, j) = sum;
         }
 
         // 3. Generate random shift vectors s
         for(size_t i = 0; i < dim; i++) {
             for(size_t j = 0; j < 3; j++) {
-                s(i, j) = 0.0; // Keeping 0.0 for now as per your original logic
+                s(i, j) = 0.0; // Keeping 0.0 for now
             }
         }
     }
@@ -103,8 +106,9 @@ inline long double overlap(const gaus& a, const gaus& b) {
             vBv += B_inv(i, j) * dot(v[i], v[j]);
         }
     }
+    long double front = std::pow((std::pow(pi, (long double)n) / B.determinant()), 1.5);
     
-    return std::pow((std::pow(pi, (long double)n) / B.determinant()), 1.5) * std::exp(0.25 * vBv);
+    return front * std::exp(0.25 * vBv);
 }
 
 }

@@ -62,6 +62,12 @@ long double get_ground_state_energy(const qm::matrix& H, const qm::matrix& N) {
     if (L.size1() == 0) {
         return std::numeric_limits<long double>::quiet_NaN();
     }
+    // If any diagonal element is dangerously close to 0, reject the matrix before inverting
+    for(size_t i = 0; i < L.size1(); i++) {
+        if (std::abs(L(i,i)) < ZERO_LIMIT) {
+            return std::numeric_limits<long double>::quiet_NaN();
+        }
+    }
 
     qm::matrix L_inv = L.inverse(); 
     qm::matrix H_prime = L_inv * H * L_inv.transpose();
@@ -108,6 +114,8 @@ int main() {
 
     long double E_best = std::numeric_limits<long double>::quiet_NaN();
 
+    long double overlap_threshold = 0.99;
+
 
     // Loop to find optimal S for Classic energy 
     for (int b_step=1; b_step<=1; b_step++) {
@@ -124,16 +132,66 @@ int main() {
         qm::matrix H(N_tot, N_tot);
         qm::matrix N(N_tot, N_tot);
 
-        // Loop for finding a starting basis that is valid 
-        E_best = std::numeric_limits<long double>::quiet_NaN();
-        file << "Searching for a valid initial basis..." << std::endl;
-        while (std::isnan(E_best)) {
-            for(size_t i = 0; i < n1; i++) basis_pn[i] = qm::gaus(1, min_A, max_A);
-            for(size_t i = 0; i < n2; i++) basis_pnπ[i] = qm::gaus(2, min_A, max_A);
+        // --- Safely build the initial basis (Pairwise + Globally Independent) ---
+        file << "Building linearly independent initial basis..." << std::endl;
 
+        auto is_independent = [](const qm::gaus& g, const std::vector<qm::gaus>& basis, size_t current_size, long double threshold) {
+            long double N_trial = qm::overlap(g, g);
+            for(size_t i = 0; i < current_size; i++) {
+                long double N_ii = qm::overlap(basis[i], basis[i]);
+                long double N_i_trial = qm::overlap(basis[i], g);
+                long double normalized_overlap = std::abs(N_i_trial) / std::sqrt(N_ii * N_trial);
+                if (normalized_overlap > threshold) return false; 
+            }
+            return true;
+        };
+
+        E_best = std::numeric_limits<long double>::quiet_NaN();
+        
+        // Keep retrying until we find a basis that survives the global Cholesky check
+        while (std::isnan(E_best)) {
+            
+            // 1. Build Deuterium channel sequentially
+            for (size_t i = 0; i < n1; ) {
+                qm::gaus trial_g(1, min_A, max_A);
+                if (is_independent(trial_g, basis_pn, i, overlap_threshold)) {
+                    basis_pn[i] = trial_g;
+                    i++;
+                }
+            }
+
+            // 2. Build Pion-Deuteron channel sequentially
+            for (size_t i = 0; i < n2; ) {
+                qm::gaus trial_g(2, min_A, max_A);
+                if (is_independent(trial_g, basis_pnπ, i, overlap_threshold)) {
+                    basis_pnπ[i] = trial_g;
+                    i++;
+                }
+            }
+
+            // 3. EXPLICITLY ZERO OUT MATRICES to clear any memory garbage 
+            for(size_t i = 0; i < N_tot; i++) {
+                for(size_t j = 0; j < N_tot; j++) {
+                    H(i, j) = 0.0;
+                    N(i, j) = 0.0;
+                }
+            }
+
+            // 4. Calculate the initial energy
             build_coupled_matrices(basis_pn, basis_pnπ, h_calc, J_pn, J_pnπ, H, N, S, b, m_π, relativistic);
             E_best = get_ground_state_energy(H, N);
+            
+            if (std::isnan(E_best)) {
+                std::cout << "Initial basis was globally dependent. Retrying..." << std::endl;
+            }
         }
+        
+        std::cout << "Initial valid energy: " << E_best << " MeV\n";
+        // 3. Now calculate the initial energy, confident that the matrix is well-conditioned
+        build_coupled_matrices(basis_pn, basis_pnπ, h_calc, J_pn, J_pnπ, H, N, S, b, m_π, relativistic);
+        E_best = get_ground_state_energy(H, N);
+        
+        std::cout << "Initial valid energy: " << E_best << " MeV\n";
 
         // Random number generator for choosing which system to change 
         std::random_device rd;
@@ -144,8 +202,6 @@ int main() {
 
         int max_iterations = 1000;
         int num_candidates = 20; // Size of the competitive pool
-
-        long double overlap_threshold = 0.999;
 
         for (int step = 1; step <= max_iterations; step++) {
             // 1. Pick a channel and a specific basis function to "refine"

@@ -96,7 +96,7 @@ struct hamiltonian {
         gaus g_prime(d2); 
 
         // 2. Embed A_n into the top-left of A', and apply the coupling 'w'
-        #pragma omp parallel for
+        #pragma omp parallel for 
         FOR_MAT(g_prime.A) {
             if (i < d1 && j < d1) {
                 // Top-left block: Copy A_n 

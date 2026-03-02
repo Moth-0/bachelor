@@ -295,6 +295,7 @@ struct matrix {
             long double divisor = temp(i, i);
             if (std::abs(divisor) < 1e-18) {
                 throw std::runtime_error("Matrix is singular");
+                //std::cerr << "Matrix is singular" << std::endl;
             }
 
             for (size_t k = 0; k < n; ++k) {
