@@ -60,7 +60,6 @@ struct gaus {
                 }
             }
         }
-        std::cout << L(0, 1) << "\n" << std::endl;
 
         // 2. Ensure positive-definiteness via A = L * L^T
         FOR_MAT(A) {

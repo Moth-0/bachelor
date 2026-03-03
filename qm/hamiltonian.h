@@ -9,7 +9,6 @@
 
 namespace qm {
 struct hamiltonian {
-    long double m_n, m_p, m_e; // Masses 
     long double hbar_c = 197.3; // MeV * fm
     long double alpha = 1.0 / 137.035999; // Fine structure
 
@@ -77,62 +76,78 @@ struct hamiltonian {
         return H;
     }
 
-    
-
-    // Generalized Coupling Operator W for any N -> N+1 system
+    // Updated W_couple to include the p-wave (\vec{r}) parity constraint
     long double W_couple(const gaus& g_n, const gaus& g_n1, const long double& S, const long double& b) {
-        size_t d1 = g_n.A.size1();   // Dimension of the smaller system
-        size_t d2 = g_n1.A.size1();  // Dimension of the larger system
+        size_t d1 = g_n.A.size1();   // Dimension of the bare system (e.g., 1 for |pn>)
+        size_t d2 = g_n1.A.size1();  // Dimension of the clothed system (e.g., 2 for |pn + pi>)
 
-        // Safety check: The ket must have exactly one more Jacobi coordinate than the bra
+        // Safety check
         if (d2 != d1 + 1) {
-            std::cerr << "Error: W_couple requires the ket to have exactly one more dimension than the bra." << std::endl;
+            std::cerr << "Error: W_couple requires the ket to have exactly one more dimension." << std::endl;
             return 0.0;
         }
 
         long double w = 1.0 / (b * b);
-
-        // 1. Create the temporary "upgraded" Gaussian |A'> with the larger dimension
         gaus g_prime(d2); 
 
-        // 2. Embed A_n into the top-left of A', and apply the coupling 'w'
-        #pragma omp parallel for 
+        // 1. Build the "upgraded" Gaussian |A'> with the Gaussian Form Factor w
         FOR_MAT(g_prime.A) {
             if (i < d1 && j < d1) {
-                // Top-left block: Copy A_n 
                 g_prime.A(i, j) = g_n.A(i, j);
-                
-                // Add the coupling term to the diagonal of the existing coordinates
                 if (i == j) g_prime.A(i, j) += w; 
             } 
             else if (i == d1 && j == d1) {
-                // The brand new dimension's diagonal gets the w term
                 g_prime.A(i, j) = w;
             } 
             else {
-                // The off-diagonals connecting the old system to the new particle are 0
                 g_prime.A(i, j) = 0.0;
             }
         }
 
-        // 3. Set the shift vectors for |A'>
+        // Copy shift vectors
         for (size_t i = 0; i < d2; ++i) {
             for (int d = 0; d < 3; ++d) {
-                if (i < d1) {
-                    g_prime.s(i, d) = g_n.s(i, d); // Copy existing spatial shifts
-                } else {
-                    g_prime.s(i, d) = 0.0;         // The new coordinate has no shift
-                }
+                if (i < d1) g_prime.s(i, d) = g_n.s(i, d);
+                else g_prime.s(i, d) = 0.0;
             }
         }
 
-        // Normalize using the individual norms of the bra and ket
+        // 2. Calculate the base scalar overlap (The F(r) part)
+        long double ov_scalar = overlap(g_prime, g_n1);
+
+        // 3. Calculate the \vec{r} expectation value for the p-wave
+        // R_mat = (A' + A_ket)^{-1}
+        matrix R_mat = (g_prime.A + g_n1.A).inverse();
+
+        // We only need the spatial vector for the new particle coordinate (index d1)
+        // u_{d1} = 0.5 * sum_j ( R_mat(d1, j) * (s_prime[j] + s_n1[j]) )
+        long double ux = 0.0, uy = 0.0, uz = 0.0;
+        
+        for (size_t j = 0; j < d2; ++j) {
+            // Evaluate the sum of the shift vectors for dimension j
+            long double vx = g_prime.s(j, 0) + g_n1.s(j, 0);
+            long double vy = g_prime.s(j, 1) + g_n1.s(j, 1);
+            long double vz = g_prime.s(j, 2) + g_n1.s(j, 2);
+
+            ux += R_mat(d1, j) * vx;
+            uy += R_mat(d1, j) * vy;
+            uz += R_mat(d1, j) * vz;
+        }
+        
+        // Multiply by 0.5 as per the correlated Gaussian formula
+        ux *= 0.5; uy *= 0.5; uz *= 0.5;
+
+        // The magnitude of this vector is the effective p-wave transition strength
+        long double r_magnitude = std::sqrt(ux*ux + uy*uy + uz*uz);
+
+        // 4. Normalize and apply S
         long double norm_n = std::sqrt(overlap(g_n, g_n));
         long double norm_n1 = std::sqrt(overlap(g_n1, g_n1));
 
-        // 4. Calculate the analytical integral in the larger space
-        return S * overlap(g_prime, g_n1) / (norm_n * norm_n1);
-    }
+        // Total matrix element is S * <g'|g> * |\vec{r}| / (norms)
+        return S * (ov_scalar * r_magnitude) / (norm_n * norm_n1);
+    }    
+
 
     long double calc_beta (const gaus& gi, const gaus& gj, const vector& c) {
         matrix R = (gj.A + gi.A).inverse();
