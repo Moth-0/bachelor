@@ -21,7 +21,7 @@ struct OpResult {
 // Base Particle Struct
 struct Particle {
     std::string name;
-    long double mass; // in eV/c^2
+    long double mass; // in MeV/c^2
     int charge;
     
     // Quantum Numbers
@@ -58,8 +58,8 @@ struct Nucleon : public Particle {
         : Particle(n, m, c, 0.5, spin_z, 0.5, iso_z) {}
 
     // Convenience initializers
-    static Nucleon Proton(double spin_z)  { return Nucleon("Proton", 938.272e6, 1, spin_z, 0.5); }
-    static Nucleon Neutron(double spin_z) { return Nucleon("Neutron", 939.565e6, 0, spin_z, -0.5); }
+    static Nucleon Proton(double spin_z)  { return Nucleon("Proton", 938.272, 1, spin_z, 0.5); }
+    static Nucleon Neutron(double spin_z) { return Nucleon("Neutron", 939.565, 0, spin_z, -0.5); }
 
     // Apply Pauli Spin Operators (sigma_z, sigma_+, sigma_-)
     OpResult apply_sigma_z() const {
@@ -102,9 +102,9 @@ struct Pion : public Particle {
         : Particle(n, m, c, 0.0, 0.0, 1.0, iso_z) {}
 
     // Convenience initializers
-    static Pion PiPlus()  { return Pion("Pi+", 139.570e6, 1, 1.0); }
-    static Pion PiZero()  { return Pion("Pi0", 134.976e6, 0, 0.0); }
-    static Pion PiMinus() { return Pion("Pi-", 139.570e6, -1, -1.0); }
+    static Pion PiPlus()  { return Pion("Pi+", 139.570, 1, 1.0); }
+    static Pion PiZero()  { return Pion("Pi0", 134.976, 0, 0.0); }
+    static Pion PiMinus() { return Pion("Pi-", 139.570, -1, -1.0); }
 
     // Pions have spin 0, so Pauli matrices annihilate them
     
@@ -126,6 +126,14 @@ struct Pion : public Particle {
     }
 };
 
+// --- SIGMA SUBCLASS ---
+struct Meson : public Particle {
+    Meson(std::string n, long double m)
+        : Particle(n, m, 0, 0.0, 0.0, 0.0, 0.0) {}
+
+    // Convenience initializers
+    static Meson Sigma()  { return Meson("σ", 139.570e6); }
+};
 
 // Represents the result of a pion-nucleon interaction vertex
 struct VertexResult {
