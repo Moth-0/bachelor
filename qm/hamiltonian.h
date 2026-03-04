@@ -1,7 +1,6 @@
 #pragma once
 #include <cmath>
 #include <array>
-//#include <vector>
 #include <functional>
 #include <limits>
 #include "matrix.h"
@@ -35,131 +34,172 @@ struct hamiltonian {
         return overlap(gi, gj);
     }
 
+
     // --------------------------------------------------------
-    //  CLASSICAL KINETIC ENERGY
+    //  HELPER: R = (A_i + A_j)^{-1}  (shared by K_cla + K_rel)
+    // --------------------------------------------------------
+    matrix calc_R(const gaus& gi, const gaus& gj) const {
+        return (gi.A + gj.A).inverse();
+    }
+
+    // --------------------------------------------------------
+    //  HELPER: gamma = 0.25 / (c^T (A_j R A_i) c)
     //
-    //  K_cla = (hbar^2 / 2*mu) < gi | -nabla_c^2 | gj >
+    //  This is the effective inverse-width of the kinetic
+    //  energy integrand in momentum space.
+    // --------------------------------------------------------
+    long double calc_gamma(const gaus& gi, const gaus& gj,
+                           const vector& c) const {
+        matrix R   = calc_R(gi, gj);
+        matrix BRA = gj.A * R * gi.A;
+        long double cBRAc = 0.0L;
+        for (size_t i = 0; i < c.size(); ++i)
+            for (size_t j = 0; j < c.size(); ++j)
+                cBRAc += c[i] * BRA(i,j) * c[j];
+        if (std::abs(cBRAc) < ZERO_LIMIT) return 0.0L;
+        return 0.25L / cBRAc;
+    }
+
+    // --------------------------------------------------------
+    //  HELPER: eta  (shift-dependent displacement)
     //
-    //  where nabla_c differentiates along the Jacobi direction
-    //  selected by vector c (a unit vector in Jacobi space).
+    //  Uses the harmonic mean R_h = (A_j^{-1} + A_i^{-1})^{-1}
+    //  to build the cross-term between the two shift vectors.
     //
-    //  Analytic result using the "eta" formalism:
-    //    eta   = (A_i B^{-1} A_j - A_j B^{-1} A_i) s difference
-    //    gamma = c^T (A_i B^{-1} A_j) c
+    //  For s=0 (all our current sectors): eta = 0 exactly.
+    //  For P-wave sectors (pion): eta encodes the shift direction.
     //
-    //  The final expression is (with eta = |c^T(B^{-1}(A_i s_i - A_j s_j))|):
-    //    K = N_ij * (hbar^2/2mu) * (3/(2*gamma) - eta^2) * (per spatial dir)
-    //    ... summed over x,y,z automatically via the 3D overlap prefactor.
+    //  Returns a scalar eta summed over all 3 spatial directions,
+    //  matching the structure of the 3D integral.
+    // --------------------------------------------------------
+    long double calc_eta(const gaus& gi, const gaus& gj,
+                         const vector& c) const {
+        // Harmonic mean of A matrices
+        matrix Rh = (gj.A.inverse() + gi.A.inverse()).inverse();
+        size_t n  = gj.A.size1();
+
+        long double eta = 0.0L;
+
+        // Sum over spatial directions (x, y, z)
+        for (size_t d = 0; d < 3; ++d) {
+            // Ra_d = Rh * s_i[:,d],  Rb_d = Rh * s_j[:,d]
+            vector Ra(n), Rb(n);
+            for (size_t i = 0; i < n; ++i)
+                for (size_t j = 0; j < n; ++j) {
+                    Ra[i] += Rh(i,j) * gi.s(j,d);
+                    Rb[i] += Rh(i,j) * gj.s(j,d);
+                }
+
+            // diff_d = A_i * Rb - A_j * Ra
+            vector diff(n);
+            for (size_t i = 0; i < n; ++i)
+                for (size_t j = 0; j < n; ++j)
+                    diff[i] += gi.A(i,j) * Rb[j] - gj.A(i,j) * Ra[j];
+
+            // eta_d = c . diff_d
+            long double eta_d = 0.0L;
+            for (size_t i = 0; i < n; ++i)
+                eta_d += c[i] * diff[i];
+
+            eta += eta_d; // accumulate (sign matters for sin in K_rel)
+        }
+        return eta;
+    }
+
+    // --------------------------------------------------------
+    //  CLASSICAL KINETIC ENERGY  (your derivation)
+    //
+    //  K_cla = overlap * (hbar^2/2mu) * J_cla
+    //
+    //  When eta = 0  (s-wave, all shifts zero):
+    //    J_cla = 6 * c^T(A_j R A_i)c  =  1.5 / gamma
+    //
+    //  General (eta != 0):
+    //    J_cla = 1.5/gamma - eta^2
     // --------------------------------------------------------
     long double K_cla(const gaus& gi, const gaus& gj,
                       const vector& c, long double mass) const {
         long double ov = overlap(gi, gj);
         if (std::abs(ov) < ZERO_LIMIT) return 0.0L;
 
-        matrix B     = gi.A + gj.A;
-        matrix B_inv = B.inverse();
-
-        // gamma = c^T (B^{-1}) c  (scalar, same for all spatial directions)
-        long double gamma = 0.0L;
-        for (size_t i = 0; i < c.size(); ++i)
-            for (size_t j = 0; j < c.size(); ++j)
-                gamma += c[i] * B_inv(i,j) * c[j];
-
-        if (std::abs(gamma) < ZERO_LIMIT) return 0.0L;
-
         long double prefactor = (hbar_c * hbar_c) / (2.0L * mass);
+        long double eta = calc_eta(gi, gj, c);
 
-        // eta_d = |c^T B^{-1} (A_j s_j - A_i s_i)|_d  per spatial direction
-        // Then sum eta_d^2 over d=x,y,z
-        long double eta_sq = 0.0L;
-        matrix Ai_Binv = gi.A * B_inv; // precompute
-        matrix Aj_Binv = gj.A * B_inv;
-
-        for (size_t d = 0; d < 3; ++d) {
-            // diff_d = (A_j s_j - A_i s_i)[:,d]  (a dim-vector)
-            long double cBdiff = 0.0L;
-            for (size_t k = 0; k < gi.dim(); ++k) {
-                long double diff_k = 0.0L;
-                for (size_t l = 0; l < gi.dim(); ++l)
-                    diff_k += Aj_Binv(k,l) * gj.s(l,d)
-                            - Ai_Binv(k,l) * gi.s(l,d);
-                // project onto c
-                cBdiff += c[k] * diff_k;
-            }
-            eta_sq += cBdiff * cBdiff;
+        if (std::abs(eta) < ZERO_LIMIT) {
+            // s=0 branch: J = 6 * c^T(A_j R A_i)c
+            matrix R   = calc_R(gi, gj);
+            matrix BRA = gj.A * R * gi.A;
+            long double cBRAc = 0.0L;
+            for (size_t i = 0; i < c.size(); ++i)
+                for (size_t j = 0; j < c.size(); ++j)
+                    cBRAc += c[i] * BRA(i,j) * c[j];
+            return ov * prefactor * 6.0L * cBRAc;
         }
 
-        // Final result: ov * prefactor * 3 * (1/(2*gamma) - eta_sq/3)
-        // = ov * prefactor * (3/(2*gamma) - eta_sq)
-        return ov * prefactor * (1.5L / gamma - eta_sq);
+        long double gamma = calc_gamma(gi, gj, c);
+        if (std::abs(gamma) < ZERO_LIMIT) return 0.0L;
+
+        return ov * prefactor * (1.5L / gamma - eta * eta);
     }
 
     // --------------------------------------------------------
-    //  RELATIVISTIC KINETIC ENERGY
+    //  RELATIVISTIC KINETIC ENERGY  (your derivation)
     //
     //  T_rel = sqrt(p^2 c^2 + m^2 c^4) - m c^2
     //
-    //  Matrix element computed via the integral representation:
+    //  Matrix element (eq. A.25 from your notes):
     //
-    //    sqrt(p^2 + m^2) - m = (1/sqrt(pi)) integral_0^inf
-    //      dt/sqrt(t) * [m^2 e^{-t m^2} - (p^2+m^2) e^{-t(p^2+m^2)}]
+    //    K_rel = overlap * (gamma/pi)^{3/2} * 2*pi
+    //            * exp(-gamma*eta^2)
+    //            * integral_0^{x_max} x f(p) exp(-gamma x^2)
+    //                * [2x  if eta~0  else
+    //                   exp(gamma eta^2)/(gamma eta) * sin(2 gamma eta x)]
+    //              dx
     //
-    //  In position space, this becomes a 1D Gaussian quadrature
-    //  over t, where each integrand is an analytic Gaussian matrix
-    //  element with a modified A matrix.
+    //  where f(p) = p^2 / (sqrt(p^2 + m^2) + m)  [conjugate trick]
+    //  and p = hbar_c * x.
     //
-    //  Parameters:
-    //    n_quad  : number of quadrature points (default 64)
-    //    t_max   : upper limit of the t-integral (in 1/MeV^2)
+    //  Integrated with Simpson's rule, 2000 points.
+    //  x_max = 6 / sqrt(gamma)  covers > 6 sigma of the Gaussian.
     // --------------------------------------------------------
     long double K_rel(const gaus& gi, const gaus& gj,
-                      const vector& c, long double mass,
-                      int n_quad = 64, long double t_max = 20.0L) const {
+                      const vector& c, long double mass) const {
+        long double ov = overlap(gi, gj);
+        if (std::abs(ov) < ZERO_LIMIT) return 0.0L;
 
-        // Gauss-Laguerre-inspired grid: map t in [0, t_max] via t = u^2
-        // so dt/sqrt(t) = 2 du, and the integrand becomes smooth.
-        auto integrand = [&](long double t) -> long double {
-            // At integration parameter t, the kinetic operator is:
-            // (p^2 + m^2) exp(-t(p^2+m^2)) - m^2 exp(-t m^2)
-            // In position space for a Gaussian, acting with exp(-t*p^2)
-            // on phi_j shifts A_j -> A_j + t * (c c^T) (in Jacobi space).
+        long double gamma = calc_gamma(gi, gj, c);
+        if (std::abs(gamma) < ZERO_LIMIT) return 0.0L;
 
-            long double m = mass / hbar_c; // convert to fm^{-1}
-            long double m2 = m * m;
+        long double eta = calc_eta(gi, gj, c);
 
-            // Build modified Gaussian: A_j + t * c c^T
-            gaus gj_mod = gj;
-            for (size_t i = 0; i < gj.dim(); ++i)
-                for (size_t k = 0; k < gj.dim(); ++k)
-                    gj_mod.A(i,k) += t * hbar_c * hbar_c * c[i] * c[k];
+        // Integrand: x * f(p) * exp(-gamma x^2) * [angular factor]
+        auto integrand = [&](long double x) -> long double {
+            long double p     = hbar_c * x;
+            // Conjugate trick: sqrt(p^2+m^2) - m = p^2/(sqrt(p^2+m^2)+m)
+            long double f_val = (p * p) / (std::sqrt(p*p + mass*mass) + mass);
+            long double base  = x * f_val * std::exp(-gamma * x * x);
 
-            long double ov_mod = overlap(gi, gj_mod);
-            long double ov_0   = overlap(gi, gj);
-
-            return (m2 + 1.0L/t) * ov_mod - m2 * ov_0;
+            if (std::abs(gamma * eta) < ZERO_LIMIT) {
+                return 2.0L * x * base;           // eq A.26 (eta->0 limit)
+            } else {
+                return std::exp(gamma * eta * eta) / (gamma * eta)
+                       * base * std::sin(2.0L * gamma * eta * x); // eq A.25
+            }
         };
 
-        // Trapezoidal integration in u = sqrt(t), so t = u^2, dt = 2u du
-        long double u_max = std::sqrt(t_max);
-        long double du    = u_max / n_quad;
-        long double result = 0.0L;
+        // Simpson's rule
+        const int    n_pts = 200;
+        long double  x_max = 6.0L / std::sqrt(gamma);
+        long double  h     = x_max / n_pts;
+        long double  sum   = integrand(0.0L) + integrand(x_max);
 
-        for (int k = 1; k < n_quad; ++k) {
-            long double u = k * du;
-            long double t = u * u;
-            result += 2.0L * u * du * integrand(t); // dt = 2u du
-        }
-        // End-point half-weight corrections (trapezoidal rule)
-        // k=0: u=du,    t=du^2
-        result += du * du * integrand(du * du);
-        // k=n_quad: u=u_max, t=t_max
-        result += u_max * du * integrand(t_max);
+        for (int i = 1; i < n_pts; ++i)
+            sum += (i % 2 == 1 ? 4.0L : 2.0L) * integrand(i * h);
 
-        // Prefactor: 1/sqrt(pi) from the integral representation
-        // Subtract rest mass: the integral gives sqrt(p^2+m^2), we want T = ... - m
-        long double ov_0 = overlap(gi, gj);
-        return (result / std::sqrt(pi)) - (mass * ov_0);
+        long double front = std::pow(gamma / pi, 1.5L) * 2.0L * pi;
+        return ov * (h / 3.0L) * sum * front;
     }
+
 
     // --------------------------------------------------------
     //  COULOMB POTENTIAL (for testing with hydrogen)

@@ -156,7 +156,7 @@ int main()
     const long double w = 1.0L / (b_sigma * b_sigma);
     matrix Omega(jac_sig.dim(), jac_sig.dim());
     Omega(0,0) = w;    // np coordinate
-    Omega(1,1) = 0.0L; // sigma coordinate is free
+    Omega(1,1) = w; // sigma coordinate is free
     Omega(0,1) = 0.0L;
     Omega(1,0) = 0.0L;
 
@@ -170,10 +170,10 @@ int main()
     // ----------------------------------------------------------
     const size_t n_bare   = 20;
     const size_t n_sig    = 40;
-    const int    n_cand   = 30;
+    const int    n_cand   = 10;
     const int    n_refine = 5;
-    const long double A_min = 0.00001L;
-    const long double A_max = 0.1L;
+    const long double A_min = 1e-2L;
+    const long double A_max = 5.0L;
 
     std::cerr << "[deu] SVM: n_bare=" << n_bare
               << "  n_sig=" << n_sig
@@ -190,14 +190,14 @@ int main()
 
     // ----------------------------------------------------------
     // 3. Phase 1 — Competitive selection
-    //
-    //    Interleave sectors so W coupling is active early.
-    //    For each slot: test n_cand candidates, keep the best.
     // ----------------------------------------------------------
     std::cerr << "=== Phase 1: Competitive selection ===\n";
     std::cerr << std::fixed << std::setprecision(4);
 
     size_t total_slots = n_bare + n_sig;
+    
+    // NEW: Keep track of the best energy from the previous slot
+    long double previous_E = std::numeric_limits<long double>::infinity(); 
 
     for (size_t slot = 0; slot < total_slots; ++slot) {
 
@@ -230,27 +230,32 @@ int main()
             if (!std::isnan(E)) {
                 ++n_valid;
                 if (E < best_E) { best_E = E; best_g = trial; }
-            } else {
-                std::cerr << "  [!] slot=" << slot
-                          << " cand=" << c << " → NaN (ill-conditioned)\n";
             }
 
             if (add_bare) basis_bare.pop_back();
             else          basis_sig .pop_back();
         }
 
+        // --- NEW SAFETY CHECKS ---
         if (n_valid == 0) {
-            std::cerr << "  [!!] slot=" << slot << " (" << sec
-                      << "): ALL " << n_cand
-                      << " candidates were ill-conditioned!\n"
-                      << "       Using random fallback. "
-                      << "Check A_min/A_max or overlap formula.\n";
+            std::cerr << "  [!!] Basis saturated at slot " << slot << ". Stopping Phase 1.\n";
+            break; // Stop adding functions!
         }
 
+        // Check if the energy actually went down (strict variational principle)
+        if (slot > 0 && best_E >= previous_E) {
+            std::cerr << "  [-] slot=" << slot << " yielded no improvement. Stopping Phase 1.\n";
+            break; // Stop adding functions!
+        }
+
+        // If it passed the checks, add the basis function
         if (add_bare) basis_bare.push_back(best_g);
         else          basis_sig .push_back(best_g);
 
-        // Recompute energy with accepted function
+        // Update previous_E for the next loop iteration
+        previous_E = best_E;
+
+        // Recompute energy with accepted function (for the printout)
         build_full(basis_bare, basis_sig,
                    jac_bare, jac_sig,
                    H, Omega, S_sigma, m_sigma,
@@ -268,53 +273,135 @@ int main()
     long double E_sel = solve(H_cur, N_cur);
     std::cerr << "\n[deu] After selection: E=" << E_sel << " MeV\n\n";
 
+
     // ----------------------------------------------------------
-    // 4. Phase 2 — Refining cycles
+    // 4. Phase 2 — Refining cycles (Optimized Matrix Updates)
     // ----------------------------------------------------------
     std::cerr << "=== Phase 2: Refining ===\n";
     long double E_best = E_sel;
+    constexpr std::array<long double, 3> beta_zero = {0.0L, 0.0L, 0.0L};
 
     for (int cycle = 1; cycle <= n_refine; ++cycle) {
         long double E_start = E_best;
 
+        // --- Refine Bare Sector ---
         for (size_t k = 0; k < basis_bare.size(); ++k) {
-            gaus orig = basis_bare[k];
-            gaus best_g = orig;
+            gaus orig_g = basis_bare[k];
+            gaus best_g = orig_g;
             long double best_E = E_best;
+            
+            // Keep track of the best matrix configurations
+            matrix H_best = H_cur;
+            matrix N_best = N_cur;
 
             for (int c = 0; c < n_cand; ++c) {
-                basis_bare[k] = make_swave(jac_bare.dim(), A_min, A_max);
-                build_full(basis_bare, basis_sig,
-                           jac_bare, jac_sig,
-                           H, Omega, S_sigma, m_sigma,
-                           H_cur, N_cur);
-                long double E = solve(H_cur, N_cur);
+                gaus trial_g = make_swave(jac_bare.dim(), A_min, A_max);
+                
+                // Copy the matrices instead of rebuilding them (O(N) instead of O(N^2))
+                matrix H_trial = H_cur;
+                matrix N_trial = N_cur;
+                size_t idx = k; // Matrix index for bare slot k
+
+                // 1. Update interactions with bare sector
+                for (size_t i = 0; i < basis_bare.size(); ++i) {
+                    const gaus& other = (i == k) ? trial_g : basis_bare[i];
+                    long double n_val = overlap(other, trial_g);
+                    long double h_val = H.K_cla(other, trial_g, jac_bare.c(0), jac_bare.mu(0));
+                    
+                    N_trial(i, idx) = n_val;
+                    N_trial(idx, i) = n_val;
+                    H_trial(i, idx) = h_val;
+                    H_trial(idx, i) = h_val;
+                }
+
+                // 2. Update interactions with sigma sector (W coupling)
+                for (size_t j = 0; j < basis_sig.size(); ++j) {
+                    long double w = H.W(trial_g, basis_sig[j], Omega, jac_sig.meson_index(), S_sigma, beta_zero);
+                    size_t sig_idx = basis_bare.size() + j;
+                    
+                    N_trial(sig_idx, idx) = 0.0L;
+                    N_trial(idx, sig_idx) = 0.0L;
+                    H_trial(sig_idx, idx) = w;
+                    H_trial(idx, sig_idx) = w;
+                }
+
+                // Solve the updated matrix
+                long double E = solve(H_trial, N_trial);
                 if (!std::isnan(E) && E < best_E) {
-                    best_E = E; best_g = basis_bare[k];
+                    best_E = E;
+                    best_g = trial_g;
+                    H_best = H_trial;  // Save the improved matrix
+                    N_best = N_trial;
                 }
             }
-            basis_bare[k] = best_g;
-            E_best = best_E;
+            
+            // If we found a better Gaussian, permanently accept it into our basis
+            if (best_E < E_best) {
+                basis_bare[k] = best_g;
+                H_cur = H_best;
+                N_cur = N_best;
+                E_best = best_E;
+            }
         }
 
+        // --- Refine Sigma Sector ---
         for (size_t k = 0; k < basis_sig.size(); ++k) {
-            gaus orig = basis_sig[k];
-            gaus best_g = orig;
+            gaus orig_g = basis_sig[k];
+            gaus best_g = orig_g;
             long double best_E = E_best;
+            
+            matrix H_best = H_cur;
+            matrix N_best = N_cur;
 
             for (int c = 0; c < n_cand; ++c) {
-                basis_sig[k] = make_swave(jac_sig.dim(), A_min, A_max);
-                build_full(basis_bare, basis_sig,
-                           jac_bare, jac_sig,
-                           H, Omega, S_sigma, m_sigma,
-                           H_cur, N_cur);
-                long double E = solve(H_cur, N_cur);
+                gaus trial_g = make_swave(jac_sig.dim(), A_min, A_max);
+                
+                matrix H_trial = H_cur;
+                matrix N_trial = N_cur;
+                size_t idx = basis_bare.size() + k; // Matrix index for sigma slot k
+
+                // 1. Update interactions with bare sector (W coupling)
+                for (size_t i = 0; i < basis_bare.size(); ++i) {
+                    long double w = H.W(basis_bare[i], trial_g, Omega, jac_sig.meson_index(), S_sigma, beta_zero);
+                    
+                    N_trial(i, idx) = 0.0L;
+                    N_trial(idx, i) = 0.0L;
+                    H_trial(i, idx) = w;
+                    H_trial(idx, i) = w;
+                }
+
+                // 2. Update interactions with sigma sector
+                for (size_t j = 0; j < basis_sig.size(); ++j) {
+                    const gaus& other = (j == k) ? trial_g : basis_sig[j];
+                    long double n_val = overlap(other, trial_g);
+                    long double k_np = H.K_cla(other, trial_g, jac_sig.c(0), jac_sig.mu(0));
+                    
+                    // Relativistic kinetic energy call (uses your hardcoded n_pts inside the function)
+                    long double k_s  = H.K_rel(other, trial_g, jac_sig.c(1), jac_sig.mu(1));
+                    long double h_val = k_np + k_s + m_sigma * n_val;
+                    
+                    size_t sig_idx = basis_bare.size() + j;
+                    N_trial(sig_idx, idx) = n_val;
+                    N_trial(idx, sig_idx) = n_val;
+                    H_trial(sig_idx, idx) = h_val;
+                    H_trial(idx, sig_idx) = h_val;
+                }
+
+                long double E = solve(H_trial, N_trial);
                 if (!std::isnan(E) && E < best_E) {
-                    best_E = E; best_g = basis_sig[k];
+                    best_E = E;
+                    best_g = trial_g;
+                    H_best = H_trial;
+                    N_best = N_trial;
                 }
             }
-            basis_sig[k] = best_g;
-            E_best = best_E;
+            
+            if (best_E < E_best) {
+                basis_sig[k] = best_g;
+                H_cur = H_best;
+                N_cur = N_best;
+                E_best = best_E;
+            }
         }
 
         std::cerr << "  cycle=" << cycle

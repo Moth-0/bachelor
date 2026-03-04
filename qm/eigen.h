@@ -24,7 +24,7 @@ matrix cholesky(const matrix& A) {
                 
                 // Only diagonals must be strictly positive
                 if (val_under_sqrt <= ZERO_LIMIT) { 
-                    std::cerr << "Rejected step: Matrix ill-conditioned." << std::endl;
+                    //std::cerr << "Rejected step: Matrix ill-conditioned." << std::endl;
                     return matrix(0, 0);
                 }
                 
@@ -44,7 +44,7 @@ vector jacobi_eigenvalues(const matrix& M) {
     matrix A = M;
     size_t n = A.size1();
     long double tolerance = ZERO_LIMIT; // Stop when off-diagonals are tiny
-    int max_iterations = 1000;
+    int max_iterations = 20 * n * n;
     
     for (int iter = 0; iter < max_iterations; iter++) {
         // 1. Find the largest off-diagonal element A(p, q)
