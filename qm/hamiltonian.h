@@ -1,229 +1,103 @@
 #pragma once
 
-#include<cmath>
-#include<omp.h>
+#include <cmath>
+#include <numbers>
 
-#include"matrix.h"
-#include"gaussian.h"
-#include"jacobian.h"
+#include "matrix.h"
+#include "gaussian.h"
+#include "jacobian.h"
 
 namespace qm {
+
 struct hamiltonian {
-    long double hbar_c = 197.3; // MeV * fm
-    long double alpha = 1.0 / 137.035999; // Fine structure
+    long double hbar_c = 197.3269804; // MeV * fm 
 
-    matrix overlap_matrix (const std::vector<gaus>& basis) {
-        size_t n = basis.size();
-        matrix N(n, n);
-        vector norms(n);
-
-        for(size_t i=0; i<n; i++) {
-            norms[i] = std::sqrt(overlap(basis[i], basis[i]));
-        }
-
-        #pragma omp parallel for
-        FOR_MAT(N) N(i, j) = overlap(basis[i], basis[j]) / (norms[i] * norms[j]); // eq(6)
-        return N;
-    }
-
-    matrix hamiltonian_matrix(const std::vector<gaus>& basis, const jacobian& J, bool relativistic) {
-        size_t n = basis.size();
-        size_t n_jacobi = J.dim(); 
-        matrix H(n, n);
-        vector norms(n);
-
-        for(size_t i=0; i<n; i++) {
-            norms[i] = std::sqrt(overlap(basis[i], basis[i]));
-        }
-
-        #pragma omp parallel for
-        FOR_MAT(H) {
-            long double K_total = 0;
-            long double V_total = 0;
-
-            // 1. Kinetic energy (Sums over Jacobi coordinates)
-            for (size_t d = 0; d < n_jacobi; d++) {
-                vector c = J.c(d);
-                long double mass_eff = J.mu(d);
-                
-                if (relativistic) {
-                    K_total += K_rel(basis[i], basis[j], c, mass_eff);
-                } else {
-                    K_total += K_cla(basis[i], basis[j], c, mass_eff);
-                }
-            }
-
-            // 2. Potential energy (Sums over all particle pairs)
-            for (size_t p1 = 0; p1 < J.num_particles(); p1++) {
-                for (size_t p2 = p1 + 1; p2 < J.num_particles(); p2++) {
-                    
-                    // Check if both particles have a charge
-                    if (J.charges[p1] != 0 && J.charges[p2] != 0) {
-                        vector c_pair = J.w(p1, p2);
-                        long double charge_factor = J.charges[p1] * J.charges[p2];
-                        
-                        // Multiply the integral result by the physical constants
-                        V_total += charge_factor * alpha * hbar_c * V_cou(basis[i], basis[j], c_pair);
-                    }
-                    
-                    // NOTE: If you add a Nuclear strong force potential (e.g. Gaussian potential) 
-                    // between the proton and neutron, you would add it right here!
-                }
-            }
-
-            H(i, j) = (K_total + V_total) / (norms[i] * norms[j]);
-        }
-        return H;
-    }
-
-    // Updated W_couple to include the p-wave (\vec{r}) parity constraint
-    long double W_couple(const gaus& g_n, const gaus& g_n1, const long double& S, const long double& b) {
-        size_t d1 = g_n.A.size1();   // Dimension of the bare system (e.g., 1 for |pn>)
-        size_t d2 = g_n1.A.size1();  // Dimension of the clothed system (e.g., 2 for |pn + pi>)
-
-        // Safety check
-        if (d2 != d1 + 1) {
-            std::cerr << "Error: W_couple requires the ket to have exactly one more dimension." << std::endl;
-            return 0.0;
-        }
-
-        long double w = 1.0 / (b * b);
-        gaus g_prime(d2); 
-
-        // 1. Build the "upgraded" Gaussian |A'> with the Gaussian Form Factor w
-        FOR_MAT(g_prime.A) {
-            if (i < d1 && j < d1) {
-                g_prime.A(i, j) = g_n.A(i, j);
-                if (i == j) g_prime.A(i, j) += w; 
-            } 
-            else if (i == d1 && j == d1) {
-                g_prime.A(i, j) = w;
-            } 
-            else {
-                g_prime.A(i, j) = 0.0;
-            }
-        }
-
-        // Copy shift vectors
-        for (size_t i = 0; i < d2; ++i) {
-            for (int d = 0; d < 3; ++d) {
-                if (i < d1) g_prime.s(i, d) = g_n.s(i, d);
-                else g_prime.s(i, d) = 0.0;
-            }
-        }
-
-        // 2. Calculate the base scalar overlap (The F(r) part)
-        long double ov_scalar = overlap(g_prime, g_n1);
-
-        // 3. Calculate the \vec{r} expectation value for the p-wave
-        // R_mat = (A' + A_ket)^{-1}
-        matrix R_mat = (g_prime.A + g_n1.A).inverse();
-
-        // We only need the spatial vector for the new particle coordinate (index d1)
-        // u_{d1} = 0.5 * sum_j ( R_mat(d1, j) * (s_prime[j] + s_n1[j]) )
-        long double ux = 0.0, uy = 0.0, uz = 0.0;
-        
-        for (size_t j = 0; j < d2; ++j) {
-            // Evaluate the sum of the shift vectors for dimension j
-            long double vx = g_prime.s(j, 0) + g_n1.s(j, 0);
-            long double vy = g_prime.s(j, 1) + g_n1.s(j, 1);
-            long double vz = g_prime.s(j, 2) + g_n1.s(j, 2);
-
-            ux += R_mat(d1, j) * vx;
-            uy += R_mat(d1, j) * vy;
-            uz += R_mat(d1, j) * vz;
-        }
-        
-        // Multiply by 0.5 as per the correlated Gaussian formula
-        ux *= 0.5; uy *= 0.5; uz *= 0.5;
-
-        // The magnitude of this vector is the effective p-wave transition strength
-        long double r_magnitude = std::sqrt(ux*ux + uy*uy + uz*uz);
-
-        // 4. Normalize and apply S
-        long double norm_n = std::sqrt(overlap(g_n, g_n));
-        long double norm_n1 = std::sqrt(overlap(g_n1, g_n1));
-
-        // Total matrix element is S * <g'|g> * |\vec{r}| / (norms)
-        return S * (ov_scalar * r_magnitude) / (norm_n * norm_n1);
-    }    
-
-
-    long double calc_beta (const gaus& gi, const gaus& gj, const vector& c) {
-        matrix R = (gj.A + gi.A).inverse();
-        long double cRc = 0;
-        FOR_MAT(R) cRc += c[i]*R(i, j)*c[j];
-        return 1.0/cRc;
-    }
-
-    long double calc_gamma (const gaus& gi, const gaus& gj, const vector& c) {
-        matrix R = (gj.A + gi.A).inverse();
-        matrix BRA = gj.A * R * gi.A;
-        long double cBRAc = 0;
-        FOR_MAT(BRA) cBRAc += c[i]*BRA(i, j)*c[j];
-        return 0.25/cBRAc;
-    }
-
-    long double calc_q (const gaus& gi, const gaus& gj, const vector& c) {
+    // ---------------------------------------------------------
+    // Helper: Calculate gamma (momentum space width parameter)
+    // gamma = 1 / (4 * c^T * (A_i * B^{-1} * A_j) * c)
+    // ---------------------------------------------------------
+    long double calc_gamma(const gaus& gi, const gaus& gj, const vector& c) const {
         matrix R = (gi.A + gj.A).inverse();
-        size_t n = R.size1();
-
-        vector v(n);
-        for(size_t i = 0; i < n; i++) {
-            // v_i is the sum of shift vectors for particle i
-            v[i] = (gi.s[i] + gj.s[i]).norm(); 
-        }
-
-        vector u = (R * v) * 0.5;
-
-        long double q_val = 0;
-        for(size_t i=0;i<n;i++) {
-            q_val += c[i] * u[i];
-        }
-
-        return q_val;
-    }
-
-    long double calc_eta (const gaus& gi, const gaus& gj, const vector& c) {
-        matrix R = (gj.A.inverse() + gi.A.inverse()).inverse();
-        size_t n = gj.A.size1();
+        matrix BRA = gj.A * R * gi.A;
         
-        vector Ra(n), Rb(n);
-        FOR_MAT(R) {
-            Ra[i] += R(i, j) * gi.s[j].norm(); 
-            Rb[i] += R(i, j) * gj.s[j].norm();
+        long double cBRAc = 0.0;
+        for(size_t i = 0; i < BRA.size1(); ++i) {
+            for(size_t j = 0; j < BRA.size2(); ++j) {
+                cBRAc += c[i] * BRA(i, j) * c[j];
+            }
         }
-
-        vector ARb = gi.A * Rb;
-        vector BRa = gj.A * Ra;
-
-        long double eta = 0; 
-        vector diff = ARb - BRa;
-        for(size_t i=0; i<n; i++){
-            eta += c[i] * diff[i];
-        }
-
-        return eta;
+        return 0.25 / cBRAc;
     }
 
-    long double calculate_integrand(long double x, long double gamma, long double eta, long double mass) {
+    // ---------------------------------------------------------
+    // Helper: Calculate eta (momentum space shift magnitude)
+    // Evaluates the projected 3D shift vector and returns its magnitude
+    // ---------------------------------------------------------
+    long double calc_eta(const gaus& gi, const gaus& gj, const vector& c) const {
+        matrix B_inv = (gi.A + gj.A).inverse();
+        
+        // Calculate the full N x 3 momentum shift matrix: A_j * B^{-1} * s_i - A_i * B^{-1} * s_j
+        matrix term1 = gj.A * B_inv * gi.s; 
+        matrix term2 = gi.A * B_inv * gj.s; 
+        matrix eta_mat = term1 - term2;
+        
+        // Project down to a single 3D vector using the Jacobi extraction vector 'c'
+        long double eta_x = 0.0, eta_y = 0.0, eta_z = 0.0;
+        for(size_t i = 0; i < c.size(); ++i) {
+            eta_x += c[i] * eta_mat(i, 0);
+            eta_y += c[i] * eta_mat(i, 1);
+            eta_z += c[i] * eta_mat(i, 2);
+        }
+
+        // Return the magnitude |eta|
+        return std::sqrt(eta_x * eta_x + eta_y * eta_y + eta_z * eta_z);
+    }
+
+    // ---------------------------------------------------------
+    // Classical Kinetic Energy (1D Projection Method)
+    // ---------------------------------------------------------
+    long double K_cla(const gaus& gi, const gaus& gj, const vector& c, const long double& mass) const { 
+        long double ov = overlap(gi, gj); 
+        if (std::abs(ov) < ZERO_LIMIT) return 0.0;
+
+        long double eta = calc_eta(gi, gj, c);
+        long double prefactor = (hbar_c * hbar_c) / (2.0 * mass);
+
+        // If eta is near 0, compute without gamma to avoid precision loss
+        if (std::abs(eta) < ZERO_LIMIT) {
+            matrix B_inv = (gi.A + gj.A).inverse();
+            matrix BRA = gj.A * B_inv * gi.A;
+            long double cBRAc = 0.0;
+            for(size_t i = 0; i < BRA.size1(); ++i) {
+                for(size_t j = 0; j < BRA.size2(); ++j) {
+                    cBRAc += c[i] * BRA(i, j) * c[j];
+                }
+            }
+            return ov * prefactor * 6.0 * cBRAc;
+
+        } else {
+            long double gamma = calc_gamma(gi, gj, c);
+            return ov * prefactor * (1.5 / gamma - (eta * eta));
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Relativistic Kinetic Energy (Numerical Integral Method)
+    // ---------------------------------------------------------
+    long double calculate_integrand(long double x, long double gamma, long double eta, long double mass) const {
         long double p = hbar_c * x;
-        // long double f_val = sqrt(p*p + mass*mass) - mass;
-        // Use Conjugate trict to eliminate "-"
-        long double f_val = (p*p) / (std::sqrt(p*p + mass*mass) + mass);
+        // Conjugate trick to eliminate floating point cancellation for sqrt(p^2 + m^2) - m
+        long double f_val = (p * p) / (std::sqrt(p * p + mass * mass) + mass);
         long double base = x * f_val * std::exp(-gamma * x * x);
 
-        // Handling the limit as eta -> 0 to avoid division by zero 
         if (std::abs(gamma * eta) < ZERO_LIMIT) {
-            // eq (A.26)
             return 2.0 * x * base;
         } else {
-            // General formula eq (A.25)
             return std::exp(gamma * eta * eta) / (gamma * eta) * base * std::sin(2.0 * gamma * eta * x);
         }
     }
 
-    long double solve_J_rel(long double gamma, long double eta, long double mass) { // eq(A.25.1)
+    long double solve_J_rel(long double gamma, long double eta, long double mass) const { 
         const int n = 2000; // Must be even for Simpson's Rule
         long double x_max = 6.0 / std::sqrt(gamma); 
         long double h = x_max / n;
@@ -242,59 +116,99 @@ struct hamiltonian {
             }
         }
 
-        // Constants from your notes: (gamma/pi)^1.5 * 2 * pi * exp(-gamma * eta^2) [cite: 104, 736]
         long double front_factor = std::pow(gamma / pi, 1.5) * 2.0 * pi;
-        
         return (h / 3.0) * sum * front_factor;
     }
 
-    long double K_rel (const gaus& gi, const gaus& gj, const vector& c, const long double& mass) { //eq(A.25)
+    long double K_rel(const gaus& gi, const gaus& gj, const vector& c, const long double& mass) const { 
         long double ov = overlap(gi, gj);
+        if (std::abs(ov) < ZERO_LIMIT) return 0.0;
+
         long double gamma = calc_gamma(gi, gj, c);
         long double eta = calc_eta(gi, gj, c);
         
         return ov * solve_J_rel(gamma, eta, mass);
     }
 
-    long double K_cla(const gaus& gi, const gaus& gj, const vector& c, const long double& mass) { 
-        long double ov = overlap(gi, gj); 
-        long double eta = calc_eta(gi, gj, c);
-
-        long double prefactor = std::pow(hbar_c, 2) / (2.0 * mass);
-
-        if (std::abs(eta) < ZERO_LIMIT) {
-            // η -> 0
-            matrix R = (gi.A + gj.A).inverse();
-            matrix BRA = gj.A * R * gi.A;
-            long double cBRAc = 0;
-            FOR_MAT(BRA) {
-                cBRAc += c[i] * BRA(i, j) * c[j];
-            }
-
-            return ov * prefactor * 6.0 * cBRAc;
-        } else {
-            long double gamma = calc_gamma(gi, gj, c);
-
-            return ov * prefactor * (3.0/2.0 * 1.0/gamma - eta * eta);
-        }
-    }
-
-    long double V_cou (const gaus& gi, const gaus& gj, const vector& c) { //eq(22-24)
+    // Add this inside the hamiltonian struct in hamiltonian.h
+    long double V_cou(const gaus& gi, const gaus& gj, const vector& c) const {
         long double ov = overlap(gi, gj);
-        long double beta = calc_beta(gi, gj, c);
-        long double q = calc_q(gi, gj, c);
+        if (std::abs(ov) < ZERO_LIMIT) return 0.0;
+
+        // Calculate beta
+        matrix B_inv = (gi.A + gj.A).inverse();
+        long double cBc = 0.0;
+        for(size_t i = 0; i < B_inv.size1(); ++i) {
+            for(size_t j = 0; j < B_inv.size2(); ++j) {
+                cBc += c[i] * B_inv(i, j) * c[j];
+            }
+        }
+        long double beta = 1.0 / cBc;
+
+        // Calculate q (effective shift)
+        matrix term1 = gj.A * B_inv * gi.s; 
+        matrix term2 = gi.A * B_inv * gj.s; 
+        matrix u_mat = term1 + term2; // Notice this is + for q, unlike - for eta
+        
+        long double q_x = 0, q_y = 0, q_z = 0;
+        for(size_t i = 0; i < c.size(); ++i) {
+            q_x += c[i] * u_mat(i, 0); q_y += c[i] * u_mat(i, 1); q_z += c[i] * u_mat(i, 2);
+        }
+        long double q = std::sqrt(q_x*q_x + q_y*q_y + q_z*q_z);
 
         long double J;
-        // Handling the limit as q -> 0 to avoid division by zero 
         if (std::abs(q) < ZERO_LIMIT) {
-            // q -> 0
-            J = 2 * std::sqrt(beta) / std::sqrt(pi);
+            J = 2.0 * std::sqrt(beta / pi);
         } else {
-            // General formula 
             J = std::erf(std::sqrt(beta) * q) / q;
         }
 
         return ov * J;
     }
+
+    // ---------------------------------------------------------
+    // W_vec: For P-wave transitions (e.g., Pion meson)
+    // Evaluates < g_n | (c^T r) * exp(-r^2/b^2) | g_n1 >
+    // ---------------------------------------------------------
+    long double W_vec(const gaus& g_n, const gaus& g_n1, const matrix& Omega, const vector& c) const {
+        size_t d1 = g_n.dim();
+        size_t d2 = g_n1.dim(); 
+
+        // 1. Promote g_n to d2
+        gaus g_prime(d2);
+        for (size_t i = 0; i < d2; ++i) {
+            for (size_t j = 0; j < d2; ++j) {
+                if (i < d1 && j < d1) g_prime.A(i, j) = g_n.A(i, j);
+                else g_prime.A(i, j) = 0.0;
+            }
+            for (int d = 0; d < 3; ++d) {
+                if (i < d1) g_prime.s(i, d) = g_n.s(i, d);
+                else g_prime.s(i, d) = 0.0;
+            }
+        }
+
+        // 2. Apply the W-kernel (Omega)
+        g_prime.A = g_prime.A + Omega;
+
+        // 3. Scalar overlap (M)
+        long double M_val = overlap(g_prime, g_n1);
+        if (std::abs(M_val) < ZERO_LIMIT) return 0.0;
+
+        // 4. Calculate u = 0.5 * B_inv * v
+        matrix B_inv = (g_prime.A + g_n1.A).inverse();
+        matrix v = g_prime.s + g_n1.s;
+        matrix u_mat = B_inv * v * 0.5;
+
+        // 5. Evaluate the projection: c^T * u
+        // The vector 'c' contains the spatial weights determined by the spin evaluation
+        long double c_dot_u = 0.0;
+        for (size_t i = 0; i < c.size(); ++i) {
+            // Assuming 'c' projects the coordinates of the new meson
+            c_dot_u += c[i] * u_mat(d1, i); 
+        }
+
+        // Return the final scalar energy
+        return c_dot_u * M_val;
+    }
 };
-}
+} // namespace qm

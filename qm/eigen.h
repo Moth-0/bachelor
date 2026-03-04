@@ -99,4 +99,37 @@ vector jacobi_eigenvalues(const matrix& M) {
     return eigenvalues;
 }
 
+// ---------------------------------------------------------
+// Solves the Generalized Eigenvalue Problem: H*c = E*N*c
+// Returns a sorted vector of eigenvalues (Ground state is index 0)
+// ---------------------------------------------------------
+vector solve_generalized_eigenvalue(const matrix& H, const matrix& N) {
+    // 1. Cholesky decomposition of the overlap matrix (N = L * L^T)
+    matrix L = cholesky(N);
+    
+    // Safety check: if N is not positive-definite, our basis is ruined
+    if (L.size1() == 0) {
+        std::cerr << "Generalized Eigenvalue Solver Failed: Overlap matrix is ill-conditioned." << std::endl;
+        return vector(); 
+    }
+
+    // 2. Invert the lower triangular matrix L
+    matrix L_inv = L.inverse_lower();
+    
+    if (L_inv.size1() == 0) {
+        std::cerr << "Generalized Eigenvalue Solver Failed: L matrix is singular." << std::endl;
+        return vector();
+    }
+
+    // 3. Transform H to the orthogonal basis: H' = L^{-1} * H * (L^{-1})^T
+    matrix H_prime = L_inv * H * L_inv.T();
+
+    // 4. Solve the standard eigenvalue problem for H'
+    vector eigenvalues = jacobi_eigenvalues(H_prime);
+
+    // 5. Sort the eigenvalues from lowest to highest so eigenvalues[0] is the ground state
+    std::sort(eigenvalues.data.begin(), eigenvalues.data.end());
+
+    return eigenvalues;
+}
 }

@@ -74,7 +74,7 @@ struct gaus {
         // 3. Generate random shift vectors s
         for(size_t i = 0; i < dim; i++) {
             for(size_t j = 0; j < 3; j++) {
-                s(i, j) = 0.0; // Keeping 0.0 for now
+                s(i, j) = random_double(-0.05, 0.05);
             }
         }
     }
@@ -82,10 +82,15 @@ struct gaus {
     long double operator()(const matrix& r) const {
         long double rAr = 0; 
         long double sr = 0; 
+        
         for(size_t i = 0; i < A.size1(); i++) {
-            sr += dot(s[i], r[i]);
+            // Explicit 3D dot product of the i-th rows
+            sr += s(i, 0)*r(i, 0) + s(i, 1)*r(i, 1) + s(i, 2)*r(i, 2);
+            
             for(size_t j = 0; j < A.size2(); j++) {
-                rAr += A(i, j) * dot(r[i], r[j]);
+                // Explicit 3D dot product for r_i * r_j
+                long double r_dot_r = r(i, 0)*r(j, 0) + r(i, 1)*r(j, 1) + r(i, 2)*r(j, 2);
+                rAr += A(i, j) * r_dot_r;
             }
         } 
         return std::exp(-rAr + sr);
@@ -111,7 +116,12 @@ long double overlap(const gaus& a, const gaus& b) {
             vBv += B_inv(i, j) * dot(v[i], v[j]);
         }
     }
-    long double front = std::pow((std::pow(pi, (long double)n) / B.determinant()), 1.5);
+    
+    long double detB = B.determinant();
+    if (detB <= ZERO_LIMIT) {
+        return 0.0; // Prevent NaN if the basis functions are effectively linearly dependent
+    }
+    long double front = std::pow((std::pow(pi, (long double)n) / detB), 1.5);
     
     return front * std::exp(0.25 * vBv);
 }

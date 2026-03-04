@@ -1,98 +1,122 @@
 #include <iostream>
 #include <vector>
-#include <random>
-#include "matrix.h"
-#include "eigen.h"
-#include "gaussian.h"
-#include "hamiltonian.h"
-#include "jacobian.h"
+#include <iomanip>
+#include <cmath>
 
-// General Solver: Normalizes matrices to prevent floating-point collapse, then solves safely
-long double get_ground_state_energy(const qm::matrix& H, const qm::matrix& N) {
-    // ... (Your normalization loop stays exactly the same) ...
-    
-    // 2. Cholesky-factorization 
-    qm::matrix L = qm::cholesky(N);
-    
-    // Catch the silent failure! If Cholesky returned an empty matrix, reject the step.
-    if (L.size1() == 0) {
-        return std::numeric_limits<long double>::quiet_NaN();
-    }
+#include "qm/matrix.h"
+#include "qm/particle.h"
+#include "qm/jacobian.h"
+#include "qm/gaussian.h"
+#include "qm/hamiltonian.h"
+#include "qm/eigen.h"
 
-    // Since L is valid, we can safely invert it
-    qm::matrix L_inv = L.inverse(); 
-    qm::matrix H_prime = L_inv * H * L_inv.transpose();
-
-    // 3. Solve for eigenvalues
-    qm::vector energies = qm::jacobi_eigenvalues(H_prime);
-
-    // 4. Find the lowest energy
-    long double E_0 = energies[0];
-    for (size_t i = 1; i < energies.size(); i++) {
-        if (energies[i] < E_0) E_0 = energies[i];
-    }
-    
-    return E_0;
-}
+using namespace qm;
 
 int main() {
-    // Particle masses in MeV
-    long double m_p = 938.27208816; 
-    long double m_e = 0.51099895; 
-    bool USE_REL = true;
+    std::cout << "=== Hydrogen Atom SVM Test (MeV & fm) ===\n";
 
-    // System: 1 Proton (+1), 1 Electron (-1)
-    qm::jacobian J_hyd({m_p, m_e}, {1, -1});
-    qm::hamiltonian h_calc;
+    // 1. Define Particles & Constants in MeV and fm
+    Particle proton("Proton", 938.272, 1, 0.5, 0.5, 0.5, 0.5);
+    Particle electron("Electron", 0.51099895, -1, 0.5, 0.5, 0.0, 0.0);
+    
+    Jacobian jac({proton, electron});
+    hamiltonian H_op;
+    H_op.hbar_c = 197.3269804; // Ensure this is set to MeV * fm
+    
+    long double alpha = 1.0 / 137.035999;
+    long double coulomb_const = -alpha * H_op.hbar_c;
 
-    size_t n = 10; // Number of Gaussians
-    std::vector<qm::gaus> basis(n);
+    // 2. Setup Basis Parameters
+    size_t basis_size = 15;
+    std::vector<gaus> basis;
+    
+    // In fm, Bohr radius is ~52900 fm. A ~ 1/r^2. 
+    // We search extremely small A values.
+    long double A_min = 1e-12; 
+    long double A_max = 1e-6;  
 
-    long double E_best = std::numeric_limits<long double>::quiet_NaN();
-    qm::matrix H(n, n);
-    qm::matrix N(n, n);
+    std::cout << "Generating basis of size " << basis_size << "...\n";
 
-    std::cout << "Searching for a valid initial basis..." << std::endl;
+    for (size_t k = 0; k < basis_size; ++k) {
+        gaus best_g;
+        long double best_E = 1e9; 
+        bool found_valid = false;
 
-    // --- The "Keep Rolling" Loop ---
-    while (std::isnan(E_best)) {
-        // Generate a totally random basis
-        for(size_t i = 0; i < n; i++) basis[i] = qm::gaus(1, 1e-5, 4e-5);
+        for (int trial = 0; trial < 500; ++trial) {
+            gaus g_trial(jac.dim(), A_min, A_max);
+            
+            // Force s-wave (no shift)
+            for(size_t i=0; i<jac.dim(); i++) {
+                g_trial.s(i, 0) = 0.0; g_trial.s(i, 1) = 0.0; g_trial.s(i, 2) = 0.0;
+            }
 
-        // Build and Test
-        N = h_calc.overlap_matrix(basis);
-        H = h_calc.hamiltonian_matrix(basis, J_hyd, USE_REL); // false = Classical Kinetic Energy
-        E_best = get_ground_state_energy(H, N);
-    }
+            // --- LINEAR DEPENDENCE CHECK ---
+            // Ensure the new Gaussian is not too similar to existing ones
+            bool too_similar = false;
+            long double norm_trial = overlap(g_trial, g_trial);
+            
+            for (const auto& b : basis) {
+                long double norm_b = overlap(b, b);
+                long double ov = std::abs(overlap(g_trial, b));
+                long double normalized_overlap = ov / std::sqrt(norm_trial * norm_b);
+                
+                if (normalized_overlap > 0.95) { // 95% similarity threshold
+                    too_similar = true;
+                    break;
+                }
+            }
+            if (too_similar) continue; // Skip if it causes ill-conditioning
 
-    std::cout << "Initial Energy: " << E_best << " MeV\n" << std::endl;
-
-    // Random setup
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dist_n(0, n - 1);
-
-    int max_iterations = 10000; // Let it run a bit longer for fine-tuning
-
-    // --- The Stochastic Loop ---
-    for (int step = 1; step <= max_iterations; step++) {
-        int k = dist_n(gen);
-        qm::gaus old_g = basis[k];
+            // Evaluate isolated energy
+            long double k_val = H_op.K_cla(g_trial, g_trial, jac.c(0), jac.mu(0));
+            long double v_val = coulomb_const * H_op.V_cou(g_trial, g_trial, jac.c(0));
+            long double e_trial = (k_val + v_val) / norm_trial;
+            
+            if (e_trial < best_E) {
+                best_E = e_trial;
+                best_g = g_trial;
+                found_valid = true;
+            }
+        }
         
-        basis[k] = qm::gaus(1, 1e-5, 4e-5); // Mutate 1D channel
-        
-        N = h_calc.overlap_matrix(basis);
-        H = h_calc.hamiltonian_matrix(basis, J_hyd, USE_REL);
-        long double E_trial = get_ground_state_energy(H, N);
-        
-        if (E_trial < E_best && !std::isnan(E_trial)) {
-            E_best = E_trial;
-            std::cout << "Step " << step << " | New Best Energy: " << E_best << " MeV" << std::endl;
+        if (found_valid) {
+            basis.push_back(best_g);
         } else {
-            basis[k] = old_g; // Revert
+            std::cerr << "Warning: Could not find a distinct Gaussian for basis index " << k << "\n";
+            basis_size = k; // Shrink basis size to what we successfully found
+            break;
         }
     }
 
-    std::cout << "\nOptimization Complete.\nFinal Ground State Energy: " << E_best << " MeV\n";
+    // 3. Construct H and N Matrices
+    std::cout << "Building Hamiltonian and Overlap matrices...\n";
+    matrix H_mat(basis_size, basis_size);
+    matrix N_mat(basis_size, basis_size);
+
+    for (size_t i = 0; i < basis_size; ++i) {
+        for (size_t j = 0; j < basis_size; ++j) {
+            long double k_val = H_op.K_cla(basis[i], basis[j], jac.c(0), jac.mu(0));
+            long double v_val = coulomb_const * H_op.V_cou(basis[i], basis[j], jac.c(0));
+            
+            H_mat(i, j) = k_val + v_val;
+            N_mat(i, j) = overlap(basis[i], basis[j]);
+        }
+    }
+
+    // 4. Solve the Generalized Eigenvalue Problem
+    std::cout << "Solving H*c = E*N*c...\n";
+    vector energies = solve_generalized_eigenvalue(H_mat, N_mat);
+
+    // 5. Output Results
+    if (energies.size() > 0) {
+        std::cout << "--------------------------------------------------\n";
+        // Convert the target from eV to MeV
+        std::cout << "Analytic Ground State Energy : -0.000013598 MeV\n";
+        std::cout << "Simulated Ground State Energy: " << std::fixed << std::setprecision(9) << energies[0] << " MeV\n";
+        std::cout << "--------------------------------------------------\n";
+    } else {
+        std::cout << "Solver failed to find eigenvalues.\n";
+    }
+
     return 0;
 }
