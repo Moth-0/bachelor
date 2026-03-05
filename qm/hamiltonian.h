@@ -279,7 +279,7 @@ struct hamiltonian {
                   const matrix& Omega,
                   size_t coord_idx,
                   long double alpha,
-                  const std::array<long double,3>& beta) const {
+                  const vector& beta) const {
 
         size_t d1 = g_bare.dim();
         size_t d2 = g_clothed.dim();
