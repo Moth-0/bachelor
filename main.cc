@@ -58,6 +58,11 @@ struct Params {
         store["A_min"]    = "0.001";
         store["A_max"]    = "10.0";
         store["rel"]      = "0";
+        store["n_opt_S"]  = "8";    // number of S update steps
+        store["n_opt_b"]  = "8";    // number of b update steps (after S is done)
+        store["k_S"]      = "0.01"; // S learning rate: S += k_S * (target - E)
+        store["k_b"]      = "0.001";// b learning rate: b += k_b * (target - E)
+        store["target"]   = "-2.225"; // binding energy target (MeV)
     }
 
     void load_file(const std::string& path) {
@@ -171,7 +176,9 @@ struct PionSystem {
 
             vector beta(3);
             for (size_t d = 0; d < 3; ++d)
-                beta[d] = iso_weight[sec] * S_pion * c_spin[d];
+                // Fedorov: A = S_w/b_w (photoproduction eq.38): r_pi carries fm, so
+                // dividing by b_pion restores MeV energy units.
+                beta[d] = iso_weight[sec] * (S_pion / b_pion) * c_spin[d];
 
             for (size_t i = 0; i < n0; ++i) {
                 for (size_t j = 0; j < n_s; ++j) {
@@ -211,6 +218,59 @@ static gaus make_pwave(size_t dim, long double A_min, long double A_max) {
     return gaus(dim, A_min, A_max);
 }
 
+
+// -----------------------------------------------------------
+//  Run competitive selection from scratch with the current
+//  sys.S_pion and sys.b_pion, return the ground-state energy.
+//  Clears and rebuilds sys.basis entirely.
+// -----------------------------------------------------------
+static long double run_selection(
+    PionSystem& sys,
+    const size_t* target_n,
+    int n_cand,
+    long double A_min, long double A_max)
+{
+    for (int s = 0; s < 4; ++s) sys.basis[s].clear();
+
+    size_t total_slots = 0;
+    for (int s = 0; s < 4; ++s) total_slots += target_n[s];
+
+    matrix H_cur, N_cur;
+    long double E_cur = std::numeric_limits<long double>::quiet_NaN();
+
+    for (size_t slot = 0; slot < total_slots; ++slot) {
+        int    add_sec  = 0;
+        double max_frac = -1.0;
+        for (int s = 0; s < 4; ++s) {
+            if (sys.basis[s].size() >= target_n[s]) continue;
+            double frac = 1.0 - (double)sys.basis[s].size() / target_n[s];
+            if (frac > max_frac) { max_frac = frac; add_sec = s; }
+        }
+
+        size_t dim  = sys.jac[add_sec].dim();
+        bool   bare = (add_sec == 0);
+
+        long double best_E = std::numeric_limits<long double>::infinity();
+        gaus best_g = bare ? make_swave(dim, A_min, A_max)
+                           : make_pwave(dim, A_min, A_max);
+
+        for (int c = 0; c < n_cand; ++c) {
+            gaus trial = bare ? make_swave(dim, A_min, A_max)
+                              : make_pwave(dim, A_min, A_max);
+            sys.basis[add_sec].push_back(trial);
+            sys.build(H_cur, N_cur);
+            long double E = solve(H_cur, N_cur);
+            if (!std::isnan(E) && E < best_E) { best_E = E; best_g = trial; }
+            sys.basis[add_sec].pop_back();
+        }
+        sys.basis[add_sec].push_back(best_g);
+    }
+
+    sys.build(H_cur, N_cur);
+    E_cur = solve(H_cur, N_cur);
+    return E_cur;
+}
+
 // ============================================================
 int main(int argc, char* argv[])
 {
@@ -247,8 +307,8 @@ int main(int argc, char* argv[])
     // ----------------------------------------------------------
     // Extract parameters
     // ----------------------------------------------------------
-    const long double S_pion  = cfg.ld("S");
-    const long double b_pion  = cfg.ld("b");
+    long double       S_pion  = cfg.ld("S");
+    long double       b_pion  = cfg.ld("b");
     const size_t      n0      = cfg.sz("n0");
     const size_t      n1      = cfg.sz("n1");
     const size_t      n2      = cfg.sz("n2");
@@ -258,6 +318,11 @@ int main(int argc, char* argv[])
     const long double A_min   = cfg.ld("A_min");
     const long double A_max   = cfg.ld("A_max");
     const bool        rel     = (cfg.i("rel") != 0);
+    const int         n_opt_S = cfg.i("n_opt_S");
+    const int         n_opt_b = cfg.i("n_opt_b");
+    const long double k_S     = cfg.ld("k_S");
+    const long double k_b     = cfg.ld("k_b");
+    const long double E_target= cfg.ld("target");
 
     // ----------------------------------------------------------
     // 1. Particles and Jacobians
@@ -289,7 +354,24 @@ int main(int argc, char* argv[])
     sys.S_pion        = S_pion;
     sys.b_pion        = b_pion;
     sys.c_spin        = vector(3);
-    sys.c_spin[0]     = 1.0L;
+    // c_spin encodes the spin matrix element  <χ_f|σ_d|χ_i>  for direction d.
+    // The pion vertex is  W = S·(σ⃗·r_π)·F(r).
+    // For a single spin-½ nucleon in a definite spin state, |c_spin|² = 1.
+    //
+    // Choosing  c_spin = {1/√3, 1/√3, 1/√3}  keeps |c_spin|² = 1 and
+    // distributes the coupling equally over x, y, z, so the SVM can use all
+    // three spatial directions of the pion shifts — roughly 3× more efficient
+    // than the {1,0,0} placeholder that restricts coupling to x only.
+    //
+    // For the full deuteron spin structure (J=1), the correct c_spin would be
+    // derived from angular momentum recoupling.  This isotropic approximation
+    // gives the right binding-energy scale and can be refined later.
+    {
+        long double s3 = 1.0L / std::sqrt(3.0L);
+        sys.c_spin[0] = s3;
+        sys.c_spin[1] = s3;
+        sys.c_spin[2] = s3;
+    }
 
     sys.jac[0] = jacobian({proton,  neutron});
     sys.jac[1] = jacobian({proton,  neutron, pi0});
@@ -325,83 +407,103 @@ int main(int argc, char* argv[])
               << "  A=[" << A_min << "," << A_max << "]\n\n";
 
     // ----------------------------------------------------------
-    // 3. SVM setup
+    // 3. Fixed setup (does not change across optimisation)
     // ----------------------------------------------------------
-    for (int s = 0; s < 4; ++s) sys.basis[s].clear();
     const size_t target_n[4] = {n0, n1, n2, n3};
-
-    // ----------------------------------------------------------
-    // 4. Phase 1: Competitive selection
-    // ----------------------------------------------------------
-    std::cout << "=== Phase 1: Competitive selection ===\n";
-    std::cerr << "=== Phase 1: Competitive selection ===\n";
-
-    size_t total_slots = n0 + n1 + n2 + n3;
     matrix H_cur, N_cur;
 
-    for (size_t slot = 0; slot < total_slots; ++slot) {
+    // ----------------------------------------------------------
+    // 4. Phase 0a — Tune S with b held fixed
+    //
+    //    Each iteration:
+    //      1. Run competitive selection with current S (b is fixed)
+    //      2. err = target - E_cur
+    //      3. S += k_S * err
+    //
+    //    Sign: if E > target (too weakly bound), err < 0.
+    //    For the pion system S enters the W vertex as S*(sigma.r),
+    //    so |S| controls coupling strength — increase |S| to bind more.
+    //    k_S > 0 moves S in the direction that lowers E.
+    // ----------------------------------------------------------
+    std::cout << std::fixed << std::setprecision(4);
+    std::cout << "=== Phase 0a: Tuning S  (" << n_opt_S << " steps, k_S=" << k_S
+              << ")  b=" << b_pion << " fm fixed ===\n";
+    std::cerr << "=== Phase 0a: Tuning S  k_S=" << k_S
+              << "  n=" << n_opt_S << " ===\n";
 
-        int    add_sec  = 0;
-        double max_frac = -1.0;
-        for (int s = 0; s < 4; ++s) {
-            if (sys.basis[s].size() >= target_n[s]) continue;
-            double frac = 1.0 - (double)sys.basis[s].size() / target_n[s];
-            if (frac > max_frac) { max_frac = frac; add_sec = s; }
-        }
+    long double E_cur = std::numeric_limits<long double>::quiet_NaN();
 
-        size_t dim  = sys.jac[add_sec].dim();
-        bool   bare = (add_sec == 0);
+    for (int it = 0; it < n_opt_S; ++it) {
+        sys.S_pion = S_pion;
+        sys.b_pion = b_pion;
 
-        long double best_E = std::numeric_limits<long double>::infinity();
-        gaus best_g = bare ? make_swave(dim, A_min, A_max)
-                           : make_pwave(dim, A_min, A_max);
-        int n_valid = 0;
+        E_cur = run_selection(sys, target_n, n_cand, A_min, A_max);
+        long double err = E_target - E_cur;
 
-        for (int c = 0; c < n_cand; ++c) {
-            gaus trial = bare ? make_swave(dim, A_min, A_max)
-                              : make_pwave(dim, A_min, A_max);
-            sys.basis[add_sec].push_back(trial);
-            sys.build(H_cur, N_cur);
-            long double E = solve(H_cur, N_cur);
-            if (!std::isnan(E)) {
-                ++n_valid;
-                if (E < best_E) { best_E = E; best_g = trial; }
-            } else {
-                std::cerr << "  [!] slot=" << slot << " sec=" << add_sec
-                          << " cand=" << c << " NaN\n";
-            }
-            sys.basis[add_sec].pop_back();
-        }
+        std::cout << "  S it=" << std::setw(2) << it
+                  << "  S=" << std::setw(9) << S_pion
+                  << "  b=" << std::setw(6) << b_pion
+                  << "  E=" << std::setw(10) << E_cur
+                  << "  err=" << std::setw(9) << err << " MeV\n";
+        std::cerr << "  S it=" << it << "  S=" << S_pion
+                  << "  E=" << E_cur << "  err=" << err << "\n";
 
-        if (n_valid == 0)
-            std::cerr << "  [!!] slot=" << slot << " sec=" << add_sec
-                      << ": ALL ill-conditioned!\n";
+        if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
 
-        sys.basis[add_sec].push_back(best_g);
-        sys.build(H_cur, N_cur);
-        long double E_cur = solve(H_cur, N_cur);
-
-        std::cerr << std::fixed << std::setprecision(4)
-                  << "  slot=" << std::setw(3) << slot
-                  << "  sec=" << add_sec
-                  << "  sizes=["
-                  << sys.basis[0].size() << ","
-                  << sys.basis[1].size() << ","
-                  << sys.basis[2].size() << ","
-                  << sys.basis[3].size() << "]"
-                  << "  valid=" << n_valid << "/" << n_cand
-                  << "  E=" << std::setw(10) << E_cur << " MeV\n";
+        S_pion += k_S * err;
     }
 
     // ----------------------------------------------------------
-    // 5. Phase 2: Refining
+    // 5. Phase 0b — Tune b with S held fixed at value found above
+    //
+    //    Same gradient-step logic but now only b moves.
+    //    k_b sign: increasing b widens the form factor → weaker
+    //    localisation → typically less binding, so k_b > 0 will
+    //    decrease b when E is too high (err < 0), sharpening the
+    //    vertex and increasing binding.  Adjust sign if you see
+    //    b moving the wrong way for your vertex parameterisation.
     // ----------------------------------------------------------
-    sys.build(H_cur, N_cur);
-    long double E_best = solve(H_cur, N_cur);
+    std::cout << "\n=== Phase 0b: Tuning b  (" << n_opt_b << " steps, k_b=" << k_b
+              << ")  S=" << S_pion << " MeV fixed ===\n";
+    std::cerr << "=== Phase 0b: Tuning b  k_b=" << k_b
+              << "  n=" << n_opt_b << " ===\n";
+
+    for (int it = 0; it < n_opt_b; ++it) {
+        sys.S_pion = S_pion;
+        sys.b_pion = b_pion;
+
+        E_cur = run_selection(sys, target_n, n_cand, A_min, A_max);
+        long double err = E_target - E_cur;
+
+        std::cout << "  b it=" << std::setw(2) << it
+                  << "  S=" << std::setw(9) << S_pion
+                  << "  b=" << std::setw(6) << b_pion
+                  << "  E=" << std::setw(10) << E_cur
+                  << "  err=" << std::setw(9) << err << " MeV\n";
+        std::cerr << "  b it=" << it << "  b=" << b_pion
+                  << "  E=" << E_cur << "  err=" << err << "\n";
+
+        if (std::abs(err) < 0.05L) { std::cout << "  [b converged]\n"; break; }
+
+        b_pion += k_b * err;
+    }
+
+    // ----------------------------------------------------------
+    // 5. Phase 1 — Final competitive selection with best S, b
+    // ----------------------------------------------------------
+    std::cout << "\n=== Phase 1: Final competitive selection"
+              << "  S=" << S_pion << "  b=" << b_pion << " ===\n";
+    std::cerr << "=== Phase 1: Final selection S=" << S_pion
+              << "  b=" << b_pion << " ===\n";
+
+    long double E_best = run_selection(sys, target_n, n_cand, A_min, A_max);
     std::cout << "After selection: E=" << std::fixed << std::setprecision(4)
               << E_best << " MeV\n";
     std::cerr << "[main] After selection: E=" << E_best << " MeV\n\n";
 
+    // ----------------------------------------------------------
+    // 7. Phase 2 — Refining
+    // ----------------------------------------------------------
     std::cout << "\n=== Phase 2: Refining ===\n";
     std::cerr << "\n=== Phase 2: Refining ===\n";
 

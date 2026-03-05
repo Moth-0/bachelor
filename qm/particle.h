@@ -75,7 +75,7 @@ struct Nucleon : public Particle {
 
     static Nucleon Proton (double spin_z = 0.5)
         { return Nucleon("proton",  938.272046L, +1, spin_z, +0.5); }
-    static Nucleon Neutron(double spin_z = 0.5)
+    static Nucleon Neutron (double spin_z = 0.5)
         { return Nucleon("neutron", 939.565379L,  0, spin_z, -0.5); }
 
     // Pauli spin operators: sigma = 2 * S
