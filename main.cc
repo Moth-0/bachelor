@@ -33,8 +33,11 @@
 //    n3       = 8       # pi- sector basis size
 //    n_cand   = 5       # SVM candidates per slot
 //    n_refine = 2       # refining cycles
-//    A_min    = 0.001   # min Gaussian width (fm^-2)
-//    A_max    = 10.0    # max Gaussian width (fm^-2)
+//    mean_r   = 2.0     # typical inter-particle distance (fm)
+//                       # sets width of A: A_ii ~ 1/(2*mean_r^2)
+//    mean_R   = 1.5     # typical pion displacement from origin (fm)
+//                       # sets shift: s = 2*A*u, u ~ [-mean_R, mean_R]
+//                       # use 0 for S-wave (bare) sector
 //    rel      = 0       # 0=classical  1=relativistic
 // ============================================================
 
@@ -55,14 +58,14 @@ struct Params {
         store["n3"]       = "8";
         store["n_cand"]   = "5";
         store["n_refine"] = "2";
-        store["A_min"]    = "0.001";
-        store["A_max"]    = "10.0";
+        store["mean_r"]   = "2.0";   // fm — typical inter-particle distance
+        store["mean_R"]   = "1.5";   // fm — typical pion displacement
         store["rel"]      = "0";
-        store["n_opt_S"]  = "8";    // number of S update steps
-        store["n_opt_b"]  = "8";    // number of b update steps (after S is done)
-        store["k_S"]      = "0.01"; // S learning rate: S += k_S * (target - E)
-        store["k_b"]      = "0.001";// b learning rate: b += k_b * (target - E)
-        store["target"]   = "-2.225"; // binding energy target (MeV)
+        store["n_opt_S"]  = "8";
+        store["n_opt_b"]  = "8";
+        store["k_S"]      = "0.01";
+        store["k_b"]      = "0.001";
+        store["target"]   = "-2.225";
     }
 
     void load_file(const std::string& path) {
@@ -119,12 +122,49 @@ struct PionSystem {
     bool              relativistic;
     hamiltonian       H;
 
-    matrix Omega(size_t sector) const {
+    // --------------------------------------------------------
+    //  pion_coord() — Jacobi-space projection vector for the
+    //  distance from the pion to the emitting nucleon.
+    //
+    //  Convention for sector {N0, N1, pion}:
+    //    x0 = r_{N1} - r_{N0}          (inter-nucleon, Jacobi coord 0)
+    //    x1 = r_{pion} - CoM(N0, N1)   (pion to NN centre, Jacobi coord 1)
+    //
+    //  Inverting:
+    //    r_{pion} - r_{N0} =  x1 + [m_{N1}/(m_{N0}+m_{N1})] * x0
+    //    r_{pion} - r_{N1} =  x1 - [m_{N0}/(m_{N0}+m_{N1})] * x0
+    //
+    //  emitting_idx = 0  ->  N0 is the emitting nucleon
+    //  emitting_idx = 1  ->  N1 is the emitting nucleon
+    // --------------------------------------------------------
+    vector pion_coord(size_t sector, int emitting_idx) const {
+        long double m0   = jac[sector].particles[0].mass;
+        long double m1   = jac[sector].particles[1].mass;
+        long double mtot = m0 + m1;
+        vector c(2);
+        if (emitting_idx == 0) {
+            c[0] = +m1 / mtot;
+            c[1] =  1.0L;
+        } else {
+            c[0] = -m0 / mtot;
+            c[1] =  1.0L;
+        }
+        return c;
+    }
+
+    // --------------------------------------------------------
+    //  Omega() — rank-1 Gaussian form-factor kernel matrix.
+    //
+    //  r_{piN}^2 = (c^T x)^2 = x^T (c c^T) x
+    //  so  Omega_{ij} = c_i * c_j / b^2
+    // --------------------------------------------------------
+    matrix Omega(size_t sector, const vector& c_coord) const {
         size_t d = jac[sector].dim();
         matrix Om(d, d);
-        long double w = 1.0L / (b_pion * b_pion);
-        Om(0,0) = w;
-        Om(1,1) = w;
+        long double inv_b2 = 1.0L / (b_pion * b_pion);
+        for (size_t i = 0; i < d; ++i)
+            for (size_t j = 0; j < d; ++j)
+                Om(i,j) = inv_b2 * c_coord[i] * c_coord[j];
         return Om;
     }
 
@@ -172,18 +212,24 @@ struct PionSystem {
             size_t n0    = basis[0].size();
             size_t n_s   = basis[sec].size();
             size_t off_s = offset(sec);
-            matrix Om    = Omega(sec);
+
+            // emitting_idx: which nucleon in the clothed sector emitted the pion
+            //   sec=1 {p,n,pi0}:  proton  at idx 0 emits
+            //   sec=2 {n,n,pi+}:  ex-proton at idx 0 emits
+            //   sec=3 {p,p,pi-}:  ex-neutron at idx 1 emits
+            int emitting_idx = (sec == 3) ? 1 : 0;
+
+            vector c_coord = pion_coord(sec, emitting_idx);
+            matrix Om      = Omega(sec, c_coord);
 
             vector beta(3);
             for (size_t d = 0; d < 3; ++d)
-                // Fedorov: A = S_w/b_w (photoproduction eq.38): r_pi carries fm, so
-                // dividing by b_pion restores MeV energy units.
                 beta[d] = iso_weight[sec] * (S_pion / b_pion) * c_spin[d];
 
             for (size_t i = 0; i < n0; ++i) {
                 for (size_t j = 0; j < n_s; ++j) {
                     long double w = H.W(basis[0][i], basis[sec][j],
-                                        Om, jac[sec].meson_index(),
+                                        Om, c_coord,
                                         0.0L, beta);
                     H_tot(i,       off_s+j) = w;
                     H_tot(off_s+j, i      ) = w;
@@ -208,16 +254,18 @@ static long double solve(const matrix& H_tot, const matrix& N_tot) {
     return E0;
 }
 
-static gaus make_swave(size_t dim, long double A_min, long double A_max) {
-    gaus g(dim, A_min, A_max);
-    g.zero_shifts();
+// S-wave: peak fixed at origin, width controlled by mean_r
+static gaus make_swave(size_t dim, long double mean_r) {
+    gaus g(dim, mean_r, 0.0L);  // mean_R = 0 -> zero shifts
+    g.zero_shifts();             // explicit zero for safety
     return g;
 }
 
-static gaus make_pwave(size_t dim, long double A_min, long double A_max) {
-    return gaus(dim, A_min, A_max);
+// P-wave (pion sector): peak displaced by up to mean_R from origin
+// mean_R is set to b_pion so the pion cloud explores the vertex range
+static gaus make_pwave(size_t dim, long double mean_r, long double mean_R) {
+    return gaus(dim, mean_r, mean_R);
 }
-
 
 // -----------------------------------------------------------
 //  Run competitive selection from scratch with the current
@@ -228,7 +276,8 @@ static long double run_selection(
     PionSystem& sys,
     const size_t* target_n,
     int n_cand,
-    long double A_min, long double A_max)
+    long double mean_r,
+    long double mean_R)
 {
     for (int s = 0; s < 4; ++s) sys.basis[s].clear();
 
@@ -251,12 +300,12 @@ static long double run_selection(
         bool   bare = (add_sec == 0);
 
         long double best_E = std::numeric_limits<long double>::infinity();
-        gaus best_g = bare ? make_swave(dim, A_min, A_max)
-                           : make_pwave(dim, A_min, A_max);
+        gaus best_g = bare ? make_swave(dim, mean_r)
+                           : make_pwave(dim, mean_r, mean_R);
 
         for (int c = 0; c < n_cand; ++c) {
-            gaus trial = bare ? make_swave(dim, A_min, A_max)
-                              : make_pwave(dim, A_min, A_max);
+            gaus trial = bare ? make_swave(dim, mean_r)
+                              : make_pwave(dim, mean_r, mean_R);
             sys.basis[add_sec].push_back(trial);
             sys.build(H_cur, N_cur);
             long double E = solve(H_cur, N_cur);
@@ -274,17 +323,8 @@ static long double run_selection(
 // ============================================================
 int main(int argc, char* argv[])
 {
-    // ----------------------------------------------------------
-    // Parse arguments:
-    //   arg without '=' -> config file path
-    //   arg with    '=' -> key=value override
-    // ----------------------------------------------------------
     Params cfg;
 
-    // Two-pass parsing so CLI overrides always win over the config file:
-    //   Pass 1: load all config files (left to right)
-    //   Pass 2: apply key=value overrides on top
-    // This means ./main pion.cfg S=20  AND  ./main S=20  both work correctly.
     bool file_loaded = false;
     for (int k = 1; k < argc; ++k) {
         std::string arg(argv[k]);
@@ -293,9 +333,8 @@ int main(int argc, char* argv[])
             file_loaded = true;
         }
     }
-    if (!file_loaded) cfg.load_file("pion.cfg");  // default
+    if (!file_loaded) cfg.load_file("pion.cfg");
 
-    // Now apply CLI key=value overrides (after file, so they win)
     for (int k = 1; k < argc; ++k) {
         std::string arg(argv[k]);
         if (arg.find('=') != std::string::npos)
@@ -304,29 +343,23 @@ int main(int argc, char* argv[])
 
     cfg.print();
 
-    // ----------------------------------------------------------
-    // Extract parameters
-    // ----------------------------------------------------------
-    long double       S_pion  = cfg.ld("S");
-    long double       b_pion  = cfg.ld("b");
-    const size_t      n0      = cfg.sz("n0");
-    const size_t      n1      = cfg.sz("n1");
-    const size_t      n2      = cfg.sz("n2");
-    const size_t      n3      = cfg.sz("n3");
-    const int         n_cand  = cfg.i("n_cand");
-    const int         n_refine= cfg.i("n_refine");
-    const long double A_min   = cfg.ld("A_min");
-    const long double A_max   = cfg.ld("A_max");
-    const bool        rel     = (cfg.i("rel") != 0);
-    const int         n_opt_S = cfg.i("n_opt_S");
-    const int         n_opt_b = cfg.i("n_opt_b");
-    const long double k_S     = cfg.ld("k_S");
-    const long double k_b     = cfg.ld("k_b");
-    const long double E_target= cfg.ld("target");
+    long double       S_pion   = cfg.ld("S");
+    long double       b_pion   = cfg.ld("b");
+    const size_t      n0       = cfg.sz("n0");
+    const size_t      n1       = cfg.sz("n1");
+    const size_t      n2       = cfg.sz("n2");
+    const size_t      n3       = cfg.sz("n3");
+    const int         n_cand   = cfg.i("n_cand");
+    const int         n_refine = cfg.i("n_refine");
+    const long double mean_r   = cfg.ld("mean_r");
+    const long double mean_R   = cfg.ld("mean_R");
+    const bool        rel      = (cfg.i("rel") != 0);
+    const int         n_opt_S  = cfg.i("n_opt_S");
+    const int         n_opt_b  = cfg.i("n_opt_b");
+    const long double k_S      = cfg.ld("k_S");
+    const long double k_b      = cfg.ld("k_b");
+    const long double E_target = cfg.ld("target");
 
-    // ----------------------------------------------------------
-    // 1. Particles and Jacobians
-    // ----------------------------------------------------------
     std::cout << "[main] ============================================\n";
     std::cout << "[main] Deuteron + explicit pion (4-sector SVM)\n";
     std::cout << "[main] ============================================\n";
@@ -341,31 +374,12 @@ int main(int argc, char* argv[])
     VertexResult v_p = apply_pion_emission(proton,  piplus);
     VertexResult v_m = apply_pion_emission(neutron, piminus);
 
-    std::cerr << "[main] Isospin weights:\n";
-    std::cerr << "  p  + pi0 -> " << v0.resulting_nucleon.name
-              << "  w=" << v0.coefficient << "\n";
-    std::cerr << "  p  + pi+ -> " << v_p.resulting_nucleon.name
-              << "  w=" << v_p.coefficient << "\n";
-    std::cerr << "  n  + pi- -> " << v_m.resulting_nucleon.name
-              << "  w=" << v_m.coefficient << "\n";
-
     PionSystem sys;
-    sys.relativistic  = rel;
-    sys.S_pion        = S_pion;
-    sys.b_pion        = b_pion;
-    sys.c_spin        = vector(3);
-    // c_spin encodes the spin matrix element  <χ_f|σ_d|χ_i>  for direction d.
-    // The pion vertex is  W = S·(σ⃗·r_π)·F(r).
-    // For a single spin-½ nucleon in a definite spin state, |c_spin|² = 1.
-    //
-    // Choosing  c_spin = {1/√3, 1/√3, 1/√3}  keeps |c_spin|² = 1 and
-    // distributes the coupling equally over x, y, z, so the SVM can use all
-    // three spatial directions of the pion shifts — roughly 3× more efficient
-    // than the {1,0,0} placeholder that restricts coupling to x only.
-    //
-    // For the full deuteron spin structure (J=1), the correct c_spin would be
-    // derived from angular momentum recoupling.  This isotropic approximation
-    // gives the right binding-energy scale and can be refined later.
+    sys.relativistic = rel;
+    sys.S_pion       = S_pion;
+    sys.b_pion       = b_pion;
+    sys.c_spin       = vector(3);
+
     {
         long double s3 = 1.0L / std::sqrt(3.0L);
         sys.c_spin[0] = s3;
@@ -388,48 +402,24 @@ int main(int argc, char* argv[])
     sys.iso_weight[2] = v_p.coefficient;
     sys.iso_weight[3] = v_m.coefficient;
 
-    std::cerr << "[main] Jacobians:\n";
-    for (int s = 0; s < 4; ++s) {
-        std::cerr << "  sec " << s << ": dim=" << sys.jac[s].dim();
-        for (size_t k = 0; k < sys.jac[s].dim(); ++k)
-            std::cerr << "  mu[" << k << "]=" << sys.jac[s].mu(k) << " MeV";
-        std::cerr << "\n";
-    }
-
-    // ----------------------------------------------------------
-    // 2. Print active run parameters
-    // ----------------------------------------------------------
     std::cout << "[main] S=" << S_pion << " MeV  b=" << b_pion
               << " fm  rel=" << (rel ? "yes" : "no") << "\n";
     std::cout << "[main] Basis: n0=" << n0 << " n1=" << n1
               << " n2=" << n2 << " n3=" << n3
-              << "  n_cand=" << n_cand << "  n_refine=" << n_refine
-              << "  A=[" << A_min << "," << A_max << "]\n\n";
+              << "  n_cand=" << n_cand << "  n_refine=" << n_refine << "\n";
+    std::cout << "[main] Gaussian: mean_r=" << mean_r << " fm"
+              << "  A_ii~" << 1.0L/(2.0L*mean_r*mean_r) << " fm^-2"
+              << "  mean_R=" << mean_R << " fm\n\n";
 
-    // ----------------------------------------------------------
-    // 3. Fixed setup (does not change across optimisation)
-    // ----------------------------------------------------------
     const size_t target_n[4] = {n0, n1, n2, n3};
     matrix H_cur, N_cur;
 
     // ----------------------------------------------------------
-    // 4. Phase 0a — Tune S with b held fixed
-    //
-    //    Each iteration:
-    //      1. Run competitive selection with current S (b is fixed)
-    //      2. err = target - E_cur
-    //      3. S += k_S * err
-    //
-    //    Sign: if E > target (too weakly bound), err < 0.
-    //    For the pion system S enters the W vertex as S*(sigma.r),
-    //    so |S| controls coupling strength — increase |S| to bind more.
-    //    k_S > 0 moves S in the direction that lowers E.
+    // Phase 0a — Tune S
     // ----------------------------------------------------------
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "=== Phase 0a: Tuning S  (" << n_opt_S << " steps, k_S=" << k_S
               << ")  b=" << b_pion << " fm fixed ===\n";
-    std::cerr << "=== Phase 0a: Tuning S  k_S=" << k_S
-              << "  n=" << n_opt_S << " ===\n";
 
     long double E_cur = std::numeric_limits<long double>::quiet_NaN();
 
@@ -437,7 +427,7 @@ int main(int argc, char* argv[])
         sys.S_pion = S_pion;
         sys.b_pion = b_pion;
 
-        E_cur = run_selection(sys, target_n, n_cand, A_min, A_max);
+        E_cur = run_selection(sys, target_n, n_cand, mean_r, mean_R);
         long double err = E_target - E_cur;
 
         std::cout << "  S it=" << std::setw(2) << it
@@ -445,34 +435,22 @@ int main(int argc, char* argv[])
                   << "  b=" << std::setw(6) << b_pion
                   << "  E=" << std::setw(10) << E_cur
                   << "  err=" << std::setw(9) << err << " MeV\n";
-        std::cerr << "  S it=" << it << "  S=" << S_pion
-                  << "  E=" << E_cur << "  err=" << err << "\n";
 
         if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
-
         S_pion += k_S * err;
     }
 
     // ----------------------------------------------------------
-    // 5. Phase 0b — Tune b with S held fixed at value found above
-    //
-    //    Same gradient-step logic but now only b moves.
-    //    k_b sign: increasing b widens the form factor → weaker
-    //    localisation → typically less binding, so k_b > 0 will
-    //    decrease b when E is too high (err < 0), sharpening the
-    //    vertex and increasing binding.  Adjust sign if you see
-    //    b moving the wrong way for your vertex parameterisation.
+    // Phase 0b — Tune b
     // ----------------------------------------------------------
     std::cout << "\n=== Phase 0b: Tuning b  (" << n_opt_b << " steps, k_b=" << k_b
               << ")  S=" << S_pion << " MeV fixed ===\n";
-    std::cerr << "=== Phase 0b: Tuning b  k_b=" << k_b
-              << "  n=" << n_opt_b << " ===\n";
 
     for (int it = 0; it < n_opt_b; ++it) {
         sys.S_pion = S_pion;
         sys.b_pion = b_pion;
 
-        E_cur = run_selection(sys, target_n, n_cand, A_min, A_max);
+        E_cur = run_selection(sys, target_n, n_cand, mean_r, mean_R);
         long double err = E_target - E_cur;
 
         std::cout << "  b it=" << std::setw(2) << it
@@ -480,32 +458,24 @@ int main(int argc, char* argv[])
                   << "  b=" << std::setw(6) << b_pion
                   << "  E=" << std::setw(10) << E_cur
                   << "  err=" << std::setw(9) << err << " MeV\n";
-        std::cerr << "  b it=" << it << "  b=" << b_pion
-                  << "  E=" << E_cur << "  err=" << err << "\n";
 
         if (std::abs(err) < 0.05L) { std::cout << "  [b converged]\n"; break; }
-
         b_pion += k_b * err;
     }
 
     // ----------------------------------------------------------
-    // 5. Phase 1 — Final competitive selection with best S, b
+    // Phase 1 — Final selection
     // ----------------------------------------------------------
     std::cout << "\n=== Phase 1: Final competitive selection"
               << "  S=" << S_pion << "  b=" << b_pion << " ===\n";
-    std::cerr << "=== Phase 1: Final selection S=" << S_pion
-              << "  b=" << b_pion << " ===\n";
 
-    long double E_best = run_selection(sys, target_n, n_cand, A_min, A_max);
-    std::cout << "After selection: E=" << std::fixed << std::setprecision(4)
-              << E_best << " MeV\n";
-    std::cerr << "[main] After selection: E=" << E_best << " MeV\n\n";
+    long double E_best = run_selection(sys, target_n, n_cand, mean_r, mean_R);
+    std::cout << "After selection: E=" << E_best << " MeV\n";
 
     // ----------------------------------------------------------
-    // 7. Phase 2 — Refining
+    // Phase 2 — Refining
     // ----------------------------------------------------------
     std::cout << "\n=== Phase 2: Refining ===\n";
-    std::cerr << "\n=== Phase 2: Refining ===\n";
 
     for (int cycle = 1; cycle <= n_refine; ++cycle) {
         long double E_start = E_best;
@@ -520,8 +490,8 @@ int main(int argc, char* argv[])
 
                 for (int c = 0; c < n_cand; ++c) {
                     sys.basis[sec][k] = bare
-                        ? make_swave(dim, A_min, A_max)
-                        : make_pwave(dim, A_min, A_max);
+                        ? make_swave(dim, mean_r)
+                        : make_pwave(dim, mean_r, mean_R);
                     sys.build(H_cur, N_cur);
                     long double E = solve(H_cur, N_cur);
                     if (!std::isnan(E) && E < best_E) {
@@ -534,26 +504,24 @@ int main(int argc, char* argv[])
         }
 
         long double delta = E_start - E_best;
-        std::cout << std::fixed << std::setprecision(4)
-                  << "  cycle=" << cycle
-                  << "  E=" << std::setw(10) << E_best
-                  << " MeV  delta=" << delta << " MeV\n";
-        std::cerr << "  cycle=" << cycle
+        std::cout << "  cycle=" << cycle
                   << "  E=" << std::setw(10) << E_best
                   << " MeV  delta=" << delta << " MeV\n";
     }
 
     // ----------------------------------------------------------
-    // 6. Result
+    // Result
     // ----------------------------------------------------------
     sys.build(H_cur, N_cur);
     E_best = solve(H_cur, N_cur);
 
     std::cout << "\n==========================================\n";
-    std::cout << "  Target      :  -2.225000 MeV\n";
-    std::cout << "  Result      : " << std::setw(10) << E_best << " MeV\n";
+    std::cout << "  Target      :  " << E_target <<" MeV\n";
+    std::cout << "  Result      : " << E_best << " MeV\n";
     std::cout << "  S_pion      :  " << S_pion  << " MeV\n";
     std::cout << "  b_pion      :  " << b_pion  << " fm\n";
+    std::cout << "  mean_r      :  " << mean_r  << " fm\n";
+    std::cout << "  mean_R      :  " << mean_R  << " fm\n";
     std::cout << "  relativistic:  " << (rel ? "yes" : "no") << "\n";
     std::cout << "  Basis       :  "
               << sys.basis[0].size() << " + " << sys.basis[1].size()

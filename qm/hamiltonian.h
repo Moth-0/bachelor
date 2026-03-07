@@ -34,7 +34,6 @@ struct hamiltonian {
         return overlap(gi, gj);
     }
 
-
     // --------------------------------------------------------
     //  HELPER: R = (A_i + A_j)^{-1}  (shared by K_cla + K_rel)
     // --------------------------------------------------------
@@ -96,7 +95,6 @@ struct hamiltonian {
                 for (size_t j = 0; j < n; ++j)
                     diff[i] += gi.A(i,j) * Rb[j] - gj.A(i,j) * Ra[j];
 
-            // eta_d = c . diff_d
             long double eta_d = 0.0L;
             for (size_t i = 0; i < n; ++i)
                 eta_d += c[i] * diff[i];
@@ -107,7 +105,7 @@ struct hamiltonian {
     }
 
     // --------------------------------------------------------
-    //  CLASSICAL KINETIC ENERGY  (your derivation)
+    //  CLASSICAL KINETIC ENERGY
     //
     //  K_cla = overlap * (hbar^2/2mu) * J_cla
     //
@@ -143,7 +141,7 @@ struct hamiltonian {
     }
 
     // --------------------------------------------------------
-    //  RELATIVISTIC KINETIC ENERGY  (your derivation)
+    //  RELATIVISTIC KINETIC ENERGY
     //
     //  T_rel = sqrt(p^2 c^2 + m^2 c^4) - m c^2
     //
@@ -159,7 +157,7 @@ struct hamiltonian {
     //  where f(p) = p^2 / (sqrt(p^2 + m^2) + m)  [conjugate trick]
     //  and p = hbar_c * x.
     //
-    //  Integrated with Simpson's rule, 2000 points.
+    //  Integrated with Simpson's rule, 200 points.
     //  x_max = 6 / sqrt(gamma)  covers > 6 sigma of the Gaussian.
     // --------------------------------------------------------
     long double K_rel(const gaus& gi, const gaus& gj,
@@ -199,7 +197,6 @@ struct hamiltonian {
         long double front = std::pow(gamma / pi, 1.5L) * 2.0L * pi;
         return ov * (h / 3.0L) * sum * front;
     }
-
 
     // --------------------------------------------------------
     //  COULOMB POTENTIAL (for testing with hydrogen)
@@ -250,41 +247,43 @@ struct hamiltonian {
     //
     //  Computes the off-diagonal block matrix element:
     //
-    //    W_ij = < g_bare | (alpha + beta . x_{coord}) * 
+    //    W_ij = < g_bare | (alpha + beta . (c_coord^T x)) *
     //                      exp(-x^T Omega x) | g_clothed >
     //
     //  where:
     //    g_bare    : dim1-dimensional Gaussian (bare sector)
     //    g_clothed : dim2-dimensional Gaussian (clothed sector, dim2 > dim1)
     //    Omega     : dim2 x dim2 kernel matrix (Gaussian form factor)
-    //    coord_idx : which Jacobi coordinate carries the linear factor
-    //                (= jac_clothed.meson_index() for the meson coordinate)
+    //    c_coord   : Jacobi-space projection vector for the physical distance.
+    //                For sigma:  c = e_{meson_idx}  (single Jacobi coord)
+    //                For pion:   c = [±m1/(m0+m1), 1] so that
+    //                            c^T x = r_{pi} - r_{emitting nucleon}
     //    alpha     : scalar coupling strength (use for sigma/s-wave)
     //    beta      : 3-vector coupling (use for pion/p-wave; = S * <chi|sigma|chi>)
     //
     //  This is the UNIFIED formula:
-    //    W = (alpha + beta . u_{coord}) * M
+    //    W = (alpha + beta . (c_coord^T u)) * M
     //
     //  where M = overlap after promotion+Omega, and
-    //    u_{coord}^d = [0.5 * B^{-1} * v^d]_{coord_idx}
+    //    u^d = 0.5 * B^{-1} * v^d   (Gaussian mean vector in Jacobi space)
     //    B = A_promoted_with_Omega + A_clothed
     //    v^d = s_promoted[:,d] + s_clothed[:,d]
     //
     //  Special cases:
     //    Sigma meson (scalar): beta = {0,0,0}, returns alpha * M
-    //    Pion (P-wave):        alpha = 0,      returns (beta.u) * M
+    //    Pion (P-wave):        alpha = 0,      returns (beta . (c^T u)) * M
     // --------------------------------------------------------
     long double W(const gaus& g_bare,
                   const gaus& g_clothed,
                   const matrix& Omega,
-                  size_t coord_idx,
+                  const vector& c_coord,
                   long double alpha,
                   const vector& beta) const {
 
         size_t d1 = g_bare.dim();
         size_t d2 = g_clothed.dim();
         assert(d2 > d1);
-        assert(coord_idx < d2);
+        assert(c_coord.size() == d2);
         assert(Omega.size1() == d2 && Omega.size2() == d2);
 
         // 1. Promote g_bare to d2 (pad with zeros)
@@ -301,7 +300,7 @@ struct hamiltonian {
         bool pure_scalar = (beta[0] == 0.0L && beta[1] == 0.0L && beta[2] == 0.0L);
         if (pure_scalar) return alpha * M;
 
-        // 5. P-wave part: compute u_{coord_idx} for each spatial direction
+        // 5. P-wave part: compute c_coord^T u for each spatial direction
         //    B = A_promoted_with_Omega + A_clothed  (already in g_prom.A)
         matrix B     = g_prom.A + g_clothed.A;
         matrix B_inv = B.inverse();
@@ -319,8 +318,12 @@ struct hamiltonian {
             vector u_d = B_inv * v_d;
             u_d = u_d * 0.5L;
 
-            // Extract the meson Jacobi coordinate component
-            beta_dot_u += beta[d] * u_d[coord_idx];
+            // Project onto the physical coordinate: c_coord^T u_d
+            // For pion: this gives r_{pi -> emitting nucleon} in direction d
+            long double cu = 0.0L;
+            for (size_t k = 0; k < d2; ++k)
+                cu += c_coord[k] * u_d[k];
+            beta_dot_u += beta[d] * cu;
         }
 
         return (alpha + beta_dot_u) * M;

@@ -15,9 +15,7 @@ namespace qm {
 //  (tau . pi) vertex and returns the isospin coupling weight
 //  and the resulting nucleon after the transition.
 //
-//  This is used in main.cc to determine:
-//    - which Fock sector each W block connects to
-//    - the isospin weight multiplying W_spatial
+//  This is used in main.cc 
 // ============================================================
 
 // Result of applying a ladder operator.
@@ -48,7 +46,7 @@ struct Particle {
         : name(n), mass(m), charge(c),
           s(spin), sz(spin_z), t(isospin), tz(iso_z) {}
 
-    virtual ~Particle() = default;
+    ~Particle() = default;
 
     // J_+ |j,m> = sqrt(j(j+1) - m(m+1)) |j,m+1>
     OpResult ladder_plus(double j, double m) const {

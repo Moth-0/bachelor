@@ -19,6 +19,14 @@
 //        encoding spatial correlations between coordinates
 //    s : (dim x 3) matrix of shift vectors
 //
+//  Physical interpretation (key):
+//    The Gaussian peaks at mean position u = (1/2) A^{-1} s,
+//    i.e.  s = 2 A u.
+//    The RMS width along Jacobi coordinate i is
+//      sigma_i ~ 1 / sqrt(2 * A_{ii})
+//    so  A_{ii} ~ 1 / (2 * r_i^2)  where r_i is the typical
+//    inter-particle distance for that coordinate.
+//
 //  Key design decision: gaus is a PURE MATH object.
 //  It has no knowledge of particles, masses, or physics.
 //  All particle/physics information lives in jacobian.h
@@ -46,11 +54,19 @@ struct gaus {
 
     gaus() = default;
 
-    // Construct and immediately randomize
-    explicit gaus(size_t dim, long double min_A = 0.01, long double max_A = 10.0) {
+    // Construct and immediately randomize.
+    //   mean_r [fm] : typical inter-particle distance
+    //                 (controls width of A; default 2 fm is
+    //                  a reasonable nuclear scale)
+    //   mean_R [fm] : typical displacement of the Gaussian
+    //                 peak from the origin in Jacobi space
+    //                 (zero for S-wave; ~1-2 fm for P-wave)
+    explicit gaus(size_t dim,
+                  long double mean_r = 2.0L,
+                  long double mean_R = 0.0L) {
         A = matrix(dim, dim);
         s = matrix(dim, 3);
-        randomize(min_A, max_A);
+        randomize(mean_r, mean_R);
     }
 
     // Construct from explicit matrices (e.g., for unit tests)
@@ -62,44 +78,101 @@ struct gaus {
 
     size_t dim() const { return A.size1(); }
 
-    // Randomize in-place without reallocating.
-    // A is built as L*L^T (Cholesky) to guarantee positive-definiteness.
-    // Diagonal entries of L are log-uniformly distributed so the basis
-    // spans many length scales simultaneously.
-    void randomize(long double min_A, long double max_A) {
+    // --------------------------------------------------------
+    //  randomize(mean_r, mean_R)
+    //
+    //  Generates a physically grounded Gaussian with:
+    //
+    //  A — built via Cholesky A = L Lᵀ so it is guaranteed
+    //      positive-definite (Varga & Suzuki, Ch. 4).
+    //      Diagonal entries of L are log-uniformly drawn in
+    //
+    //        [ 1/(sqrt(2) * spread * mean_r),
+    //          1/(sqrt(2) * mean_r / spread) ]
+    //
+    //      which maps to A_{ii} in
+    //
+    //        [ 1/(2*(spread*mean_r)^2),  1/(2*(mean_r/spread)^2) ]
+    //
+    //      with spread = 3, so the basis spans one decade
+    //      around the physical scale A ~ 1/(2*mean_r^2).
+    //
+    //      Off-diagonal entries of L are drawn uniformly in
+    //      [-corr * L_{jj}, +corr * L_{jj}] with corr = 0.3.
+    //      Small correlation keeps A well-conditioned while
+    //      still allowing genuine inter-coordinate coupling.
+    //
+    //  s — derived from a random peak position u:
+    //        u_i ~ Uniform(-mean_R, +mean_R)  for each
+    //              Jacobi coordinate i and spatial direction d.
+    //        s = 2 * A * u   (exact completion-of-square)
+    //
+    //      This guarantees the Gaussian is peaked at u and
+    //      that s scales consistently with A.
+    //      For S-wave channels call zero_shifts() afterwards.
+    //
+    //  Parameters:
+    //    mean_r [fm]  — typical inter-particle distance
+    //    mean_R [fm]  — typical Gaussian peak displacement
+    //                   (set 0 for S-wave / bare sectors)
+    // --------------------------------------------------------
+    void randomize(long double mean_r, long double mean_R = 0.0L) {
         size_t d = A.size1();
-        matrix L(d, d);
-        long double log_lo = std::log(std::sqrt(min_A));
-        long double log_hi = std::log(std::sqrt(max_A));
 
+        // --- Build A = L Lᵀ ---
+        // L_{ii} drawn log-uniformly so that A_{ii} spans
+        //   [1/(2*(3*mean_r)^2),  1/(2*(mean_r/3)^2)]
+        // i.e. one order of magnitude each side of 1/(2*mean_r^2).
+        const long double spread = 3.0L;
+        const long double L_lo   = 1.0L / (std::sqrt(2.0L) * spread * mean_r);
+        const long double L_hi   = 1.0L / (std::sqrt(2.0L) * mean_r / spread);
+        const long double log_lo = std::log(L_lo);
+        const long double log_hi = std::log(L_hi);
+        // Off-diagonal correlation fraction (keep small for conditioning)
+        const long double corr = 0.3L;
+
+        matrix L(d, d);
         for (size_t i = 0; i < d; ++i) {
-            // Diagonal: strictly positive, log-uniform
+            // Diagonal: log-uniform, centred on 1/(sqrt(2)*mean_r)
             L(i, i) = std::exp(random_ld(log_lo, log_hi));
-            // Lower triangle: bounded by smaller diagonal to keep conditioning
-            for (size_t j = 0; j < i; ++j) {
-                long double bound = std::min(L(i,i), L(j,j)) * 0.5L;
-                L(i, j) = random_ld(-bound, bound);
-            }
+            // Lower triangle: bounded fraction of the column diagonal
+            for (size_t j = 0; j < i; ++j)
+                L(i, j) = random_ld(-corr * L(j,j), +corr * L(j,j));
         }
 
-        // A = L * L^T  (always positive-definite)
+        // A = L Lᵀ  (positive-definite by construction)
         for (size_t i = 0; i < d; ++i)
             for (size_t j = 0; j < d; ++j) {
-                long double sum = 0.0;
+                long double sum = 0.0L;
                 for (size_t k = 0; k <= std::min(i,j); ++k)
                     sum += L(i,k) * L(j,k);
                 A(i,j) = sum;
             }
 
-        // Shifts: small random values.
-        // For S-wave channels the caller should zero these out after construction.
-        // For P-wave channels the SVM will optimize them.
+        // --- Build s = 2 A u ---
+        // u: peak position in Jacobi space, drawn per coordinate
+        //    and per spatial direction from Uniform(-mean_R, +mean_R).
+        // u is stored as a (dim x 3) matrix (row = Jacobi coord, col = xyz).
+        // If mean_R == 0 all shifts are zero (S-wave).
+        matrix u(d, 3);
         for (size_t i = 0; i < d; ++i)
             for (size_t k = 0; k < 3; ++k)
-                s(i, k) = random_ld(-0.1L, 0.1L);
+                u(i, k) = (mean_R > 0.0L)
+                           ? random_ld(-mean_R, +mean_R)
+                           : 0.0L;
+
+        // s = 2 A u  (per spatial direction independently)
+        for (size_t i = 0; i < d; ++i)
+            for (size_t k = 0; k < 3; ++k) {
+                long double val = 0.0L;
+                for (size_t j = 0; j < d; ++j)
+                    val += A(i,j) * u(j,k);
+                s(i, k) = 2.0L * val;
+            }
     }
 
-    // Zero out all shift vectors (call this for S-wave channels)
+    // Zero out all shift vectors (call this for S-wave channels).
+    // The Gaussian peak is then exactly at the origin.
     void zero_shifts() {
         for (size_t i = 0; i < dim(); ++i)
             for (size_t k = 0; k < 3; ++k)
@@ -140,7 +213,7 @@ inline gaus promote(const gaus& g, size_t new_dim) {
 //
 //  Analytic result (for dim Jacobi coordinates, each 3D):
 //
-//    N_ab = (pi^dim / det(B))^(3/2) * exp(1/4 * v^T B^{-1} v_dot)
+//    N_ab = (pi^dim / det(B))^(3/2) * exp(1/4 * v^T B^{-1} v)
 //
 //  where B = A_a + A_b and the exponent is summed over 3D directions.
 // ------------------------------------------------------------
@@ -167,10 +240,7 @@ inline long double overlap(const gaus& a, const gaus& b) {
         }
     }
 
-    // Correct: pi^{3d/2} / det(B)^{3/2}
-    // The det exponent is ALWAYS 3/2 (one factor per spatial dimension x,y,z).
-    // Only the pi exponent scales with d. Note: for d=1 both forms are equal,
-    // which is why the hydrogen (1-body Jacobi) test passed with the old formula.
+    // pi^{3d/2} / det(B)^{3/2}
     long double front = std::pow(pi, 1.5L * (long double)d) / std::pow(detB, 1.5L);
     return front * std::exp(0.25L * vBv);
 }

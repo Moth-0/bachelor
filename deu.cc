@@ -82,7 +82,7 @@ static void build_full(
         for (size_t j = 0; j < n2; ++j) {
             long double w = H.W(basis_bare[i], basis_sig[j],
                                  Omega,
-                                 jac_sig.meson_index(),
+                                 jac_sig.c(jac_sig.meson_index()),
                                  S_sigma,
                                  beta_zero);
             H_tot(i,    n1+j) = w;
@@ -112,9 +112,9 @@ static long double solve(const matrix& H_tot, const matrix& N_tot)
     return E0;
 }
 
-static gaus make_swave(size_t dim, long double A_min, long double A_max)
+static gaus make_swave(size_t dim, long double A_mean)
 {
-    gaus g(dim, A_min, A_max);
+    gaus g(dim, A_mean);
     g.zero_shifts();
     return g;
 }
@@ -171,14 +171,13 @@ int main()
     const size_t n_sig    = 40;
     const int    n_cand   = 30;
     const int    n_refine = 5;
-    const long double A_min = 0.01L;
-    const long double A_max = 10.0L;  // r~0.3fm; keeps K < ~800 MeV
+    const long double A_mean = 2.0L;
 
     std::cerr << "[deu] SVM: n_bare=" << n_bare
               << "  n_sig=" << n_sig
               << "  n_cand=" << n_cand
               << "  n_refine=" << n_refine
-              << "  A=[" << A_min << "," << A_max << "]\n\n";
+              << "  A= "<< A_mean << "\n\n";
 
     std::vector<gaus> basis_bare;
     std::vector<gaus> basis_sig;
@@ -210,11 +209,11 @@ int main()
         const char* sec = add_bare ? "bare " : "sigma";
 
         long double best_E = std::numeric_limits<long double>::infinity();
-        gaus        best_g = make_swave(dim, A_min, A_max);
+        gaus        best_g = make_swave(dim, A_mean);
         int         n_valid = 0;
 
         for (int c = 0; c < n_cand; ++c) {
-            gaus trial = make_swave(dim, A_min, A_max);
+            gaus trial = make_swave(dim, A_mean);
 
             if (add_bare) basis_bare.push_back(trial);
             else          basis_sig .push_back(trial);
@@ -282,7 +281,7 @@ int main()
             long double best_E = E_best;
 
             for (int c = 0; c < n_cand; ++c) {
-                basis_bare[k] = make_swave(jac_bare.dim(), A_min, A_max);
+                basis_bare[k] = make_swave(jac_bare.dim(), A_mean);
                 build_full(basis_bare, basis_sig,
                            jac_bare, jac_sig,
                            H, Omega, S_sigma, m_sigma,
@@ -302,7 +301,7 @@ int main()
             long double best_E = E_best;
 
             for (int c = 0; c < n_cand; ++c) {
-                basis_sig[k] = make_swave(jac_sig.dim(), A_min, A_max);
+                basis_sig[k] = make_swave(jac_sig.dim(), A_mean);
                 build_full(basis_bare, basis_sig,
                            jac_bare, jac_sig,
                            H, Omega, S_sigma, m_sigma,
@@ -333,8 +332,8 @@ int main()
     std::cerr << "\n[deu] Done.\n";
 
     std::cout << "\n==========================================\n";
-    std::cout << "  Target  :  -2.225000 MeV\n";
-    std::cout << "  Result  : " << std::setw(10) << E_best << " MeV\n";
+    std::cout << "  Target  :  -2.2250 MeV\n";
+    std::cout << "  Result  : " << std::setw(8) << E_best << " MeV\n";
     std::cout << "  S_sigma :  " << S_sigma << " MeV\n";
     std::cout << "  b_sigma :  " << b_sigma << " fm\n";
     std::cout << "  n_bare  :  " << basis_bare.size() << "\n";
