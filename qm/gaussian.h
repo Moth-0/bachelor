@@ -178,6 +178,7 @@ struct gaus {
             for (size_t k = 0; k < 3; ++k)
                 s(i, k) = 0.0L;
     }
+
 };
 
 // ------------------------------------------------------------
@@ -244,5 +245,7 @@ inline long double overlap(const gaus& a, const gaus& b) {
     long double front = std::pow(pi, 1.5L * (long double)d) / std::pow(detB, 1.5L);
     return front * std::exp(0.25L * vBv);
 }
+
+
 
 } // namespace qm

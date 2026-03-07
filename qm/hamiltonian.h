@@ -366,6 +366,41 @@ struct hamiltonian {
             }
         }
     }
+
+    // --------------------------------------------------------
+    //  SQUARED PROTON-NEUTRON DISTANCE (Observable)
+    //
+    //  Calculates < gi | r_pn^2 | gj >
+    //  r_pn is always the 0th Jacobi coordinate in our sectors.
+    // --------------------------------------------------------
+    long double R2_matrix_element(const gaus& a, const gaus& b) const {
+        long double ov = overlap(a, b);
+        if (std::abs(ov) < ZERO_LIMIT) return 0.0L;
+
+        matrix B = a.A + b.A;
+        matrix B_inv = B.inverse();
+
+        // 1. The pure width contribution (Trace over the 3 spatial dimensions)
+        // Since r_pn is Jacobi coordinate 0, we only want the (0,0) element of the inverse
+        long double term1 = 1.5L * B_inv(0, 0);
+
+        // 2. The shift contribution 
+        // We calculate the Gaussian mean shift 'u' for the 0th coordinate
+        long double term2 = 0.0L;
+        size_t d = a.dim();
+        
+        for (size_t k = 0; k < 3; ++k) { // Loop over x, y, z directions
+            long double v0_k = 0.0L; 
+            for (size_t j = 0; j < d; ++j) {
+                long double vj = a.s(j, k) + b.s(j, k);
+                v0_k += B_inv(0, j) * vj; // Matrix-vector multiplication for coord 0
+            }
+            long double u0_k = 0.5L * v0_k;
+            term2 += u0_k * u0_k; // Add to squared vector length
+        }
+
+        return ov * (term1 + term2);
+    }
 };
 
 } // namespace qm
