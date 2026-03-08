@@ -285,7 +285,7 @@ static long double solve(const matrix& H_tot, const matrix& N_tot) {
     long double E0 = sys.evals[0];
     
     // --- LINEAR DEPENDENCE SAFEGUARD ---
-    if (E0 < -100.0L) return std::numeric_limits<long double>::quiet_NaN();
+    if (E0 < -10.0L) return std::numeric_limits<long double>::quiet_NaN();
     
     return E0;
 }
