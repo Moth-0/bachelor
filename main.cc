@@ -348,7 +348,22 @@ static long double run_selection(PionSystem& sys, const size_t* target_n, int n_
             #pragma omp for
             for (int c = 0; c < n_cand; ++c) {
                 const gaus& trial = candidates[c]; 
-                
+
+                // --- LINEAR DEPENDENCE FILTER ---
+                bool dependent = false;
+                long double n_tt = overlap(trial, trial);
+                for (size_t i = 0; i < sys.basis[add_sec].size(); ++i) {
+                    long double n_ii = overlap(sys.basis[add_sec][i], sys.basis[add_sec][i]);
+                    long double n_ti = std::abs(overlap(trial, sys.basis[add_sec][i]));
+                    // If the states are more than 99% identical, flag it!
+                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.99L) { 
+                        dependent = true; break;
+                    }
+                }
+                // Skip this candidate completely without doing heavy matrix math
+                if (dependent) continue; 
+                // --------------------------------
+
                 matrix H_trial, N_trial;
                 sys.insert_matrix(H_master, N_master, add_sec, trial, H_trial, N_trial);
                 
@@ -556,6 +571,23 @@ int main(int argc, char* argv[])
                         #pragma omp for
                         for (int c = 0; c < n_cand; ++c) {
                             const gaus& trial = candidates[c];
+
+                            // --- LINEAR DEPENDENCE FILTER ---
+                            bool dependent = false;
+                            long double n_tt = overlap(trial, trial);
+                            for (size_t i = 0; i < sys.basis[sec].size(); ++i) {
+                                // IMPORTANT: Do not compare against the state we are currently replacing!
+                                if (i == k) continue; 
+                                
+                                long double n_ii = overlap(sys.basis[sec][i], sys.basis[sec][i]);
+                                long double n_ti = std::abs(overlap(trial, sys.basis[sec][i]));
+                                if (n_ti / std::sqrt(n_tt * n_ii) > 0.99L) {
+                                    dependent = true; break;
+                                }
+                            }
+                            if (dependent) continue;
+                            // --------------------------------
+
                             matrix H_trial, N_trial;
                             sys.replace_matrix(H_master, N_master, sec, k, trial, H_trial, N_trial);
                             long double E = solve(H_trial, N_trial);
