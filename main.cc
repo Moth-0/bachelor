@@ -7,7 +7,7 @@
 #include <vector>
 #include <limits>
 #include <cmath>
-#include <omp.h> 
+#include <omp.h>
 
 #include "qm/matrix.h"
 #include "qm/eigen.h"
@@ -16,23 +16,18 @@
 #include "qm/gaussian.h"
 #include "qm/hamiltonian.h"
 
-// ============================================================
-//  main.cc  —  Deuteron with explicit pion exchange
-//              Two-channel spin split, Thread-Safe SVM, 
-//              Matrix Caching, and Self-Consistent Macro-Cycles
-// ============================================================
-
 using namespace qm;
 
+// Config key=value store with defaults
 struct Params {
     std::map<std::string, std::string> store;
 
     Params() {
         store["S"]        = "15.0";
         store["b"]        = "2.0";
-        store["n_pn"]     = "15";   
-        store["n_pnπ"]   = "20";   
-        store["n_cand"]   = "30";   
+        store["n_pn"]     = "15";
+        store["n_pnπ"]   = "20";
+        store["n_cand"]   = "30";
         store["n_refine"] = "3";
         store["mean_r"]   = "2.0";
         store["mean_R"]   = "1.5";
@@ -41,7 +36,7 @@ struct Params {
         store["n_opt_S"]  = "15";
         store["n_opt_b"]  = "15";
         store["k_S"]      = "0.01";
-        store["k_b"]      = "0.005"; 
+        store["k_b"]      = "0.005";
         store["target"]   = "-2.225";
     }
 
@@ -78,44 +73,47 @@ struct Params {
 
     void print() const {
         std::cerr << "[cfg] Parameters:\n";
-        for (auto& kv : store)
-            std::cerr << "  " << kv.first << " = " << kv.second << "\n";
+        for (auto& kv : store) std::cerr << "  " << kv.first << " = " << kv.second << "\n";
     }
 };
 
+// 7-sector system: sector 0 = bare PN, sectors 1-6 = clothed PN+pi channels.
+// Sector layout: 1,2 -> pi0 (chanA/B), 3,4 -> pi+ (chanA/B), 5,6 -> pi- (chanA/B)
 struct PionSystem {
     static const int N_SEC = 7;
 
     std::vector<gaus> basis[N_SEC];
-    jacobian          jac_phys[4];   
-    long double       meson_mass[4]; 
-    long double       iso_weight[4]; 
+    jacobian          jac_phys[4];    // jac_phys[p] for physical channel p
+    long double       meson_mass[4];
+    long double       iso_weight[4];
     long double       S_pion;
     long double       b_pion;
     bool              relativistic;
     hamiltonian       H;
 
-    static int phys(int sec) { return (sec <= 0) ? 0 : (sec + 1) / 2; }
+    static int  phys(int sec)      { return (sec <= 0) ? 0 : (sec + 1) / 2; }
     static bool is_chan_A(int sec) { return (sec > 0) && (sec % 2 == 1); }
     const jacobian& jac(int sec) const { return jac_phys[phys(sec)]; }
 
+    // Projection vector for pion position relative to emitting nucleon (emitting_idx = 0 or 1)
     vector pion_coord(int sec, int emitting_idx) const {
         long double m0   = jac(sec).particles[0].mass;
         long double m1   = jac(sec).particles[1].mass;
         long double mtot = m0 + m1;
         vector c(2);
-        if (emitting_idx == 0) { c[0] = +m1 / mtot; c[1] = 1.0L; } 
-        else                   { c[0] = -m0 / mtot; c[1] = 1.0L; }
+        if (emitting_idx == 0) { c[0] = +m1 / mtot; c[1] = 1.0; }
+        else                   { c[0] = -m0 / mtot; c[1] = 1.0; }
         return c;
     }
 
+    // Gaussian form factor kernel: Omega_{ij} = c_i c_j / b^2
     matrix Omega(int sec, const vector& c_coord) const {
         size_t d = jac(sec).dim();
         matrix Om(d, d);
-        long double inv_b2 = 1.0L / (b_pion * b_pion);
+        long double inv_b2 = 1.0 / (b_pion * b_pion);
         for (size_t i = 0; i < d; ++i)
             for (size_t j = 0; j < d; ++j)
-                Om(i,j) = inv_b2 * c_coord[i] * c_coord[j];
+                Om(i, j) = inv_b2 * c_coord[i] * c_coord[j];
         return Om;
     }
 
@@ -131,12 +129,16 @@ struct PionSystem {
         return off;
     }
 
-    void calc_row(int target_sec, const gaus& g_target, std::vector<long double>& h_row, std::vector<long double>& n_row, long double& h_diag, long double& n_diag) const {
+    // Compute a new row/column of H and N for trial Gaussian in target_sec
+    void calc_row(int target_sec, const gaus& g_target,
+                  std::vector<long double>& h_row, std::vector<long double>& n_row,
+                  long double& h_diag, long double& n_diag) const {
         size_t N = total_size();
-        h_row.assign(N, 0.0L); n_row.assign(N, 0.0L);
+        h_row.assign(N, 0.0);
+        n_row.assign(N, 0.0);
 
         n_diag = overlap(g_target, g_target);
-        long double k_diag = 0.0L;
+        long double k_diag = 0.0;
         const jacobian& j_tgt = jac(target_sec);
         for (size_t coord = 0; coord < j_tgt.dim(); ++coord) {
             if (relativistic) k_diag += H.K_rel(g_target, g_target, j_tgt.c(coord), j_tgt.mu(coord));
@@ -150,31 +152,28 @@ struct PionSystem {
             size_t off = offset(sec);
 
             for (size_t i = 0; i < n_s; ++i) {
-                long double h_val = 0.0L, n_val = 0.0L;
+                long double h_val = 0.0, n_val = 0.0;
                 if (sec == target_sec) {
                     n_val = overlap(basis[sec][i], g_target);
-                    long double k_val = 0.0L;
+                    long double k_val = 0.0;
                     for (size_t coord = 0; coord < j_tgt.dim(); ++coord) {
                         if (relativistic) k_val += H.K_rel(basis[sec][i], g_target, j_tgt.c(coord), j_tgt.mu(coord));
                         else              k_val += H.K_cla(basis[sec][i], g_target, j_tgt.c(coord), j_tgt.mu(coord));
                     }
                     h_val = k_val + meson_mass[phys(target_sec)] * n_val;
                 } else if (sec == 0 || target_sec == 0) {
-                    int clothed_sec = (sec == 0) ? target_sec : sec;
-                    const gaus& g_bare = (sec == 0) ? basis[0][i] : g_target;
-                    const gaus& g_cloth = (sec == 0) ? g_target : basis[sec][i];
+                    int clothed_sec  = (sec == 0) ? target_sec : sec;
+                    const gaus& g_bare  = (sec == 0) ? basis[0][i] : g_target;
+                    const gaus& g_cloth = (sec == 0) ? g_target    : basis[sec][i];
                     int p = phys(clothed_sec);
-                    int emitting_idx = (p == 3) ? 1 : 0;
-                    vector c_coord = pion_coord(clothed_sec, emitting_idx);
+                    vector c_coord = pion_coord(clothed_sec, (p == 3) ? 1 : 0);
                     matrix Om = Omega(clothed_sec, c_coord);
-
                     vector beta(3);
                     long double strength = iso_weight[p] * (S_pion / b_pion);
                     if (is_chan_A(clothed_sec)) beta[2] = strength;
-                    else beta[0] = strength * std::sqrt(2.0L);
-
-                    h_val = H.W(g_bare, g_cloth, Om, c_coord, 0.0L, beta);
-                    n_val = 0.0L;
+                    else                        beta[0] = strength * std::sqrt(2.0);
+                    h_val = H.W(g_bare, g_cloth, Om, c_coord, 0.0, beta);
+                    n_val = 0.0;
                 }
                 h_row[off + i] = h_val;
                 n_row[off + i] = n_val;
@@ -182,142 +181,146 @@ struct PionSystem {
         }
     }
 
-    void insert_matrix(const matrix& H_old, const matrix& N_old, int target_sec, const gaus& trial, matrix& H_new, matrix& N_new) const {
+    // Expand H and N by one row/column for a new basis function in target_sec
+    void insert_matrix(const matrix& H_old, const matrix& N_old,
+                       int target_sec, const gaus& trial,
+                       matrix& H_new, matrix& N_new) const {
         size_t N = H_old.size1();
-        matrix H_temp(N + 1, N + 1); 
+        matrix H_temp(N + 1, N + 1);
         matrix N_temp(N + 1, N + 1);
 
         std::vector<long double> h_row, n_row;
         long double h_diag, n_diag;
         calc_row(target_sec, trial, h_row, n_row, h_diag, n_diag);
 
-        size_t insert_idx = offset(target_sec) + basis[target_sec].size();
-        auto map_idx = [&](size_t old_i) { return (old_i >= insert_idx) ? old_i + 1 : old_i; };
+        size_t ins = offset(target_sec) + basis[target_sec].size();
+        auto remap = [&](size_t old_i) { return (old_i >= ins) ? old_i + 1 : old_i; };
 
         for (size_t i = 0; i < N; ++i) {
-            size_t new_i = map_idx(i);
+            size_t ni = remap(i);
             for (size_t j = 0; j < N; ++j) {
-                size_t new_j = map_idx(j);
-                H_temp(new_i, new_j) = H_old(i, j);
-                N_temp(new_i, new_j) = N_old(i, j);
+                size_t nj = remap(j);
+                H_temp(ni, nj) = H_old(i, j);
+                N_temp(ni, nj) = N_old(i, j);
             }
-            H_temp(new_i, insert_idx) = h_row[i]; H_temp(insert_idx, new_i) = h_row[i];
-            N_temp(new_i, insert_idx) = n_row[i]; N_temp(insert_idx, new_i) = n_row[i];
+            H_temp(ni, ins) = H_temp(ins, ni) = h_row[i];
+            N_temp(ni, ins) = N_temp(ins, ni) = n_row[i];
         }
-        H_temp(insert_idx, insert_idx) = h_diag; 
-        N_temp(insert_idx, insert_idx) = n_diag;
-        
-        H_new = H_temp; N_new = N_temp;
+        H_temp(ins, ins) = h_diag;
+        N_temp(ins, ins) = n_diag;
+        H_new = H_temp;
+        N_new = N_temp;
     }
 
-    void replace_matrix(const matrix& H_old, const matrix& N_old, int target_sec, size_t target_k, const gaus& trial, matrix& H_new, matrix& N_new) const {
+    // Replace row/column target_k in target_sec with a new basis function
+    void replace_matrix(const matrix& H_old, const matrix& N_old,
+                        int target_sec, size_t target_k, const gaus& trial,
+                        matrix& H_new, matrix& N_new) const {
         size_t N = H_old.size1();
-        matrix H_temp = H_old; 
+        matrix H_temp = H_old;
         matrix N_temp = N_old;
 
         std::vector<long double> h_row, n_row;
         long double h_diag, n_diag;
         calc_row(target_sec, trial, h_row, n_row, h_diag, n_diag);
 
-        size_t global_idx = offset(target_sec) + target_k;
+        size_t gi = offset(target_sec) + target_k;
         for (size_t i = 0; i < N; ++i) {
-            if (i == global_idx) continue;
-            H_temp(i, global_idx) = h_row[i]; H_temp(global_idx, i) = h_row[i];
-            N_temp(i, global_idx) = n_row[i]; N_temp(global_idx, i) = n_row[i];
+            if (i == gi) continue;
+            H_temp(i, gi) = H_temp(gi, i) = h_row[i];
+            N_temp(i, gi) = N_temp(gi, i) = n_row[i];
         }
-        H_temp(global_idx, global_idx) = h_diag; 
-        N_temp(global_idx, global_idx) = n_diag;
-        
-        H_new = H_temp; N_new = N_temp;
+        H_temp(gi, gi) = h_diag;
+        N_temp(gi, gi) = n_diag;
+        H_new = H_temp;
+        N_new = N_temp;
     }
 
+    // Build full H and N from scratch
     void build_full(matrix& H_tot, matrix& N_tot) const {
         size_t N = total_size();
-        H_tot = matrix(N, N); N_tot = matrix(N, N);
+        H_tot = matrix(N, N);
+        N_tot = matrix(N, N);
 
         for (int sec = 0; sec < N_SEC; ++sec) {
             size_t n_s = basis[sec].size();
             size_t off = offset(sec);
             int p = phys(sec);
             const jacobian& j = jac(sec);
-            for (size_t i = 0; i < n_s; ++i) {
+            for (size_t i = 0; i < n_s; ++i)
                 for (size_t k = 0; k < n_s; ++k) {
                     long double nij = overlap(basis[sec][i], basis[sec][k]);
-                    N_tot(off+i, off+k) = nij;
-                    long double kij = 0.0L;
-                    for (size_t coord = 0; coord < j.dim(); ++coord) {
-                        if (relativistic) kij += H.K_rel(basis[sec][i], basis[sec][k], j.c(coord), j.mu(coord));
-                        else              kij += H.K_cla(basis[sec][i], basis[sec][k], j.c(coord), j.mu(coord));
-                    }
-                    H_tot(off+i, off+k) = kij + meson_mass[p] * nij;
+                    N_tot(off + i, off + k) = nij;
+                    long double kij = 0.0;
+                    for (size_t coord = 0; coord < j.dim(); ++coord)
+                        kij += relativistic
+                            ? H.K_rel(basis[sec][i], basis[sec][k], j.c(coord), j.mu(coord))
+                            : H.K_cla(basis[sec][i], basis[sec][k], j.c(coord), j.mu(coord));
+                    H_tot(off + i, off + k) = kij + meson_mass[p] * nij;
                 }
-            }
         }
 
-        size_t n0_b = basis[0].size();
+        size_t n0 = basis[0].size();
         for (int sec = 1; sec < N_SEC; ++sec) {
-            size_t n_s = basis[sec].size();
+            size_t n_s  = basis[sec].size();
             size_t off_s = offset(sec);
             int p = phys(sec);
-            int emitting_idx = (p == 3) ? 1 : 0;
-            vector c_coord = pion_coord(sec, emitting_idx);
+            vector c_coord = pion_coord(sec, (p == 3) ? 1 : 0);
             matrix Om = Omega(sec, c_coord);
-
             vector beta(3);
             long double strength = iso_weight[p] * (S_pion / b_pion);
-            if (is_chan_A(sec)) beta[2] = strength;                    
-            else beta[0] = strength * std::sqrt(2.0L); 
-
-            for (size_t i = 0; i < n0_b; ++i) {
+            if (is_chan_A(sec)) beta[2] = strength;
+            else                beta[0] = strength * std::sqrt(2.0);
+            for (size_t i = 0; i < n0; ++i)
                 for (size_t k = 0; k < n_s; ++k) {
-                    long double w = H.W(basis[0][i], basis[sec][k], Om, c_coord, 0.0L, beta);
-                    H_tot(i, off_s+k) = w; H_tot(off_s+k, i) = w;
+                    long double w = H.W(basis[0][i], basis[sec][k], Om, c_coord, 0.0, beta);
+                    H_tot(i, off_s + k) = H_tot(off_s + k, i) = w;
                 }
-            }
         }
     }
 };
 
+// Solve H c = E N c and return ground-state energy (NaN on failure)
 static long double solve(const matrix& H_tot, const matrix& N_tot) {
     EigenResult sys = solve_generalized_eigensystem(H_tot, N_tot);
     if (sys.evals.size() == 0) return std::numeric_limits<long double>::quiet_NaN();
-    
-    long double E0 = sys.evals[0];
-
-    return E0;
+    return sys.evals[0];
 }
 
 static gaus make_swave(size_t dim, long double mean_r) {
-    gaus g(dim, mean_r, 0.0L); g.zero_shifts(); return g;
+    gaus g(dim, mean_r, 0.0);
+    g.zero_shifts();
+    return g;
 }
 
+// P-wave Gaussian: only the meson Jacobi coordinate (last row of s) carries a shift.
+// The spin channel sets the non-zero component: chan_A -> z, chan_B -> x.
 static gaus make_pwave(size_t dim, long double mean_r, long double mean_R, bool chan_A) {
     gaus g(dim, mean_r, mean_R);
-    
-    // Safety Fix: Ensure core S-wave coordinates have 0 shift!
-    for (size_t i = 0; i < dim - 1; ++i) {
-        for (size_t k = 0; k < 3; ++k) {
-            g.s(i, k) = 0.0L;
-        }
-    }
-    
+    for (size_t i = 0; i < dim - 1; ++i)
+        for (size_t k = 0; k < 3; ++k)
+            g.s(i, k) = 0.0;
     if (dim >= 2) {
-        if (chan_A) { g.s(dim-1, 0) = 0.0L; g.s(dim-1, 1) = 0.0L; } 
-        else        { g.s(dim-1, 1) = 0.0L; g.s(dim-1, 2) = 0.0L; }
+        if (chan_A) { g.s(dim - 1, 0) = 0.0; g.s(dim - 1, 1) = 0.0; }
+        else        { g.s(dim - 1, 1) = 0.0; g.s(dim - 1, 2) = 0.0; }
     }
     return g;
 }
 
-static long double run_selection(PionSystem& sys, const size_t* target_n, int n_cand, long double mean_r, long double mean_R) {
+// SVM basis selection: greedily add one Gaussian at a time, choosing the candidate
+// that minimises the ground-state energy. Linear dependence check in gaussian.h.
+static long double run_selection(PionSystem& sys, const size_t* target_n,
+                                 int n_cand, long double mean_r, long double mean_R) {
     for (int s = 0; s < PionSystem::N_SEC; ++s) sys.basis[s].clear();
 
     size_t total_slots = 0;
     for (int s = 0; s < PionSystem::N_SEC; ++s) total_slots += target_n[s];
 
-    matrix H_master(0,0), N_master(0,0);
+    matrix H_master(0, 0), N_master(0, 0);
     long double E_cur = std::numeric_limits<long double>::quiet_NaN();
 
     for (size_t slot = 0; slot < total_slots; ++slot) {
+        // Choose the sector most behind its target fraction
         int add_sec = 0;
         double max_frac = -1.0;
         for (int s = 0; s < PionSystem::N_SEC; ++s) {
@@ -326,17 +329,17 @@ static long double run_selection(PionSystem& sys, const size_t* target_n, int n_
             if (frac > max_frac) { max_frac = frac; add_sec = s; }
         }
 
-        bool bare = (add_sec == 0);
-        bool chan_A = PionSystem::is_chan_A(add_sec);
-        size_t dim = sys.jac(add_sec).dim();
+        bool   bare   = (add_sec == 0);
+        bool   chan_A = PionSystem::is_chan_A(add_sec);
+        size_t dim    = sys.jac(add_sec).dim();
 
         long double global_best_E = std::numeric_limits<long double>::infinity();
         gaus global_best_g;
 
         std::vector<gaus> candidates;
-        for(int c = 0; c < n_cand; ++c) {
-            candidates.push_back(bare ? make_swave(dim, mean_r) : make_pwave(dim, mean_r, mean_R, chan_A));
-        }
+        for (int c = 0; c < n_cand; ++c)
+            candidates.push_back(bare ? make_swave(dim, mean_r)
+                                      : make_pwave(dim, mean_r, mean_R, chan_A));
 
         #pragma omp parallel
         {
@@ -345,62 +348,37 @@ static long double run_selection(PionSystem& sys, const size_t* target_n, int n_
 
             #pragma omp for
             for (int c = 0; c < n_cand; ++c) {
-                const gaus& trial = candidates[c]; 
-
-                // --- LINEAR DEPENDENCE FILTER ---
-                bool dependent = false;
-                long double n_tt = overlap(trial, trial);
-                for (size_t i = 0; i < sys.basis[add_sec].size(); ++i) {
-                    long double n_ii = overlap(sys.basis[add_sec][i], sys.basis[add_sec][i]);
-                    long double n_ti = std::abs(overlap(trial, sys.basis[add_sec][i]));
-                    // If the states are more than 99% identical, flag it!
-                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) { 
-                        dependent = true; break;
-                    }
-                }
-                // Skip this candidate completely without doing heavy matrix math
-                if (dependent) continue; 
-                // --------------------------------
+                const gaus& trial = candidates[c];
+                if (is_linearly_dependent(trial, sys.basis[add_sec])) continue;
 
                 matrix H_trial, N_trial;
                 sys.insert_matrix(H_master, N_master, add_sec, trial, H_trial, N_trial);
-                
                 long double E = solve(H_trial, N_trial);
-                if (!std::isnan(E) && E < local_best_E) { 
-                    local_best_E = E; local_best_g = trial; 
-                }
+                if (!std::isnan(E) && E < local_best_E) { local_best_E = E; local_best_g = trial; }
             }
 
             #pragma omp critical
-            {
-                if (local_best_E < global_best_E) {
-                    global_best_E = local_best_E; global_best_g = local_best_g;
-                }
-            }
+            { if (local_best_E < global_best_E) { global_best_E = local_best_E; global_best_g = local_best_g; } }
         }
-        
+
         if (std::isinf(global_best_E)) {
-            std::cout << "\n[Warning] Slot " << slot + 1 << " saturated! Skipping addition.\n";
-            continue; 
+            std::cout << "\n[Warning] Slot " << slot + 1 << " saturated! Skipping.\n";
+            continue;
         }
-        
+
         sys.insert_matrix(H_master, N_master, add_sec, global_best_g, H_master, N_master);
         sys.basis[add_sec].push_back(global_best_g);
-
-        std::cout << "\r  [SVM] Building basis... slot " << std::setw(3) << slot + 1 
-                  << "/" << total_slots 
+        std::cout << "\r  [SVM] Building basis... slot " << std::setw(3) << slot + 1
+                  << "/" << total_slots
                   << " | E = " << std::fixed << std::setprecision(5) << global_best_E << std::flush;
         E_cur = global_best_E;
     }
-    
-    std::cout << "\n"; 
+    std::cout << "\n";
     return E_cur;
 }
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     Params cfg;
-
     bool file_loaded = false;
     for (int k = 1; k < argc; ++k) {
         std::string arg(argv[k]);
@@ -415,151 +393,134 @@ int main(int argc, char* argv[])
 
     long double       S_pion   = cfg.ld("S");
     long double       b_pion   = cfg.ld("b");
-    const size_t      n_pn     = cfg.sz("n_pn");     
+    const size_t      n_pn     = cfg.sz("n_pn");
     const size_t      n_pnπ   = cfg.sz("n_pnπ");
     const int         n_cand   = cfg.i("n_cand");
     const int         n_refine = cfg.i("n_refine");
     const long double mean_r   = cfg.ld("mean_r");
     const long double mean_R   = cfg.ld("mean_R");
     const bool        rel      = (cfg.i("rel") != 0);
-    const int num_macro_cycles = cfg.i("macro");
+    const int         n_macro  = cfg.i("macro");
     const int         n_opt_S  = cfg.i("n_opt_S");
     const int         n_opt_b  = cfg.i("n_opt_b");
     const long double k_S      = cfg.ld("k_S");
     long double       k_b      = cfg.ld("k_b");
     const long double E_target = cfg.ld("target");
 
-    std::cout << "[main] ============================================\n";
     std::cout << "[main] Deuteron + explicit pion  (7-sector SVM)\n";
-    std::cout << "[main] Thread-Safe Multithreading + Matrix Caching\n";
-    std::cout << "[main] Self-Consistent Macro-Iterations Enabled\n";
-    std::cout << "[main] ============================================\n";
 
-    Nucleon proton = Nucleon::Proton(); Nucleon neutron = Nucleon::Neutron();
-    Pion pi0 = Pion::PiZero(); Pion piplus = Pion::PiPlus(); Pion piminus = Pion::PiMinus();
-    VertexResult v0 = apply_pion_emission(proton, pi0);
-    VertexResult v_p = apply_pion_emission(proton, piplus);
+    Nucleon proton  = Nucleon::Proton();
+    Nucleon neutron = Nucleon::Neutron();
+    Pion pi0        = Pion::PiZero();
+    Pion piplus     = Pion::PiPlus();
+    Pion piminus    = Pion::PiMinus();
+    VertexResult v0  = apply_pion_emission(proton,  pi0);
+    VertexResult v_p = apply_pion_emission(proton,  piplus);
     VertexResult v_m = apply_pion_emission(neutron, piminus);
 
     PionSystem sys;
-    sys.relativistic = rel; sys.S_pion = S_pion; sys.b_pion = b_pion;
-    sys.jac_phys[0] = jacobian({proton, neutron});
-    sys.jac_phys[1] = jacobian({proton, neutron, pi0});
-    sys.jac_phys[2] = jacobian({neutron, neutron, piplus});
-    sys.jac_phys[3] = jacobian({proton, proton, piminus});
-    sys.meson_mass[0] = 0.0L; sys.meson_mass[1] = pi0.mass; sys.meson_mass[2] = piplus.mass; sys.meson_mass[3] = piminus.mass;
-    sys.iso_weight[0] = 0.0L; sys.iso_weight[1] = v0.coefficient; sys.iso_weight[2] = v_p.coefficient; sys.iso_weight[3] = v_m.coefficient;
+    sys.relativistic  = rel;
+    sys.S_pion        = S_pion;
+    sys.b_pion        = b_pion;
+    sys.jac_phys[0]   = jacobian({proton, neutron});
+    sys.jac_phys[1]   = jacobian({proton, neutron, pi0});
+    sys.jac_phys[2]   = jacobian({neutron, neutron, piplus});
+    sys.jac_phys[3]   = jacobian({proton, proton, piminus});
+    sys.meson_mass[0] = 0.0;           sys.meson_mass[1] = pi0.mass;
+    sys.meson_mass[2] = piplus.mass;   sys.meson_mass[3] = piminus.mass;
+    sys.iso_weight[0] = 0.0;           sys.iso_weight[1] = v0.coefficient;
+    sys.iso_weight[2] = v_p.coefficient; sys.iso_weight[3] = v_m.coefficient;
 
     const size_t target_n[PionSystem::N_SEC] = {n_pn, n_pnπ, n_pnπ, n_pnπ, n_pnπ, n_pnπ, n_pnπ};
     matrix H_cur, N_cur;
     long double E_best = 0.0;
 
     std::cout << std::fixed << std::setprecision(4);
-    
-    // Generate initial rough basis for the very first tuning cycle
     std::cout << "\n=== Phase 0.0: Generating Initial Rough Basis ===\n";
     run_selection(sys, target_n, n_cand, mean_r, mean_R);
 
-    // ============================================================
-    // MACRO-ITERATION LOOP: Self-Consistent Tuning & Refinement
-    // ============================================================
-    
-    for (int macro = 1; macro <= num_macro_cycles; ++macro) {
-        std::cout << "\n======================================================\n";
-        std::cout << "               MACRO CYCLE " << macro << " OF " << num_macro_cycles << "              \n";
-        std::cout << "======================================================\n";
+    for (int macro = 1; macro <= n_macro; ++macro) {
+        std::cout << "\n====== MACRO CYCLE " << macro << " / " << n_macro << " ======\n";
 
-        // --- TUNING PHASES (Uses currently frozen basis) ---
-        std::cout << "\n=== Phase 0a: Tuning S (Frozen Basis) ===\n";
+        // --- Tune S with frozen basis ---
+        std::cout << "\n=== Phase 0a: Tuning S ===\n";
         long double E_cur = std::numeric_limits<long double>::quiet_NaN();
-        long double current_k_S = std::abs(k_S); // Ensure it's positive for our explicit logic
-        long double previous_err_S = 0.0;
-
+        long double cur_kS    = std::abs(k_S);
+        long double prev_errS = 0.0;
         for (int it = 0; it < n_opt_S; ++it) {
-            sys.S_pion = S_pion; sys.b_pion = b_pion; // b_pion is now fixed at 1.0!
+            sys.S_pion = S_pion; sys.b_pion = b_pion;
             sys.build_full(H_cur, N_cur);
             E_cur = solve(H_cur, N_cur);
             long double err = E_target - E_cur;
-            
-            std::cout << "  S it=" << std::setw(2) << it << "  S=" << std::setw(9) << S_pion
-                      << "  b=" << std::setw(6) << b_pion << "  E=" << std::setw(10) << E_cur
+            std::cout << "  S it=" << std::setw(2) << it
+                      << "  S=" << std::setw(9) << S_pion
+                      << "  b=" << std::setw(6) << b_pion
+                      << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV\n";
-                      
-            if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
-            
-            // Adaptive step-size: if error flips sign, we overshot. Cut k_S in half.
-            if (it > 0 && (err * previous_err_S < 0)) { 
-                current_k_S *= 0.5; 
-            }
-            
-            // Calculate step size, but strictly CAP it at a safe 2.0 MeV jump
-            long double step = std::abs(current_k_S * err);
-            //if (step > 2.0L) step = 2.0L; 
-            
-            if (err > 0) {
-                // Energy is too deep. Weaken the potential.
-                S_pion -= step;
-            } else {
-                // Energy is too shallow. Strengthen the potential.
-                S_pion += step;
-            }
-            
-            // THE SAFETY CATCH: Never let S cross zero!
-            if (S_pion < 0.1L) S_pion = 0.1L; 
-            
-            previous_err_S = err;
+            if (std::abs(err) < 0.05) { std::cout << "  [S converged]\n"; break; }
+            if (it > 0 && err * prev_errS < 0) cur_kS *= 0.5;
+            long double step = std::abs(cur_kS * err);
+            S_pion += (err > 0) ? -step : +step;
+            if (S_pion < 0.1) S_pion = 0.1;
+            prev_errS = err;
         }
 
-        std::cout << "\n=== Phase 0b: Tuning b (Frozen Basis) ===\n";
-        long double previous_err = 0.0;
+        // --- Tune b with frozen basis ---
+        std::cout << "\n=== Phase 0b: Tuning b ===\n";
+        long double prev_err = 0.0;
         for (int it = 0; it < n_opt_b; ++it) {
             sys.S_pion = S_pion; sys.b_pion = b_pion;
             sys.build_full(H_cur, N_cur);
             E_cur = solve(H_cur, N_cur);
             long double err = E_target - E_cur;
-            std::cout << "  b it=" << std::setw(2) << it << "  S=" << std::setw(9) << S_pion
-                      << "  b=" << std::setw(6) << b_pion << "  E=" << std::setw(10) << E_cur
+            std::cout << "  b it=" << std::setw(2) << it
+                      << "  S=" << std::setw(9) << S_pion
+                      << "  b=" << std::setw(6) << b_pion
+                      << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV\n";
-            if (std::abs(err) < 0.05L) { std::cout << "  [b converged]\n"; break; }
-            if (it > 0 && (err * previous_err < 0)) { k_b *= 0.5; std::cout << "      [Overshoot detected! Halving k_b to " << k_b << "]\n"; }
+            if (std::abs(err) < 0.05) { std::cout << "  [b converged]\n"; break; }
+            if (it > 0 && err * prev_err < 0) {
+                k_b *= 0.5;
+                std::cout << "      [Overshoot: halving k_b to " << k_b << "]\n";
+            }
             b_pion += k_b * err;
-            previous_err = err;
+            prev_err = err;
         }
 
-        // --- FULL BASIS SELECTION (Only performed on the FIRST macro cycle) ---
+        // --- Full basis selection (first macro only) ---
         if (macro == 1) {
-            std::cout << "\n=== Phase 1: Full Competitive Selection (S=" << S_pion << " b=" << b_pion << ") ===\n";
+            std::cout << "\n=== Phase 1: Full Selection (S=" << S_pion << " b=" << b_pion << ") ===\n";
             E_best = run_selection(sys, target_n, n_cand, mean_r, mean_R);
         } else {
-            // For subsequent cycles, we just re-evaluate the already full, refined basis
             sys.build_full(H_cur, N_cur);
             E_best = solve(H_cur, N_cur);
-            std::cout << "\n[Skipping Phase 1 selection, basis is already full. Current E=" << E_best << " MeV]\n";
+            std::cout << "\n[Phase 1 skipped. E=" << E_best << " MeV]\n";
         }
-        
-        // --- REFINING PHASE ---
+
+        // --- Refinement: replace each basis function with a better candidate ---
         std::cout << "\n=== Phase 2: Refining ===\n";
         size_t total_states = sys.total_size();
-        
         matrix H_master, N_master;
         sys.build_full(H_master, N_master);
 
         for (int cycle = 1; cycle <= n_refine; ++cycle) {
             long double E_start = E_best;
-            size_t current_state_idx = 0;
+            size_t state_idx = 0;
 
             for (int sec = 0; sec < PionSystem::N_SEC; ++sec) {
-                bool bare = (sec == 0);
-                bool chan_A = PionSystem::is_chan_A(sec);
-                size_t dim = sys.jac(sec).dim();
+                bool   bare   = (sec == 0);
+                bool   chan_A = PionSystem::is_chan_A(sec);
+                size_t dim    = sys.jac(sec).dim();
 
                 for (size_t k = 0; k < sys.basis[sec].size(); ++k) {
-                    current_state_idx++;
+                    state_idx++;
                     long double global_best_E = E_best;
                     gaus global_best_g = sys.basis[sec][k];
 
                     std::vector<gaus> candidates;
-                    for(int c = 0; c < n_cand; ++c) candidates.push_back(bare ? make_swave(dim, mean_r) : make_pwave(dim, mean_r, mean_R, chan_A));
+                    for (int c = 0; c < n_cand; ++c)
+                        candidates.push_back(bare ? make_swave(dim, mean_r)
+                                                  : make_pwave(dim, mean_r, mean_R, chan_A));
 
                     #pragma omp parallel
                     {
@@ -569,22 +530,7 @@ int main(int argc, char* argv[])
                         #pragma omp for
                         for (int c = 0; c < n_cand; ++c) {
                             const gaus& trial = candidates[c];
-
-                            // --- LINEAR DEPENDENCE FILTER ---
-                            bool dependent = false;
-                            long double n_tt = overlap(trial, trial);
-                            for (size_t i = 0; i < sys.basis[sec].size(); ++i) {
-                                // IMPORTANT: Do not compare against the state we are currently replacing!
-                                if (i == k) continue; 
-                                
-                                long double n_ii = overlap(sys.basis[sec][i], sys.basis[sec][i]);
-                                long double n_ti = std::abs(overlap(trial, sys.basis[sec][i]));
-                                if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) {
-                                    dependent = true; break;
-                                }
-                            }
-                            if (dependent) continue;
-                            // --------------------------------
+                            if (is_linearly_dependent(trial, sys.basis[sec], k)) continue;
 
                             matrix H_trial, N_trial;
                             sys.replace_matrix(H_master, N_master, sec, k, trial, H_trial, N_trial);
@@ -593,131 +539,97 @@ int main(int argc, char* argv[])
                         }
 
                         #pragma omp critical
-                        {
-                            if (local_best_E < global_best_E) { global_best_E = local_best_E; global_best_g = local_best_g; }
-                        }
+                        { if (local_best_E < global_best_E) { global_best_E = local_best_E; global_best_g = local_best_g; } }
                     }
-                    
+
                     sys.replace_matrix(H_master, N_master, sec, k, global_best_g, H_master, N_master);
                     sys.basis[sec][k] = global_best_g;
                     E_best = global_best_E;
-
-                    std::cout << "\r  [Refine] Cycle " << cycle << "/" << n_refine 
-                              << " | State " << std::setw(3) << current_state_idx << "/" << total_states 
+                    std::cout << "\r  [Refine] Cycle " << cycle << "/" << n_refine
+                              << " | State " << std::setw(3) << state_idx << "/" << total_states
                               << " | E = " << std::fixed << std::setprecision(5) << E_best << std::flush;
                 }
             }
-            std::cout << "\n  => Cycle " << cycle << " finished.  Improved by " << (E_start - E_best) << " MeV\n";
-            if ((E_start - E_best) < 1e-4) { std::cout << "  [!] Energy converged. Stopping refinement early.\n"; break; }
+            std::cout << "\n  => Cycle " << cycle << " finished.  Delta E = " << (E_start - E_best) << " MeV\n";
+            if ((E_start - E_best) < 1e-4) { std::cout << "  [Converged early.]\n"; break; }
         }
     }
 
-    // ============================================================
-    // Phase 3: Final Parameter Lock
-    // Now that the basis is perfectly refined, do one last tune
-    // to map the parameters exactly to the binding energy.
-    // ============================================================
+    // --- Final parameter lock ---
     std::cout << "\n=== Phase 3: Final Parameter Lock ===\n";
-    long double current_k_S_final = std::abs(k_S);
-    long double previous_err_final = 0.0;
-    
+    long double cur_kS_final  = std::abs(k_S);
+    long double prev_err_final = 0.0;
     for (int it = 0; it < n_opt_S; ++it) {
-        sys.S_pion = S_pion; 
+        sys.S_pion = S_pion;
         sys.build_full(H_cur, N_cur);
         E_best = solve(H_cur, N_cur);
         long double err = E_target - E_best;
-        
-        if (std::abs(err) < 0.01L) break;
-        
-        if (it > 0 && (err * previous_err_final < 0)) current_k_S_final *= 0.5; 
-        
-        long double step = std::abs(current_k_S_final * err);
-        if (step > 2.0L) step = 2.0L; 
-        
-        if (err > 0) S_pion -= step;
-        else         S_pion += step;
-        
-        if (S_pion < 0.1L) S_pion = 0.1L;
-        previous_err_final = err;
+        if (std::abs(err) < 0.01) break;
+        if (it > 0 && err * prev_err_final < 0) cur_kS_final *= 0.5;
+        long double step = std::abs(cur_kS_final * err);
+        if (step > 2.0) step = 2.0;
+        S_pion += (err > 0) ? -step : +step;
+        if (S_pion < 0.1) S_pion = 0.1;
+        prev_err_final = err;
     }
 
-    // Final result output
     sys.build_full(H_cur, N_cur);
     E_best = solve(H_cur, N_cur);
 
-    
-    // ============================================================
-    // Phase 4: Observables (Charge Radius & Pion Cloud Fraction)
-    // ============================================================
-    std::cout << "\n=== Phase 4: Calculating Observables ===\n";
-    
+    // --- Observables: charge radius and pion cloud fraction ---
+    std::cout << "\n=== Phase 4: Observables ===\n";
     sys.build_full(H_cur, N_cur);
     EigenResult final_sys = solve_generalized_eigensystem(H_cur, N_cur);
-    
+
     if (final_sys.evals.size() > 0) {
         size_t N_total = final_sys.evecs.size1();
-        
         std::vector<long double> c(N_total);
-        for (size_t i = 0; i < N_total; ++i) {
-            c[i] = final_sys.evecs(i, 0);
-        }
-        
-        long double r2_exp = 0.0L;
-        long double norm   = 0.0L;
-        
-        // Array to hold the probability of being in each of the 7 sectors
-        std::vector<long double> prob_sec(PionSystem::N_SEC, 0.0L);
-        
-        for (int sec_i = 0; sec_i < PionSystem::N_SEC; ++sec_i) {
-            size_t off_i = sys.offset(sec_i);
-            for (size_t i = 0; i < sys.basis[sec_i].size(); ++i) {
-                size_t global_i = off_i + i;
-                const gaus& g_i = sys.basis[sec_i][i];
-                
-                for (int sec_j = 0; sec_j < PionSystem::N_SEC; ++sec_j) {
-                    size_t off_j = sys.offset(sec_j);
-                    for (size_t j = 0; j < sys.basis[sec_j].size(); ++j) {
-                        size_t global_j = off_j + j;
-                        const gaus& g_j = sys.basis[sec_j][j];
-                        
-                        // Both r^2 and Identity (Probability) operators only overlap within the SAME sector
-                        if (sec_i == sec_j) {
-                            long double r2_val = sys.H.R2_matrix_element(g_i, g_j);
-                            long double n_val  = overlap(g_i, g_j);
-                            
-                            long double weight = c[global_i] * c[global_j];
-                            r2_exp          += weight * r2_val;
-                            norm            += weight * n_val;
-                            prob_sec[sec_i] += weight * n_val; // Add to this sector's probability
-                        }
+        for (size_t i = 0; i < N_total; ++i) c[i] = final_sys.evecs(i, 0);
+
+        long double r2_exp = 0.0;
+        long double norm   = 0.0;
+        std::vector<long double> prob_sec(PionSystem::N_SEC, 0.0);
+
+        for (int si = 0; si < PionSystem::N_SEC; ++si) {
+            size_t oi = sys.offset(si);
+            for (size_t i = 0; i < sys.basis[si].size(); ++i) {
+                size_t gi = oi + i;
+                for (int sj = 0; sj < PionSystem::N_SEC; ++sj) {
+                    if (si != sj) continue;
+                    size_t oj = sys.offset(sj);
+                    for (size_t j = 0; j < sys.basis[sj].size(); ++j) {
+                        size_t gj = oj + j;
+                        long double w   = c[gi] * c[gj];
+                        long double r2v = sys.H.R2_matrix_element(sys.basis[si][i], sys.basis[sj][j]);
+                        long double nv  = overlap(sys.basis[si][i], sys.basis[sj][j]);
+                        r2_exp        += w * r2v;
+                        norm          += w * nv;
+                        prob_sec[si]  += w * nv;
                     }
                 }
             }
         }
-        
-        r2_exp /= norm; 
-        
-        // Calculate percentages
-        long double prob_bare = (prob_sec[0] / norm) * 100.0L;
-        long double prob_pion = 0.0L;
-        for (int s = 1; s < PionSystem::N_SEC; ++s) {
-            prob_pion += (prob_sec[s] / norm) * 100.0L;
-        }
-        
-        long double r_p_sq = 0.8414L * 0.8414L; 
-        long double r_n_sq = -0.1161L;          
-        long double r_c = std::sqrt(0.25L * r2_exp + r_p_sq + r_n_sq);
-        
+
+        r2_exp /= norm;
+        long double prob_bare = (prob_sec[0] / norm) * 100.0;
+        long double prob_pion = 0.0;
+        for (int s = 1; s < PionSystem::N_SEC; ++s) prob_pion += (prob_sec[s] / norm) * 100.0;
+
+        // Charge radius: r_c^2 = (1/4)<r_pn^2> + r_p^2 + r_n^2
+        long double r_p_sq = 0.8414 * 0.8414;
+        long double r_n_sq = -0.1161;
+        long double r_c    = std::sqrt(0.25 * r2_exp + r_p_sq + r_n_sq);
+
         std::cout << "\n==========================================\n";
-        std::cout << "  Target       :  " << E_target << " MeV\n";
-        std::cout << "  Result       : " << E_best << " MeV\n";
-        std::cout << "  S_pion       :  " << S_pion  << " MeV\n";
-        std::cout << "  b_pion       :  " << b_pion  << " fm\n";
+        std::cout << "  Target       :  " << E_target  << " MeV\n";
+        std::cout << "  Result       : "  << E_best    << " MeV\n";
+        std::cout << "  S_pion       :  " << S_pion    << " MeV\n";
+        std::cout << "  b_pion       :  " << b_pion    << " fm\n";
         std::cout << "  Basis sizes  : n_pn=" << n_pn << ", n_pnpi=" << n_pnπ << " per channel\n";
         std::cout << "  Relativistic : " << (rel ? "True\n" : "False\n");
         std::cout << "  --------------------------------------\n";
         std::cout << "  <r^2>_pn     :  " << r2_exp << " fm^2\n";
-        std::cout << "  Charge Rad   :  " << r_c << " fm\n";
+        std::cout << "  Charge Rad   :  " << r_c    << " fm\n";
         std::cout << "  --------------------------------------\n";
         std::cout << "  Bare Sector (PN)   : " << prob_bare << " %\n";
         std::cout << "  Pion Cloud (PN+pi) : " << prob_pion << " %\n";
