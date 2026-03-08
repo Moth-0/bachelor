@@ -37,6 +37,7 @@ struct Params {
         store["mean_r"]   = "2.0";
         store["mean_R"]   = "1.5";
         store["rel"]      = "0";
+        store["macro"]    = "2";
         store["n_opt_S"]  = "15";
         store["n_opt_b"]  = "15";
         store["k_S"]      = "0.01";
@@ -424,6 +425,7 @@ int main(int argc, char* argv[])
     const long double mean_r   = cfg.ld("mean_r");
     const long double mean_R   = cfg.ld("mean_R");
     const bool        rel      = (cfg.i("rel") != 0);
+    const int num_macro_cycles = cfg.i("macro");
     const int         n_opt_S  = cfg.i("n_opt_S");
     const int         n_opt_b  = cfg.i("n_opt_b");
     const long double k_S      = cfg.ld("k_S");
@@ -464,7 +466,6 @@ int main(int argc, char* argv[])
     // ============================================================
     // MACRO-ITERATION LOOP: Self-Consistent Tuning & Refinement
     // ============================================================
-    int num_macro_cycles = 2; // 2 cycles is generally enough to lock on
     
     for (int macro = 1; macro <= num_macro_cycles; ++macro) {
         std::cout << "\n======================================================\n";
@@ -487,7 +488,7 @@ int main(int argc, char* argv[])
                       << "  b=" << std::setw(6) << b_pion << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV\n";
                       
-            if (std::abs(err) <= 0.05L) { std::cout << "  [S converged]\n"; break; }
+            if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
             
             // Adaptive step-size: if error flips sign, we overshot. Cut k_S in half.
             if (it > 0 && (err * previous_err_S < 0)) { 
