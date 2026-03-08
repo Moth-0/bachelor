@@ -487,7 +487,7 @@ int main(int argc, char* argv[])
                       << "  b=" << std::setw(6) << b_pion << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV\n";
                       
-            if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
+            if (std::abs(err) <= 0.05L) { std::cout << "  [S converged]\n"; break; }
             
             // Adaptive step-size: if error flips sign, we overshot. Cut k_S in half.
             if (it > 0 && (err * previous_err_S < 0)) { 
@@ -496,7 +496,7 @@ int main(int argc, char* argv[])
             
             // Calculate step size, but strictly CAP it at a safe 2.0 MeV jump
             long double step = std::abs(current_k_S * err);
-            if (step > 2.0L) step = 2.0L; 
+            //if (step > 2.0L) step = 2.0L; 
             
             if (err > 0) {
                 // Energy is too deep. Weaken the potential.
