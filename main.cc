@@ -283,10 +283,7 @@ static long double solve(const matrix& H_tot, const matrix& N_tot) {
     if (sys.evals.size() == 0) return std::numeric_limits<long double>::quiet_NaN();
     
     long double E0 = sys.evals[0];
-    
-    // --- LINEAR DEPENDENCE SAFEGUARD ---
-    if (E0 < -10.0L) return std::numeric_limits<long double>::quiet_NaN();
-    
+
     return E0;
 }
 
@@ -357,7 +354,7 @@ static long double run_selection(PionSystem& sys, const size_t* target_n, int n_
                     long double n_ii = overlap(sys.basis[add_sec][i], sys.basis[add_sec][i]);
                     long double n_ti = std::abs(overlap(trial, sys.basis[add_sec][i]));
                     // If the states are more than 99% identical, flag it!
-                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.99L) { 
+                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) { 
                         dependent = true; break;
                     }
                 }
@@ -582,7 +579,7 @@ int main(int argc, char* argv[])
                                 
                                 long double n_ii = overlap(sys.basis[sec][i], sys.basis[sec][i]);
                                 long double n_ti = std::abs(overlap(trial, sys.basis[sec][i]));
-                                if (n_ti / std::sqrt(n_tt * n_ii) > 0.99L) {
+                                if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) {
                                     dependent = true; break;
                                 }
                             }
