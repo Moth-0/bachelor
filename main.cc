@@ -280,8 +280,13 @@ struct PionSystem {
 static long double solve(const matrix& H_tot, const matrix& N_tot) {
     EigenResult sys = solve_generalized_eigensystem(H_tot, N_tot);
     if (sys.evals.size() == 0) return std::numeric_limits<long double>::quiet_NaN();
-    // Because we sorted them, the ground state is always strictly index 0!
-    return sys.evals[0]; 
+    
+    long double E0 = sys.evals[0];
+    
+    // --- LINEAR DEPENDENCE SAFEGUARD ---
+    if (E0 < -100.0L) return std::numeric_limits<long double>::quiet_NaN();
+    
+    return E0;
 }
 
 static gaus make_swave(size_t dim, long double mean_r) {
@@ -467,7 +472,7 @@ int main(int argc, char* argv[])
                       << "  b=" << std::setw(6) << b_pion << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV\n";
                       
-            //if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
+            if (std::abs(err) < 0.05L) { std::cout << "  [S converged]\n"; break; }
             
             // Adaptive step-size: if error flips sign, we overshot. Cut k_S in half.
             if (it > 0 && (err * previous_err_S < 0)) { 
@@ -502,7 +507,7 @@ int main(int argc, char* argv[])
             std::cout << "  b it=" << std::setw(2) << it << "  S=" << std::setw(9) << S_pion
                       << "  b=" << std::setw(6) << b_pion << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV\n";
-            //if (std::abs(err) < 0.05L) { std::cout << "  [b converged]\n"; break; }
+            if (std::abs(err) < 0.05L) { std::cout << "  [b converged]\n"; break; }
             if (it > 0 && (err * previous_err < 0)) { k_b *= 0.5; std::cout << "      [Overshoot detected! Halving k_b to " << k_b << "]\n"; }
             b_pion += k_b * err;
             previous_err = err;
@@ -592,7 +597,7 @@ int main(int argc, char* argv[])
         E_best = solve(H_cur, N_cur);
         long double err = E_target - E_best;
         
-        //if (std::abs(err) < 0.01L) break;
+        if (std::abs(err) < 0.01L) break;
         
         if (it > 0 && (err * previous_err_final < 0)) current_k_S_final *= 0.5; 
         
@@ -612,78 +617,82 @@ int main(int argc, char* argv[])
 
     
     // ============================================================
-    // Phase 4: Observables (Charge Radius)
+    // Phase 4: Observables (Charge Radius & Pion Cloud Fraction)
     // ============================================================
     std::cout << "\n=== Phase 4: Calculating Observables ===\n";
     
-    // 1. Get the full eigensystem to extract the wavefunctions
     sys.build_full(H_cur, N_cur);
     EigenResult final_sys = solve_generalized_eigensystem(H_cur, N_cur);
     
     if (final_sys.evals.size() > 0) {
-        //long double E_final = final_sys.evals[0];
         size_t N_total = final_sys.evecs.size1();
         
-        // 2. Extract the ground state eigenvector (Column 0)
         std::vector<long double> c(N_total);
         for (size_t i = 0; i < N_total; ++i) {
             c[i] = final_sys.evecs(i, 0);
         }
         
-        // 3. Calculate <r^2> and normalization <N>
         long double r2_exp = 0.0L;
         long double norm   = 0.0L;
         
-        // Loop over the matrix blocks
+        // Array to hold the probability of being in each of the 7 sectors
+        std::vector<long double> prob_sec(PionSystem::N_SEC, 0.0L);
+        
         for (int sec_i = 0; sec_i < PionSystem::N_SEC; ++sec_i) {
             size_t off_i = sys.offset(sec_i);
-            
             for (size_t i = 0; i < sys.basis[sec_i].size(); ++i) {
                 size_t global_i = off_i + i;
                 const gaus& g_i = sys.basis[sec_i][i];
                 
                 for (int sec_j = 0; sec_j < PionSystem::N_SEC; ++sec_j) {
                     size_t off_j = sys.offset(sec_j);
-                    
                     for (size_t j = 0; j < sys.basis[sec_j].size(); ++j) {
                         size_t global_j = off_j + j;
                         const gaus& g_j = sys.basis[sec_j][j];
                         
-                        // r^2 operator does not create/destroy pions, 
-                        // so it only has non-zero overlaps within the SAME sector!
+                        // Both r^2 and Identity (Probability) operators only overlap within the SAME sector
                         if (sec_i == sec_j) {
                             long double r2_val = sys.H.R2_matrix_element(g_i, g_j);
                             long double n_val  = overlap(g_i, g_j);
                             
-                            r2_exp += c[global_i] * c[global_j] * r2_val;
-                            norm   += c[global_i] * c[global_j] * n_val;
+                            long double weight = c[global_i] * c[global_j];
+                            r2_exp          += weight * r2_val;
+                            norm            += weight * n_val;
+                            prob_sec[sec_i] += weight * n_val; // Add to this sector's probability
                         }
                     }
                 }
             }
         }
         
-        // 4. Enforce perfect normalization to remove any floating-point drift
         r2_exp /= norm; 
         
-        // 5. Calculate final Charge Radius
-        // r_c = sqrt( 1/4 * <r^2> + r_p^2 + r_n^2 )
-        long double r_p_sq = 0.8414L * 0.8414L; // CODATA 2018 proton radius squared
-        long double r_n_sq = -0.1161L;          // PDG neutron charge radius squared
+        // Calculate percentages
+        long double prob_bare = (prob_sec[0] / norm) * 100.0L;
+        long double prob_pion = 0.0L;
+        for (int s = 1; s < PionSystem::N_SEC; ++s) {
+            prob_pion += (prob_sec[s] / norm) * 100.0L;
+        }
         
+        long double r_p_sq = 0.8414L * 0.8414L; 
+        long double r_n_sq = -0.1161L;          
         long double r_c = std::sqrt(0.25L * r2_exp + r_p_sq + r_n_sq);
         
         std::cout << "\n==========================================\n";
-        std::cout << "  Target       : " << E_target << " MeV\n";
+        std::cout << "  Target       :  " << E_target << " MeV\n";
         std::cout << "  Result       : " << E_best << " MeV\n";
-        std::cout << "  S_pion       : " << S_pion  << " MeV\n";
-        std::cout << "  b_pion       : " << b_pion  << " fm\n";
-        std::cout << "  Basis sizes  : n_pn=" << n_pn << ", n_pnπ=" << n_pnπ << " per channel\n";
+        std::cout << "  S_pion       :  " << S_pion  << " MeV\n";
+        std::cout << "  b_pion       :  " << b_pion  << " fm\n";
+        std::cout << "  Basis sizes  : n_pn=" << n_pn << ", n_pnpi=" << n_pnπ << " per channel\n";
         std::cout << "  Relativistic : " << (rel ? "True\n" : "False\n");
         std::cout << "  --------------------------------------\n";
-        std::cout << "  <r^2>_pn    :  " << r2_exp << " fm^2\n";
-        std::cout << "  Charge Rad  :  " << r_c << " fm\n";
+        std::cout << "  <r^2>_pn     :  " << r2_exp << " fm^2\n";
+        std::cout << "  Charge Rad   :  " << r_c << " fm\n";
+        std::cout << "  --------------------------------------\n";
+        std::cout << "  Bare Sector (PN)   : " << prob_bare << " %\n";
+        std::cout << "  Pion Cloud (PN+pi) : " << prob_pion << " %\n";
         std::cout << "==========================================\n";
     }
+
     return 0;
 }
