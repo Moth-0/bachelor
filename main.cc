@@ -582,34 +582,14 @@ int main(int argc, char* argv[]) {
             }
             long double delta = (E_start - E_best);
             std::cout << "\n  => Cycle " << cycle << " finished.  Delta E = " << delta << " MeV\n";
-            if (delta < 0.001) { std::cout << "  [Converged early.]\n"; break; }
+            if (delta < 0.01) { std::cout << "  [Converged early.]\n"; break; }
         }
     }
 
-    // --- Final parameter lock ---
-    std::cout << "\n=== Phase 3: Final Parameter Lock ===\n";
-    long double cur_kS_final  = k_S;
-    long double prev_err_final = 0.0;
-    for (int it = 0; it < n_opt_S; ++it) {
-        sys.S_pion = S_pion;
-        sys.build_full(H_cur, N_cur);
-        E_best = solve(H_cur, N_cur);
-        long double err = E_target - E_best;
-        if (std::abs(err) < 0.01) break;
-        if (it > 0 && err * prev_err_final < 0) cur_kS_final *= 0.5;
-        long double step = std::abs(cur_kS_final * err);
-        if (step > 2.0) step = 2.0;
-        S_pion += (err > 0) ? -step : +step;
-        if (S_pion < 0.1) S_pion = 0.1;
-        prev_err_final = err;
-    }
-
+    // --- Observables: charge radius and pion cloud fraction ---
+    std::cout << "\n=== Phase 3: Observables ===\n";
     sys.build_full(H_cur, N_cur);
     E_best = solve(H_cur, N_cur);
-
-    // --- Observables: charge radius and pion cloud fraction ---
-    std::cout << "\n=== Phase 4: Observables ===\n";
-    sys.build_full(H_cur, N_cur);
     EigenResult final_sys = solve_generalized_eigensystem(H_cur, N_cur);
 
     if (final_sys.evals.size() > 0) {
