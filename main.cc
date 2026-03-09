@@ -26,7 +26,7 @@ struct Params {
         store["S"]        = "15.0";
         store["b"]        = "2.0";
         store["n_pn"]     = "15";
-        store["n_pnπ"]   = "20";
+        store["n_pnπ"]    = "20";
         store["n_cand"]   = "30";
         store["n_refine"] = "3";
         store["mean_r"]   = "2.0";
@@ -309,18 +309,20 @@ static gaus make_pwave(size_t dim, long double mean_r, long double mean_R, bool 
 
 // SVM basis selection: greedily add one Gaussian at a time, choosing the candidate
 // that minimises the ground-state energy. Linear dependence check in gaussian.h.
-static long double run_selection(PionSystem& sys, const size_t* target_n,
-                                 int n_cand, long double mean_r, long double mean_R) {
+static long double run_selection(PionSystem& sys, const size_t* target_n, int n_cand, long double mean_r, long double mean_R) {
     for (int s = 0; s < PionSystem::N_SEC; ++s) sys.basis[s].clear();
 
     size_t total_slots = 0;
     for (int s = 0; s < PionSystem::N_SEC; ++s) total_slots += target_n[s];
 
-    matrix H_master(0, 0), N_master(0, 0);
+    matrix H_master(0,0), N_master(0,0);
     long double E_cur = std::numeric_limits<long double>::quiet_NaN();
 
-    for (size_t slot = 0; slot < total_slots; ++slot) {
-        // Choose the sector most behind its target fraction
+    size_t slots_filled = 0;
+    int consecutive_fails = 0;
+    int max_fails = 15; // Give up if we fail 15 times in a row
+
+    while (slots_filled < total_slots) {
         int add_sec = 0;
         double max_frac = -1.0;
         for (int s = 0; s < PionSystem::N_SEC; ++s) {
@@ -329,17 +331,17 @@ static long double run_selection(PionSystem& sys, const size_t* target_n,
             if (frac > max_frac) { max_frac = frac; add_sec = s; }
         }
 
-        bool   bare   = (add_sec == 0);
-        bool   chan_A = PionSystem::is_chan_A(add_sec);
-        size_t dim    = sys.jac(add_sec).dim();
+        bool bare = (add_sec == 0);
+        bool chan_A = PionSystem::is_chan_A(add_sec);
+        size_t dim = sys.jac(add_sec).dim();
 
         long double global_best_E = std::numeric_limits<long double>::infinity();
         gaus global_best_g;
 
         std::vector<gaus> candidates;
-        for (int c = 0; c < n_cand; ++c)
-            candidates.push_back(bare ? make_swave(dim, mean_r)
-                                      : make_pwave(dim, mean_r, mean_R, chan_A));
+        for(int c = 0; c < n_cand; ++c) {
+            candidates.push_back(bare ? make_swave(dim, mean_r) : make_pwave(dim, mean_r, mean_R, chan_A));
+        }
 
         #pragma omp parallel
         {
@@ -348,32 +350,58 @@ static long double run_selection(PionSystem& sys, const size_t* target_n,
 
             #pragma omp for
             for (int c = 0; c < n_cand; ++c) {
-                const gaus& trial = candidates[c];
-                if (is_linearly_dependent(trial, sys.basis[add_sec])) continue;
+                const gaus& trial = candidates[c]; 
+
+                // --- LINEAR DEPENDENCE FILTER ---
+                bool dependent = false;
+                long double n_tt = overlap(trial, trial);
+                for (size_t i = 0; i < sys.basis[add_sec].size(); ++i) {
+                    long double n_ii = overlap(sys.basis[add_sec][i], sys.basis[add_sec][i]);
+                    long double n_ti = std::abs(overlap(trial, sys.basis[add_sec][i]));
+                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) { dependent = true; break; }
+                }
+                if (dependent) continue; 
+                // --------------------------------
 
                 matrix H_trial, N_trial;
                 sys.insert_matrix(H_master, N_master, add_sec, trial, H_trial, N_trial);
+                
                 long double E = solve(H_trial, N_trial);
-                if (!std::isnan(E) && E < local_best_E) { local_best_E = E; local_best_g = trial; }
+                if (!std::isnan(E) && E < local_best_E) { 
+                    local_best_E = E; local_best_g = trial; 
+                }
             }
 
             #pragma omp critical
-            { if (local_best_E < global_best_E) { global_best_E = local_best_E; global_best_g = local_best_g; } }
+            {
+                if (local_best_E < global_best_E) {
+                    global_best_E = local_best_E; global_best_g = local_best_g;
+                }
+            }
         }
-
+        
         if (std::isinf(global_best_E)) {
-            std::cout << "\n[Warning] Slot " << slot + 1 << " saturated! Skipping.\n";
-            continue;
+            consecutive_fails++;
+            std::cerr << "\n  [Warning] All candidates rejected (Too similar). Retry " << consecutive_fails << "/" << max_fails << "\n";
+            if (consecutive_fails >= max_fails) {
+                std::cout << "\n  [!] Basis naturally saturated at size " << slots_filled << ". Moving to tuning!\n";
+                break; // Exit the while loop early, the well is full!
+            }
+            continue; // Try again without incrementing slots_filled
         }
-
+        
+        consecutive_fails = 0; // Reset fails on a successful addition
         sys.insert_matrix(H_master, N_master, add_sec, global_best_g, H_master, N_master);
         sys.basis[add_sec].push_back(global_best_g);
-        std::cout << "\r  [SVM] Building basis... slot " << std::setw(3) << slot + 1
-                  << "/" << total_slots
+        slots_filled++;
+
+        std::cout << "\r  [SVM] Building basis... " << std::setw(3) << slots_filled 
+                  << "/" << total_slots 
                   << " | E = " << std::fixed << std::setprecision(5) << global_best_E << std::flush;
         E_cur = global_best_E;
     }
-    std::cout << "\n";
+    
+    std::cout << "\n"; 
     return E_cur;
 }
 
@@ -407,7 +435,9 @@ int main(int argc, char* argv[]) {
     long double       k_b      = cfg.ld("k_b");
     const long double E_target = cfg.ld("target");
 
+    std::cout << "===============================================\n";
     std::cout << "[main] Deuteron + explicit pion  (7-sector SVM)\n";
+    std::cout << "===============================================\n";
 
     Nucleon proton  = Nucleon::Proton();
     Nucleon neutron = Nucleon::Neutron();
@@ -452,12 +482,12 @@ int main(int argc, char* argv[]) {
             sys.build_full(H_cur, N_cur);
             E_cur = solve(H_cur, N_cur);
             long double err = E_target - E_cur;
-            std::cout << "  S it=" << std::setw(2) << it
+            std::cout << "\r  S it=" << std::setw(2) << it
                       << "  S=" << std::setw(9) << S_pion
                       << "  b=" << std::setw(6) << b_pion
                       << "  E=" << std::setw(10) << E_cur
-                      << "  err=" << std::setw(9) << err << " MeV\n";
-            if (std::abs(err) < 0.05) { std::cout << "  [S converged]\n"; break; }
+                      << "  err=" << std::setw(9) << err << " MeV" << std::flush;
+            if (std::abs(err) < 0.001) { std::cout << "\n --- [S converged] --- \n"; break; }
             if (it > 0 && err * prev_errS < 0) cur_kS *= 0.5;
             long double step = std::abs(cur_kS * err);
             S_pion += (err > 0) ? -step : +step;
@@ -473,12 +503,12 @@ int main(int argc, char* argv[]) {
             sys.build_full(H_cur, N_cur);
             E_cur = solve(H_cur, N_cur);
             long double err = E_target - E_cur;
-            std::cout << "  b it=" << std::setw(2) << it
+            std::cout << "\r  b it=" << std::setw(2) << it
                       << "  S=" << std::setw(9) << S_pion
                       << "  b=" << std::setw(6) << b_pion
                       << "  E=" << std::setw(10) << E_cur
-                      << "  err=" << std::setw(9) << err << " MeV\n";
-            if (std::abs(err) < 0.05) { std::cout << "  [b converged]\n"; break; }
+                      << "  err=" << std::setw(9) << err << " MeV" << std::flush;
+            if (std::abs(err) < 0.001) { std::cout << "\n --- [b converged] --- \n"; break; }
             if (it > 0 && err * prev_err < 0) {
                 k_b *= 0.5;
                 std::cout << "      [Overshoot: halving k_b to " << k_b << "]\n";
@@ -488,7 +518,7 @@ int main(int argc, char* argv[]) {
         }
 
         // --- Full basis selection (first macro only) ---
-        if (macro == 1) {
+        if (macro == 1 && (n_opt_S + n_opt_b) > 0) {
             std::cout << "\n=== Phase 1: Full Selection (S=" << S_pion << " b=" << b_pion << ") ===\n";
             E_best = run_selection(sys, target_n, n_cand, mean_r, mean_R);
         } else {
@@ -550,14 +580,15 @@ int main(int argc, char* argv[]) {
                               << " | E = " << std::fixed << std::setprecision(5) << E_best << std::flush;
                 }
             }
-            std::cout << "\n  => Cycle " << cycle << " finished.  Delta E = " << (E_start - E_best) << " MeV\n";
-            if ((E_start - E_best) < 1e-4) { std::cout << "  [Converged early.]\n"; break; }
+            long double delta = (E_start - E_best);
+            std::cout << "\n  => Cycle " << cycle << " finished.  Delta E = " << delta << " MeV\n";
+            if (delta < 0.001) { std::cout << "  [Converged early.]\n"; break; }
         }
     }
 
     // --- Final parameter lock ---
     std::cout << "\n=== Phase 3: Final Parameter Lock ===\n";
-    long double cur_kS_final  = std::abs(k_S);
+    long double cur_kS_final  = k_S;
     long double prev_err_final = 0.0;
     for (int it = 0; it < n_opt_S; ++it) {
         sys.S_pion = S_pion;
@@ -621,18 +652,20 @@ int main(int argc, char* argv[]) {
         long double r_c    = std::sqrt(0.25 * r2_exp + r_p_sq + r_n_sq);
 
         std::cout << "\n==========================================\n";
-        std::cout << "  Target       :  " << E_target  << " MeV\n";
+        std::cout << "  Target       : " << E_target  << " MeV\n";
         std::cout << "  Result       : "  << E_best    << " MeV\n";
-        std::cout << "  S_pion       :  " << S_pion    << " MeV\n";
-        std::cout << "  b_pion       :  " << b_pion    << " fm\n";
-        std::cout << "  Basis sizes  : n_pn=" << n_pn << ", n_pnpi=" << n_pnπ << " per channel\n";
+        std::cout << "  S_pion       : " << S_pion    << " MeV\n";
+        std::cout << "  b_pion       : " << b_pion    << " fm\n";
+        std::cout << "  Basis sizes  : n_pn=" << sys.basis[0].size() << ", n_pnπ=" << sys.basis[1].size() << " per channel\n";
         std::cout << "  Relativistic : " << (rel ? "True\n" : "False\n");
         std::cout << "  --------------------------------------\n";
-        std::cout << "  <r^2>_pn     :  " << r2_exp << " fm^2\n";
-        std::cout << "  Charge Rad   :  " << r_c    << " fm\n";
+        std::cout << "  <r^2>_pn     : " << r2_exp << " fm^2\n";
+        std::cout << "  Charge Rad   : " << r_c    << " fm\n";
         std::cout << "  --------------------------------------\n";
         std::cout << "  Bare Sector (PN)   : " << prob_bare << " %\n";
         std::cout << "  Pion Cloud (PN+pi) : " << prob_pion << " %\n";
+        //std::cout << "  --------------------------------------\n";
+        //std::cout << "  Final basis size   : " << N_total << "\n";
         std::cout << "==========================================\n";
     }
 

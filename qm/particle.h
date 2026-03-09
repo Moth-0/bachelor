@@ -15,10 +15,11 @@ struct OpResult {
 struct Particle {
     std::string name;
     long double mass;   // MeV/c^2
-    int         charge;
+    int charge;         // Electric charge
     double s, sz;       // spin, spin projection
     double t, tz;       // isospin, isospin projection
 
+    // Constructors 
     Particle() = default;
     Particle(std::string n, long double m, int c,
              double spin, double spin_z, double isospin, double iso_z)
@@ -102,12 +103,12 @@ struct Meson : public Particle {
 
 struct VertexResult {
     long double coefficient;
-    bool        allowed;
-    Nucleon     resulting_nucleon;
+    bool allowed;
+    Nucleon resulting_nucleon;
 };
 
 // Pion emission vertex: (tau . pi) coupling.
-// tau.pi = tau_z pi0 - (1/sqrt2) tau_+ pi- + (1/sqrt2) tau_- pi+
+// tau.pi = tau_z pi0 - sqrt(2) tau_+ pi- + sqrt(2) tau_- pi+
 VertexResult apply_pion_emission(const Nucleon& n, const Pion& emitted_pi) {
     if (std::abs(emitted_pi.tz) < 0.1) {
         return {n.apply_tau_z().coef, true, Nucleon(n.name, n.mass, n.charge, n.sz, n.tz)};
