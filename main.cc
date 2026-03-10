@@ -649,5 +649,37 @@ int main(int argc, char* argv[]) {
         std::cout << "==========================================\n";
     }
 
+    // // ============================================================
+    // // Phase 5: Fast 2D Heatmap Scan (b vs S)
+    // // ============================================================
+    // std::cout << "\n=== Phase 5: Generating 2D Heatmap Data ===\n";
+    // std::ofstream scan_out("heatmap.dat");
+    // scan_out << "# b_pion (fm) \t S_pion (MeV) \t Energy (MeV)\n";
+    
+    // // Outer loop: b from 0.8 to 2.0
+    // for (long double b_test = 0.8; b_test <= 2.0; b_test += 0.05) {
+    //     sys.b_pion = b_test;
+        
+    //     // Inner loop: S from 10 to 100
+    //     for (long double s_test = 10.0; s_test <= 100.0; s_test += 2.0) {
+    //         sys.S_pion = s_test;
+    //         matrix H_scan, N_scan;
+    //         sys.build_full(H_scan, N_scan); 
+    //         long double e_scan = solve(H_scan, N_scan);
+            
+    //         // Cap explosive positive/NaN energies to 0.0 for a cleaner color scale
+    //         if (std::isnan(e_scan) || e_scan > 0.0) e_scan = 0.0;
+            
+    //         scan_out << b_test << " \t " << s_test << " \t " << e_scan << "\n";
+    //     }
+    //     scan_out << "\n"; // MANDATORY BLANK LINE for Gnuplot grid formatting!
+    // }
+    // scan_out.close();
+    // std::cout << "  -> Heatmap data saved to 'heatmap.dat'.\n";
+    
+    // // Restore the physical parameters
+    // sys.b_pion = b_pion;
+    // sys.S_pion = S_pion;
+
     return 0;
 }

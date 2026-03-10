@@ -103,7 +103,8 @@ static long double solve(const matrix& H_tot, const matrix& N_tot)
     matrix L_inv = L.inverse_lower();
     if (L_inv.size1() == 0) return std::numeric_limits<long double>::quiet_NaN();
 
-    vector evals = jacobi_eigenvalues(L_inv * H_tot * L_inv.transpose());
+    EigenResult jac = jacobi_eigensystem(L_inv * H_tot * L_inv.transpose());
+    vector evals = jac.evals;
     if (evals.size() == 0) return std::numeric_limits<long double>::quiet_NaN();
 
     long double E0 = evals[0];

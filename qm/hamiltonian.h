@@ -99,7 +99,7 @@ struct hamiltonian {
                    * base * std::sin(2.0 * gamma * eta * x);
         };
 
-        const int   n_pts = 200;
+        const int   n_pts = 1000;
         long double x_max = 6.0 / std::sqrt(gamma);
         long double h     = x_max / n_pts;
         long double sum   = integrand(0.0) + integrand(x_max);
