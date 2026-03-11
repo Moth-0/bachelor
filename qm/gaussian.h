@@ -12,7 +12,7 @@ const long double pi = std::numbers::pi_v<long double>;
 
 // Cosine similarity threshold for linear dependence rejection.
 // Candidates with |<trial|g_i>| / sqrt(<trial|trial><g_i|g_i>) > LINEAR_DEP_TOL are rejected.
-constexpr long double LINEAR_DEP_TOL = 0.80;
+constexpr long double LINEAR_DEP_TOL = 0.90;
 
 long double random_ld(long double lo, long double hi) {
     thread_local std::mt19937_64 rng(std::random_device{}());

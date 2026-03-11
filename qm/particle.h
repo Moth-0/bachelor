@@ -19,7 +19,6 @@ struct Particle {
     double s, sz;       // spin, spin projection
     double t, tz;       // isospin, isospin projection
 
-    // Constructors 
     Particle() = default;
     Particle(std::string n, long double m, int c,
              double spin, double spin_z, double isospin, double iso_z)
@@ -47,9 +46,26 @@ struct Nucleon : public Particle {
     static Nucleon Proton (double spin_z = 0.5) { return Nucleon("proton",  938.272046, +1, spin_z, +0.5); }
     static Nucleon Neutron(double spin_z = 0.5) { return Nucleon("neutron", 939.565379,  0, spin_z, -0.5); }
 
-    // Pauli operators: sigma = 2S, tau = 2T
-    OpResult apply_sigma_z()     const { return {2.0 * sz, true, sz, tz}; }
-    OpResult apply_tau_z()       const { return {2.0 * tz, true, sz, tz}; }
+    // ---------------------------------------------------------------
+    // Isospin operators: tau = 2T
+    // ---------------------------------------------------------------
+    OpResult apply_tau_z() const { return {2.0 * tz, true, sz, tz}; }
+
+    OpResult apply_tau_plus() const {
+        auto r = ladder_plus(t, tz);
+        if (r.valid) r.new_tz = tz + 1.0;
+        return r;
+    }
+    OpResult apply_tau_minus() const {
+        auto r = ladder_minus(t, tz);
+        if (r.valid) r.new_tz = tz - 1.0;
+        return r;
+    }
+
+    // ---------------------------------------------------------------
+    // Spin operators: sigma = 2S
+    // ---------------------------------------------------------------
+    OpResult apply_sigma_z() const { return {2.0 * sz, true, sz, tz}; }
 
     OpResult apply_sigma_plus() const {
         auto r = ladder_plus(s, sz);
@@ -61,15 +77,37 @@ struct Nucleon : public Particle {
         if (r.valid) r.new_sz = sz - 1.0;
         return r;
     }
-    OpResult apply_tau_plus() const {
-        auto r = ladder_plus(t, tz);
-        if (r.valid) r.new_tz = tz + 1.0;
-        return r;
-    }
-    OpResult apply_tau_minus() const {
-        auto r = ladder_minus(t, tz);
-        if (r.valid) r.new_tz = tz - 1.0;
-        return r;
+
+    // ---------------------------------------------------------------
+    // Spin coupling coefficients for the (sigma . r) operator
+    //
+    // W = (tau.pi)(sigma.r)f(r) has two spin channels:
+    //
+    //   Chan A  (spin-preserving):   sigma_z r_z
+    //   Chan B  (spin-flipping):     sigma_x r_x + sigma_y r_y
+    //
+    // coef_z    = <sz| sigma_z |sz>   -- coefficient for chan_A (beta[2])
+    // coef_perp = combined transverse coefficient for chan_B (beta[0])
+    //             The factor sqrt(2) comes from rotational symmetry:
+    //             |sigma_x r_x + sigma_y r_y|^2 = 2|sigma_x r_x|^2
+    //             so both x and y are captured by a single x-channel
+    //             weighted by sqrt(2).
+    // ---------------------------------------------------------------
+    struct SpinCoupling {
+        long double coef_z;     // for sigma_z r_z  (chan_A, spin-preserving)
+        long double coef_perp;  // for combined (sigma_x r_x + sigma_y r_y) (chan_B, spin-flip)
+    };
+
+    SpinCoupling spin_dot_r_coefficients() const {
+        // Chan A: sigma_z eigenvalue on the reference spin state
+        long double cz = apply_sigma_z().coef;   // = 2*sz = +1.0 for spin-up reference
+
+        // Chan B: the transverse flip amplitude, multiplied by sqrt(2) to
+        // account for both the x and y directions by rotational symmetry.
+        // sigma_minus acting on |spin-up> gives the flip amplitude.
+        long double cp = std::sqrt(2.0L) * ladder_minus(s, sz).coef;
+
+        return {cz, cp};
     }
 };
 
@@ -101,27 +139,45 @@ struct Meson : public Particle {
     static Meson Sigma() { return Meson("sigma", 500.0); }
 };
 
+// Result of a pion emission vertex (tau.pi coupling).
+// coefficient: the isospin Clebsch-Gordan coefficient from (tau.pi)
+// allowed:     false if the transition is forbidden by isospin conservation
+// resulting_nucleon: the nucleon state after emission
 struct VertexResult {
     long double coefficient;
-    bool allowed;
-    Nucleon resulting_nucleon;
+    bool        allowed;
+    Nucleon     resulting_nucleon;
 };
 
-// Pion emission vertex: (tau . pi) coupling.
-// tau.pi = tau_z pi0 - sqrt(2) tau_+ pi- + sqrt(2) tau_- pi+
+// Pion emission vertex: W = (tau.pi)(sigma.r)f(r)
+// This function computes the isospin factor (tau.pi) only.
+// The spin factor (sigma.r) is obtained separately via spin_dot_r_coefficients().
+//
+// tau.pi = tau_z pi0 + sqrt(2) tau_- pi+ + sqrt(2) tau_+ pi-
+//
+// Emission rules:
+//   proton  + pi0  -> proton   (coef = +1,     tau_z  eigenvalue on proton)
+//   neutron + pi0  -> neutron  (coef = -1,     tau_z  eigenvalue on neutron)
+//   proton  + pi+  -> neutron  (coef = +sqrt2, tau_- lowers proton to neutron)
+//   neutron + pi-  -> proton   (coef = +sqrt2, tau_+ raises neutron to proton)
 VertexResult apply_pion_emission(const Nucleon& n, const Pion& emitted_pi) {
     if (std::abs(emitted_pi.tz) < 0.1) {
+        // pi0: coefficient is the tau_z eigenvalue of the nucleon
         return {n.apply_tau_z().coef, true, Nucleon(n.name, n.mass, n.charge, n.sz, n.tz)};
     }
-    if (emitted_pi.tz > 0.5) {   // pi+: proton -> neutron via tau_-
+    if (emitted_pi.tz > 0.5) {
+        // pi+: nucleon loses one unit of isospin (proton -> neutron via tau_-)
         auto r = n.apply_tau_minus();
         if (!r.valid) return {0.0, false, n};
-        return {std::sqrt(2.0) * r.coef, true, Nucleon("neutron", 939.565379, 0, n.sz, r.new_tz)};
+        return {std::sqrt(2.0) * r.coef, true,
+                Nucleon("neutron", 939.565379, 0, n.sz, r.new_tz)};
     }
-    if (emitted_pi.tz < -0.5) {  // pi-: neutron -> proton via tau_+
+    if (emitted_pi.tz < -0.5) {
+        // pi-: nucleon gains one unit of isospin (neutron -> proton via tau_+)
         auto r = n.apply_tau_plus();
         if (!r.valid) return {0.0, false, n};
-        return {std::sqrt(2.0) * r.coef, true, Nucleon("proton", 938.272046, +1, n.sz, r.new_tz)};
+        return {std::sqrt(2.0) * r.coef, true,
+                Nucleon("proton", 938.272046, +1, n.sz, r.new_tz)};
     }
     return {0.0, false, n};
 }
