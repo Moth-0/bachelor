@@ -146,7 +146,7 @@ static long double solve_complex_gep(const cmatrix& H, const matrix& N) {
     }
 
     EigenResult sys = solve_generalized_eigensystem(H_real, N_real);
-    if (sys.evals[0]==0) return std::numeric_limits<long double>::quiet_NaN();
+    if (sys.evals.size()==0) return std::numeric_limits<long double>::quiet_NaN();
     return sys.evals[0];   // lowest eigenvalue (appears twice; take [0])
 }
 
@@ -166,7 +166,7 @@ static long double solve(const cmatrix& H_c, const matrix& N) {
             for (size_t j = 0; j < H_c.size2(); ++j)
                 H_r(i,j) = H_c(i,j).real();
         EigenResult sys = solve_generalized_eigensystem(H_r, N);
-        if (sys.evals[0]==0) return std::numeric_limits<long double>::quiet_NaN();
+        if (sys.evals.size()==0) return std::numeric_limits<long double>::quiet_NaN();
         return sys.evals[0];
     }
     return solve_complex_gep(H_c, N);
@@ -350,7 +350,18 @@ struct PionSystem {
                     const gaus& g_cloth = (sec == 0) ? g_target     : basis[sec][i];
                     auto        couplings = make_couplings(clothed_sec);
                     matrix      Om = make_omega(clothed_sec);
-                    h_val = H.W(g_bare, g_cloth, Om, couplings);
+                    
+                    cld w = H.W(g_bare, g_cloth, Om, couplings); // Always <bare | W | cloth>
+                    
+                    // Force h_val to ALWAYS represent <basis_i | H | trial>
+                    if (target_sec == 0) {
+                        // Trial is bare, basis_i is clothed: w = <trial | W | basis_i>.
+                        // We need <basis_i | H | trial> = w*
+                        h_val = std::conj(w);
+                    } else {
+                        // Trial is clothed, basis_i is bare: w = <basis_i | W | trial>.
+                        h_val = w;
+                    }
                     n_val = 0.0L;
                 }
                 h_row[off + i] = h_val;
@@ -411,8 +422,8 @@ struct PionSystem {
         size_t tot = H_old.size1();
         for (size_t i = 0; i < tot; ++i) {
             if (i == gi) continue;
-            H_new(i,  gi) = std::conj(h_row[i]);
-            H_new(gi, i)  = h_row[i];
+            H_new(i,  gi) = h_row[i];
+            H_new(gi, i)  = std::conj(h_row[i]);
             N_new(i,  gi) = N_new(gi, i) = n_row[i];
         }
         H_new(gi, gi) = h_diag;
