@@ -1,3 +1,28 @@
+// main.cc  --  Deuteron + explicit pion model using 9-sector SVM.
+//
+// Hamiltonian structure (complex Hermitian):
+//
+//   H = [ H_00   W_01   W_02   ...  W_08 ]
+//       [ W_01†  H_11    0          0    ]
+//       [  ...        H_22               ]
+//       [ W_08†   0         ...   H_88   ]
+//
+// The diagonal blocks H_ss are real symmetric (kinetic energy + meson mass).
+// The off-diagonal blocks W_0s are complex because:
+//
+//   W = (tau.pi)(sigma.r) f(r)
+//
+// and sigma.r in the spherical basis has components:
+//   r[0] = z  (real),  r[1] = x+iy  (complex),  r[2] = x-iy  (complex)
+//
+// The complex Hermitian GEP  H c = E N c  is solved by the real-doubling trick:
+//
+//   H_real = [ H.real  -H.imag ]   N_real = [ N  0 ]
+//            [ H.imag   H.real ]             [ 0  N ]
+//
+// which is a real symmetric GEP of size 2n.  Its lowest eigenvalue equals the
+// ground-state energy of the complex problem.
+
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -5,6 +30,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <complex>
 #include <limits>
 #include <cmath>
 #include <omp.h>
@@ -28,7 +54,7 @@ struct Params {
         store["S"]        = "15.0";
         store["b"]        = "2.0";
         store["n_pn"]     = "15";
-        store["n_pnπ"]    = "20";
+        store["n_pnpi"]   = "20";
         store["n_cand"]   = "30";
         store["n_refine"] = "3";
         store["mean_r"]   = "2.0";
@@ -55,7 +81,7 @@ struct Params {
             std::string val = line.substr(eq + 1);
             auto trim = [](std::string& s) {
                 size_t a = s.find_first_not_of(" \t\r\n");
-                size_t b = s.find_last_not_of(" \t\r\n");
+                size_t b = s.find_last_not_of (" \t\r\n");
                 s = (a == std::string::npos) ? "" : s.substr(a, b - a + 1);
             };
             trim(key); trim(val);
@@ -80,131 +106,224 @@ struct Params {
 };
 
 // ---------------------------------------------------------------------------
+// Real-doubling trick for complex Hermitian GEP  H c = E N c
+//
+// Given H (complex Hermitian, n x n) and N (real symmetric positive-definite, n x n),
+// build the 2n x 2n real symmetric GEP:
+//
+//   [ H_R  -H_I ] [c_R]     [N  0] [c_R]
+//   [ H_I   H_R ] [c_I]  =E [0  N] [c_I]
+//
+// The n lowest eigenvalues of the 2n system equal the n eigenvalues of the
+// complex Hermitian system (each appears twice in the doubled problem).
+// We return only the lowest eigenvalue.
+// ---------------------------------------------------------------------------
+static long double solve_complex_gep(const cmatrix& H, const matrix& N) {
+    size_t n = H.size1();
+    assert(H.size2() == n && N.size1() == n && N.size2() == n);
+
+    size_t n2 = 2 * n;
+    matrix H_real(n2, n2);
+    matrix N_real(n2, n2);
+
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            long double hr =  H(i,j).real();
+            long double hi =  H(i,j).imag();
+            // Top-left block: H_R
+            H_real(i,   j)   =  hr;
+            // Top-right block: -H_I
+            H_real(i,   j+n) = -hi;
+            // Bottom-left block: +H_I
+            H_real(i+n, j)   =  hi;
+            // Bottom-right block: H_R
+            H_real(i+n, j+n) =  hr;
+            // N is block-diagonal (N, 0; 0, N)
+            N_real(i,   j)   = N(i,j);
+            N_real(i+n, j+n) = N(i,j);
+            // Off-diagonal N blocks remain 0 (default-initialized)
+        }
+    }
+
+    EigenResult sys = solve_generalized_eigensystem(H_real, N_real);
+    if (sys.evals[0]==0) return std::numeric_limits<long double>::quiet_NaN();
+    return sys.evals[0];   // lowest eigenvalue (appears twice; take [0])
+}
+
+// Convenience wrapper: if the H matrix is known to be purely real, call the
+// original real solver directly.  Otherwise use the doubling trick.
+static long double solve(const cmatrix& H_c, const matrix& N) {
+    // Check whether imaginary parts are all zero
+    bool pure_real = true;
+    for (size_t i = 0; i < H_c.size1() && pure_real; ++i)
+        for (size_t j = 0; j < H_c.size2() && pure_real; ++j)
+            if (std::abs(H_c(i,j).imag()) > 1e-14L) pure_real = false;
+
+    if (pure_real) {
+        // Extract real part only and use the fast real solver
+        matrix H_r(H_c.size1(), H_c.size2());
+        for (size_t i = 0; i < H_c.size1(); ++i)
+            for (size_t j = 0; j < H_c.size2(); ++j)
+                H_r(i,j) = H_c(i,j).real();
+        EigenResult sys = solve_generalized_eigensystem(H_r, N);
+        if (sys.evals[0]==0) return std::numeric_limits<long double>::quiet_NaN();
+        return sys.evals[0];
+    }
+    return solve_complex_gep(H_c, N);
+}
+
+// ---------------------------------------------------------------------------
 // 9-sector system
 //
 // Sector layout:
-//   sec 0          : bare PN (proton + neutron, no pion)
-//   sec 1, 2       : PN + pi0,  proton  emits pi0  (chan A / chan B)
-//   sec 3, 4       : NN + pi+,  proton  emits pi+  (chan A / chan B)
-//   sec 5, 6       : PP + pi-,  neutron emits pi-  (chan A / chan B)
-//   sec 7, 8       : PN + pi0,  neutron emits pi0  (chan A / chan B)
+//   sec 0      : bare PN
+//   sec 1,2    : PN+pi0, proton-side Gaussians,  chan A / B
+//   sec 3,4    : NN+pi+, proton-side Gaussians,  chan A / B
+//   sec 5,6    : PP+pi-, neutron-side Gaussians,  chan A / B
+//   sec 7,8    : PN+pi0, neutron-side Gaussians,  chan A / B
 //
-// Physical channel index p = phys(sec):
-//   p=0  bare PN
-//   p=1  PN+pi0  (proton emits,  iso_weight = +1)
-//   p=2  NN+pi+  (proton emits,  iso_weight = +sqrt2)
-//   p=3  PP+pi-  (neutron emits, iso_weight = +sqrt2)
-//   p=4  PN+pi0  (neutron emits, iso_weight = -1)
+// "chan A" Gaussians have the pion-nucleon shift in the z direction (real
+// spatial structure, connects to the sigma_z / r[0] component of W).
+// "chan B" Gaussians have the shift in the x direction (connects to the
+// real part of the sigma_pm / r[1,2] complex components).
 //
-// The neutron-emitting pi0 sector (p=4) has the same particle content as p=1
-// but the pion coordinate is measured relative to the neutron (emitting_idx=1).
-// Its isospin coefficient is -1, giving destructive interference with p=1 in
-// the W matrix and contributing a spatially distinct pion-cloud configuration.
+// The W coupling is now computed as W_1 + W_2 for BOTH bare nucleons,
+// properly summing over all three spherical components of sigma.r.  The
+// full result is complex; the sectors merely provide different spatial
+// configurations for the variational basis.
 // ---------------------------------------------------------------------------
 struct PionSystem {
     static const int N_SEC = 9;
 
     std::vector<gaus> basis[N_SEC];
-    jacobian          jac_phys[5];    // jac_phys[p] for physical channel p = 0..4
+    jacobian          jac_phys[5];      // jac_phys[p] for physical channel p=0..4
     long double       meson_mass[5];
-    long double       iso_weight[5];
     long double       S_pion;
     long double       b_pion;
     bool              relativistic;
     hamiltonian       H;
 
-    // Map sector -> physical channel index
-    // sec 0     -> 0
-    // sec 1,2   -> 1
-    // sec 3,4   -> 2
-    // sec 5,6   -> 3
-    // sec 7,8   -> 4
+    // Map sector -> physical channel
     static int  phys(int sec)      { return (sec <= 0) ? 0 : (sec + 1) / 2; }
-
-    // Odd-numbered clothed sectors are chan_A (sigma_z / spin-preserving)
-    // Even-numbered clothed sectors are chan_B (sigma_perp / spin-flipping)
+    // Odd clothed sectors use z-shift (chan A); even use x-shift (chan B)
     static bool is_chan_A(int sec) { return (sec > 0) && (sec % 2 == 1); }
 
     const jacobian& jac(int sec) const { return jac_phys[phys(sec)]; }
 
-    // Returns true if the pion in sector sec is emitted by the neutron (particle index 1).
-    // Used to select the correct pion_coord projection vector.
-    static bool neutron_emits(int p) { return (p == 3 || p == 4); }
+    size_t total_size() const {
+        size_t n = 0; for (int s = 0; s < N_SEC; ++s) n += basis[s].size(); return n;
+    }
+    size_t offset(int sec) const {
+        size_t off = 0; for (int s = 0; s < sec; ++s) off += basis[s].size(); return off;
+    }
 
-    // Projection vector c such that c^T x = r_{pion} - r_{emitter}.
-    // emitting_idx=0: proton is the emitter (particle 0 in the Jacobi).
-    // emitting_idx=1: neutron is the emitter (particle 1 in the Jacobi).
-    vector pion_coord(int sec, int emitting_idx) const {
+    // -----------------------------------------------------------------------
+    // pion_coord: projection vector c such that c^T x = r_pion - r_particle_k
+    // for particle index k in the clothed-sector Jacobi coordinates.
+    //   k=0: pion relative to first nucleon  (e.g. proton side)
+    //   k=1: pion relative to second nucleon (e.g. neutron side)
+    // -----------------------------------------------------------------------
+    vector pion_coord(int sec, int k) const {
         long double m0   = jac(sec).particles[0].mass;
         long double m1   = jac(sec).particles[1].mass;
         long double mtot = m0 + m1;
         vector c(2);
-        if (emitting_idx == 0) { c[0] = +m1 / mtot; c[1] = 1.0; }
-        else                   { c[0] = -m0 / mtot; c[1] = 1.0; }
+        if (k == 0) { c[0] = +m1/mtot; c[1] = 1.0L; }
+        else        { c[0] = -m0/mtot; c[1] = 1.0L; }
         return c;
     }
 
-    // Gaussian form-factor kernel: Omega_{ij} = c_i c_j / b^2
-    matrix Omega(int sec, const vector& c_coord) const {
+    // Gaussian form-factor kernel:  Omega_{ij} = c_i c_j / b^2
+    matrix Omega(int sec, const vector& c) const {
         size_t d = jac(sec).dim();
         matrix Om(d, d);
-        long double inv_b2 = 1.0 / (b_pion * b_pion);
+        long double inv_b2 = 1.0L / (b_pion * b_pion);
         for (size_t i = 0; i < d; ++i)
             for (size_t j = 0; j < d; ++j)
-                Om(i, j) = inv_b2 * c_coord[i] * c_coord[j];
+                Om(i,j) = inv_b2 * c[i] * c[j];
         return Om;
     }
 
-    size_t total_size() const {
-        size_t n = 0;
-        for (int s = 0; s < N_SEC; ++s) n += basis[s].size();
-        return n;
+    // -----------------------------------------------------------------------
+    // make_couplings: build the NucleonCoupling list for a clothed sector.
+    //
+    // For EACH of the two bare nucleons (proton=0, neutron=1), apply_vertex
+    // is called with the pion type for this sector.  Any forbidden vertex
+    // returns an empty VertexTerm list and is skipped.
+    //
+    // This automatically handles:
+    //   - PN+pi0: both proton (iso=+1) and neutron (iso=-1) contribute
+    //   - NN+pi+: only the bare proton can emit pi+ (neutron term is empty)
+    //   - PP+pi-: only the bare neutron can emit pi- (proton term is empty)
+    //
+    // The form-factor strength S_pion/b_pion is stored in each coupling.
+    // -----------------------------------------------------------------------
+    std::vector<NucleonCoupling> make_couplings(int sec) const {
+        int p = phys(sec);
+        if (p == 0) return {};
+
+        const Pion pion = [p]() -> Pion {
+            switch (p) {
+                case 1: case 4: return Pion::PiZero();
+                case 2:         return Pion::PiPlus();
+                case 3:         return Pion::PiMinus();
+                default:        return Pion::PiZero();
+            }
+        }();
+
+        long double strength = S_pion / b_pion;
+
+        Nucleon bare_nucleons[2] = { Nucleon::Proton(), Nucleon::Neutron() };
+        std::vector<NucleonCoupling> couplings;
+
+        for (int k = 0; k < 2; ++k) {
+            auto terms = apply_vertex(bare_nucleons[k], pion);
+            if (terms.empty()) continue;
+
+            NucleonCoupling c;
+            c.c_coord = pion_coord(sec, k);
+            c.terms   = std::move(terms);
+            c.strength = strength;
+            couplings.push_back(std::move(c));
+        }
+        return couplings;
     }
 
-    size_t offset(int sec) const {
-        size_t off = 0;
-        for (int s = 0; s < sec; ++s) off += basis[s].size();
-        return off;
+    // -----------------------------------------------------------------------
+    // Omega for sector: use the pion coordinate relative to the first
+    // non-empty coupling's nucleon.  For sectors where only one nucleon
+    // emits, this is unambiguous.  For PN+pi0 where both emit, we use a
+    // geometric mean or simply the first coupling.
+    // The form factor is the same exp(-r_k^2/b^2) absorbed into Omega.
+    // We use the first coupling's c_coord to build Omega (the coupling
+    // that dominates spatially, i.e., the one whose Gaussians are centred
+    // on that nucleon's side).
+    // -----------------------------------------------------------------------
+    matrix make_omega(int sec) const {
+        auto couplings = make_couplings(sec);
+        if (couplings.empty()) return matrix(jac(sec).dim(), jac(sec).dim());
+        return Omega(sec, couplings[0].c_coord);
     }
 
-    // Build the beta vector for the W operator from the spin and isospin
-    // coefficients of the emitting nucleon.
-    //   Chan A (is_chan_A): beta[2] = iso_weight * strength * spin.coef_z
-    //   Chan B (!is_chan_A): beta[0] = iso_weight * strength * spin.coef_perp
-    // The spin coefficients come from Nucleon::spin_dot_r_coefficients() so
-    // that all sigma algebra lives in particle.h alongside the tau algebra.
-    vector make_beta(int sec) const {
-        int  p     = phys(sec);
-        bool chanA = is_chan_A(sec);
-
-        // Choose the emitting nucleon to read the spin coupling from.
-        // For pp+pi- (p==3) and pn+pi0-neutron-emits (p==4) the neutron emits.
-        Nucleon emitter = neutron_emits(p) ? Nucleon::Neutron() : Nucleon::Proton();
-        Nucleon::SpinCoupling sc = emitter.spin_dot_r_coefficients();
-
-        long double base = iso_weight[p] * (S_pion / b_pion);
-        vector beta(3);
-        if (chanA) beta[2] = base * sc.coef_z;
-        else       beta[0] = base * sc.coef_perp;
-        return beta;
-    }
-
-    // Compute a new row/column of H and N for a trial Gaussian in target_sec.
+    // -----------------------------------------------------------------------
+    // calc_row: compute one new row/column of H_c and N for a trial Gaussian
+    // -----------------------------------------------------------------------
     void calc_row(int target_sec, const gaus& g_target,
-                  std::vector<long double>& h_row, std::vector<long double>& n_row,
-                  long double& h_diag, long double& n_diag) const {
+                  std::vector<cld>& h_row,
+                  std::vector<long double>& n_row,
+                  cld& h_diag, long double& n_diag) const {
         size_t N = total_size();
-        h_row.assign(N, 0.0);
-        n_row.assign(N, 0.0);
+        h_row.assign(N, cld(0));
+        n_row.assign(N, 0.0L);
 
         n_diag = overlap(g_target, g_target);
-        long double k_diag = 0.0;
+        long double k_diag = 0.0L;
         const jacobian& j_tgt = jac(target_sec);
-        for (size_t coord = 0; coord < j_tgt.dim(); ++coord) {
-            if (relativistic) k_diag += H.K_rel(g_target, g_target, j_tgt.c(coord), j_tgt.mu(coord));
-            else              k_diag += H.K_cla(g_target, g_target, j_tgt.c(coord), j_tgt.mu(coord));
-        }
-        h_diag = k_diag + meson_mass[phys(target_sec)] * n_diag;
+        for (size_t coord = 0; coord < j_tgt.dim(); ++coord)
+            k_diag += relativistic
+                ? H.K_rel(g_target, g_target, j_tgt.c(coord), j_tgt.mu(coord))
+                : H.K_cla(g_target, g_target, j_tgt.c(coord), j_tgt.mu(coord));
+        h_diag = cld(k_diag + meson_mass[phys(target_sec)] * n_diag, 0.0L);
 
         for (int sec = 0; sec < N_SEC; ++sec) {
             size_t n_s = basis[sec].size();
@@ -212,25 +331,27 @@ struct PionSystem {
             size_t off = offset(sec);
 
             for (size_t i = 0; i < n_s; ++i) {
-                long double h_val = 0.0, n_val = 0.0;
+                cld h_val(0); long double n_val = 0.0L;
+
                 if (sec == target_sec) {
+                    // Same-sector: real kinetic + overlap
                     n_val = overlap(basis[sec][i], g_target);
-                    long double k_val = 0.0;
-                    for (size_t coord = 0; coord < j_tgt.dim(); ++coord) {
-                        if (relativistic) k_val += H.K_rel(basis[sec][i], g_target, j_tgt.c(coord), j_tgt.mu(coord));
-                        else              k_val += H.K_cla(basis[sec][i], g_target, j_tgt.c(coord), j_tgt.mu(coord));
-                    }
-                    h_val = k_val + meson_mass[phys(target_sec)] * n_val;
+                    long double k_val = 0.0L;
+                    for (size_t coord = 0; coord < j_tgt.dim(); ++coord)
+                        k_val += relativistic
+                            ? H.K_rel(basis[sec][i], g_target, j_tgt.c(coord), j_tgt.mu(coord))
+                            : H.K_cla(basis[sec][i], g_target, j_tgt.c(coord), j_tgt.mu(coord));
+                    h_val = cld(k_val + meson_mass[phys(target_sec)] * n_val, 0.0L);
+
                 } else if (sec == 0 || target_sec == 0) {
-                    int          clothed_sec = (sec == 0) ? target_sec : sec;
-                    const gaus&  g_bare      = (sec == 0) ? basis[0][i] : g_target;
-                    const gaus&  g_cloth     = (sec == 0) ? g_target    : basis[sec][i];
-                    int          p           = phys(clothed_sec);
-                    vector       c_coord     = pion_coord(clothed_sec, neutron_emits(p) ? 1 : 0);
-                    matrix       Om          = Omega(clothed_sec, c_coord);
-                    vector       beta        = make_beta(clothed_sec);
-                    h_val = H.W(g_bare, g_cloth, Om, c_coord, 0.0, beta);
-                    n_val = 0.0;
+                    // Off-diagonal: W coupling between bare (sec=0) and clothed
+                    int         clothed_sec = (sec == 0) ? target_sec : sec;
+                    const gaus& g_bare  = (sec == 0) ? basis[0][i]  : g_target;
+                    const gaus& g_cloth = (sec == 0) ? g_target     : basis[sec][i];
+                    auto        couplings = make_couplings(clothed_sec);
+                    matrix      Om = make_omega(clothed_sec);
+                    h_val = H.W(g_bare, g_cloth, Om, couplings);
+                    n_val = 0.0L;
                 }
                 h_row[off + i] = h_val;
                 n_row[off + i] = n_val;
@@ -238,16 +359,19 @@ struct PionSystem {
         }
     }
 
-    // Expand H and N by one row/column for a new basis function in target_sec.
-    void insert_matrix(const matrix& H_old, const matrix& N_old,
+    // -----------------------------------------------------------------------
+    // insert_matrix: expand H_c and N by one row/column
+    // -----------------------------------------------------------------------
+    void insert_matrix(const cmatrix& H_old, const matrix& N_old,
                        int target_sec, const gaus& trial,
-                       matrix& H_new, matrix& N_new) const {
+                       cmatrix& H_new, matrix& N_new) const {
         size_t N = H_old.size1();
-        matrix H_temp(N + 1, N + 1);
-        matrix N_temp(N + 1, N + 1);
+        cmatrix H_temp(N+1, N+1);
+        matrix  N_temp(N+1, N+1);
 
-        std::vector<long double> h_row, n_row;
-        long double h_diag, n_diag;
+        std::vector<cld>          h_row;
+        std::vector<long double>  n_row;
+        cld h_diag; long double n_diag;
         calc_row(target_sec, trial, h_row, n_row, h_diag, n_diag);
 
         size_t ins = offset(target_sec) + basis[target_sec].size();
@@ -257,10 +381,11 @@ struct PionSystem {
             size_t ni = remap(i);
             for (size_t j = 0; j < N; ++j) {
                 size_t nj = remap(j);
-                H_temp(ni, nj) = H_old(i, j);
-                N_temp(ni, nj) = N_old(i, j);
+                H_temp(ni,nj) = H_old(i,j);
+                N_temp(ni,nj) = N_old(i,j);
             }
-            H_temp(ni, ins) = H_temp(ins, ni) = h_row[i];
+            H_temp(ni, ins) = h_row[i];
+            H_temp(ins, ni) = std::conj(h_row[i]);  // Hermitian symmetry
             N_temp(ni, ins) = N_temp(ins, ni) = n_row[i];
         }
         H_temp(ins, ins) = h_diag;
@@ -269,105 +394,112 @@ struct PionSystem {
         N_new = N_temp;
     }
 
-    // Replace row/column target_k in target_sec with a new basis function.
-    void replace_matrix(const matrix& H_old, const matrix& N_old,
+    // -----------------------------------------------------------------------
+    // replace_matrix: swap row/column target_k in target_sec
+    // -----------------------------------------------------------------------
+    void replace_matrix(const cmatrix& H_old, const matrix& N_old,
                         int target_sec, size_t target_k, const gaus& trial,
-                        matrix& H_new, matrix& N_new) const {
-        size_t N = H_old.size1();
-        matrix H_temp = H_old;
-        matrix N_temp = N_old;
+                        cmatrix& H_new, matrix& N_new) const {
+        H_new = H_old; N_new = N_old;
 
-        std::vector<long double> h_row, n_row;
-        long double h_diag, n_diag;
+        std::vector<cld>         h_row;
+        std::vector<long double> n_row;
+        cld h_diag; long double n_diag;
         calc_row(target_sec, trial, h_row, n_row, h_diag, n_diag);
 
         size_t gi = offset(target_sec) + target_k;
-        for (size_t i = 0; i < N; ++i) {
+        size_t tot = H_old.size1();
+        for (size_t i = 0; i < tot; ++i) {
             if (i == gi) continue;
-            H_temp(i, gi) = H_temp(gi, i) = h_row[i];
-            N_temp(i, gi) = N_temp(gi, i) = n_row[i];
+            H_new(i,  gi) = std::conj(h_row[i]);
+            H_new(gi, i)  = h_row[i];
+            N_new(i,  gi) = N_new(gi, i) = n_row[i];
         }
-        H_temp(gi, gi) = h_diag;
-        N_temp(gi, gi) = n_diag;
-        H_new = H_temp;
-        N_new = N_temp;
+        H_new(gi, gi) = h_diag;
+        N_new(gi, gi) = n_diag;
     }
 
-    // Build full H and N from scratch.
-    void build_full(matrix& H_tot, matrix& N_tot) const {
-        size_t N = total_size();
-        H_tot = matrix(N, N);
-        N_tot = matrix(N, N);
+    // -----------------------------------------------------------------------
+    // build_full: construct H_c and N from scratch
+    // -----------------------------------------------------------------------
+    void build_full(cmatrix& H_tot, matrix& N_tot) const {
+        size_t Ntot = total_size();
+        H_tot = cmatrix(Ntot, Ntot);
+        N_tot = matrix (Ntot, Ntot);
 
-        // Diagonal blocks: kinetic energy + meson rest mass
+        // Diagonal blocks (real kinetic energy + meson mass)
         for (int sec = 0; sec < N_SEC; ++sec) {
             size_t n_s = basis[sec].size();
             size_t off = offset(sec);
-            int p = phys(sec);
+            int    p   = phys(sec);
             const jacobian& j = jac(sec);
             for (size_t i = 0; i < n_s; ++i)
                 for (size_t k = 0; k < n_s; ++k) {
                     long double nij = overlap(basis[sec][i], basis[sec][k]);
-                    N_tot(off + i, off + k) = nij;
-                    long double kij = 0.0;
+                    N_tot(off+i, off+k) = nij;
+                    long double kij = 0.0L;
                     for (size_t coord = 0; coord < j.dim(); ++coord)
                         kij += relativistic
                             ? H.K_rel(basis[sec][i], basis[sec][k], j.c(coord), j.mu(coord))
                             : H.K_cla(basis[sec][i], basis[sec][k], j.c(coord), j.mu(coord));
-                    H_tot(off + i, off + k) = kij + meson_mass[p] * nij;
+                    H_tot(off+i, off+k) = cld(kij + meson_mass[p]*nij, 0.0L);
                 }
         }
 
-        // Off-diagonal blocks: W coupling between bare (sec=0) and each clothed sector
+        // Off-diagonal W blocks: bare (sec=0) <-> clothed (sec=1..8)
         size_t n0 = basis[0].size();
         for (int sec = 1; sec < N_SEC; ++sec) {
             size_t n_s   = basis[sec].size();
             size_t off_s = offset(sec);
-            int    p     = phys(sec);
-            vector c_coord = pion_coord(sec, neutron_emits(p) ? 1 : 0);
-            matrix Om      = Omega(sec, c_coord);
-            vector beta    = make_beta(sec);
+            auto   couplings = make_couplings(sec);
+            matrix Om        = make_omega(sec);
+
             for (size_t i = 0; i < n0; ++i)
                 for (size_t k = 0; k < n_s; ++k) {
-                    long double w = H.W(basis[0][i], basis[sec][k], Om, c_coord, 0.0, beta);
-                    H_tot(i, off_s + k) = H_tot(off_s + k, i) = w;
+                    cld w = H.W(basis[0][i], basis[sec][k], Om, couplings);
+                    H_tot(i,        off_s + k) = w;
+                    H_tot(off_s+k,  i)         = std::conj(w);  // Hermitian
                 }
         }
     }
 };
 
 // ---------------------------------------------------------------------------
-// Solver helpers
+// Basis generation helpers
 // ---------------------------------------------------------------------------
-static long double solve(const matrix& H_tot, const matrix& N_tot) {
-    EigenResult sys = solve_generalized_eigensystem(H_tot, N_tot);
-    if (sys.evals.size() == 0) return std::numeric_limits<long double>::quiet_NaN();
-    return sys.evals[0];
-}
-
 static gaus make_swave(size_t dim, long double mean_r) {
-    gaus g(dim, mean_r, 0.0);
+    gaus g(dim, mean_r, 0.0L);
     g.zero_shifts();
     return g;
 }
 
-// P-wave Gaussian: only the meson Jacobi coordinate (last row of s) carries a shift.
-// Chan A -> shift in z-direction (sigma_z channel).
-// Chan B -> shift in x-direction (sigma_perp channel, represents x+y via sqrt(2) weight).
+// P-wave Gaussian: only the pion Jacobi coordinate (last row of s) carries
+// a non-zero shift.
+//   chan_A -> shift in z-direction  (connects to r[0]=z, real)
+//   chan_B -> shift in x-direction  (connects to Re[r[1,2]], and imaginary
+//             part comes automatically from the spherical formula in hamiltonian.h)
 static gaus make_pwave(size_t dim, long double mean_r, long double mean_R, bool chan_A) {
     gaus g(dim, mean_r, mean_R);
+    // Zero all shifts except the last Jacobi coordinate
     for (size_t i = 0; i < dim - 1; ++i)
         for (size_t k = 0; k < 3; ++k)
-            g.s(i, k) = 0.0;
+            g.s(i, k) = 0.0L;
     if (dim >= 2) {
-        if (chan_A) { g.s(dim - 1, 0) = 0.0; g.s(dim - 1, 1) = 0.0; }  // only z nonzero
-        else        { g.s(dim - 1, 1) = 0.0; g.s(dim - 1, 2) = 0.0; }  // only x nonzero
+        if (chan_A) {
+            // z-shift only (index 2): zero x and y
+            g.s(dim-1, 0) = 0.0L;
+            g.s(dim-1, 1) = 0.0L;
+        } else {
+            // x-shift only (index 0): zero y and z
+            g.s(dim-1, 1) = 0.0L;
+            g.s(dim-1, 2) = 0.0L;
+        }
     }
     return g;
 }
 
 // ---------------------------------------------------------------------------
-// SVM basis selection: greedy, one Gaussian at a time.
+// SVM greedy basis selection
 // ---------------------------------------------------------------------------
 static long double run_selection(PionSystem& sys, const size_t* target_n,
                                  int n_cand, long double mean_r, long double mean_R) {
@@ -376,12 +508,11 @@ static long double run_selection(PionSystem& sys, const size_t* target_n,
     size_t total_slots = 0;
     for (int s = 0; s < PionSystem::N_SEC; ++s) total_slots += target_n[s];
 
-    matrix H_master(0, 0), N_master(0, 0);
+    cmatrix H_master; matrix N_master;
     long double E_cur = std::numeric_limits<long double>::quiet_NaN();
-
-    size_t slots_filled    = 0;
-    int    consecutive_fails = 0;
-    const int max_fails    = 15;
+    size_t slots_filled = 0;
+    int consecutive_fails = 0;
+    const int max_fails = 15;
 
     while (slots_filled < total_slots) {
         // Pick the sector furthest from its target
@@ -393,17 +524,17 @@ static long double run_selection(PionSystem& sys, const size_t* target_n,
             if (frac > max_frac) { max_frac = frac; add_sec = s; }
         }
 
-        bool   bare   = (add_sec == 0);
-        bool   chan_A = PionSystem::is_chan_A(add_sec);
-        size_t dim    = sys.jac(add_sec).dim();
+        bool   bare  = (add_sec == 0);
+        bool   chanA = PionSystem::is_chan_A(add_sec);
+        size_t dim   = sys.jac(add_sec).dim();
 
         long double global_best_E = std::numeric_limits<long double>::infinity();
         gaus        global_best_g;
 
-        std::vector<gaus> candidates;
+        std::vector<gaus> candidates(n_cand);
         for (int c = 0; c < n_cand; ++c)
-            candidates.push_back(bare ? make_swave(dim, mean_r)
-                                      : make_pwave(dim, mean_r, mean_R, chan_A));
+            candidates[c] = bare ? make_swave(dim, mean_r)
+                                 : make_pwave(dim, mean_r, mean_R, chanA);
 
         #pragma omp parallel
         {
@@ -415,40 +546,33 @@ static long double run_selection(PionSystem& sys, const size_t* target_n,
                 const gaus& trial = candidates[c];
 
                 // Linear dependence filter
-                bool dependent = false;
+                bool dep = false;
                 long double n_tt = overlap(trial, trial);
                 for (size_t i = 0; i < sys.basis[add_sec].size(); ++i) {
                     long double n_ii = overlap(sys.basis[add_sec][i], sys.basis[add_sec][i]);
                     long double n_ti = std::abs(overlap(trial, sys.basis[add_sec][i]));
-                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) { dependent = true; break; }
+                    if (n_ti / std::sqrt(n_tt * n_ii) > 0.95L) { dep = true; break; }
                 }
-                if (dependent) continue;
+                if (dep) continue;
 
-                matrix H_trial, N_trial;
+                cmatrix H_trial; matrix N_trial;
                 sys.insert_matrix(H_master, N_master, add_sec, trial, H_trial, N_trial);
                 long double E = solve(H_trial, N_trial);
-                if (!std::isnan(E) && E < local_best_E) {
-                    local_best_E = E; local_best_g = trial;
-                }
+                if (!std::isnan(E) && E < local_best_E) { local_best_E = E; local_best_g = trial; }
             }
 
             #pragma omp critical
             {
-                if (local_best_E < global_best_E) {
-                    global_best_E = local_best_E; global_best_g = local_best_g;
-                }
+                if (local_best_E < global_best_E) { global_best_E = local_best_E; global_best_g = local_best_g; }
             }
         }
 
         if (std::isinf(global_best_E)) {
-            consecutive_fails++;
-            std::cerr << "\n  [Warning] All candidates rejected (too similar). Retry "
-                      << consecutive_fails << "/" << max_fails << "\n";
-            if (consecutive_fails >= max_fails) {
-                std::cout << "\n  [!] Basis naturally saturated at size " << slots_filled
-                          << ". Moving to tuning!\n";
+            if (++consecutive_fails >= max_fails) {
+                std::cout << "\n  [!] Basis naturally saturated at size " << slots_filled << "\n";
                 break;
             }
+            std::cerr << "\n  [Warning] All candidates rejected. Retry " << consecutive_fails << "/" << max_fails << "\n";
             continue;
         }
 
@@ -456,14 +580,13 @@ static long double run_selection(PionSystem& sys, const size_t* target_n,
         sys.insert_matrix(H_master, N_master, add_sec, global_best_g, H_master, N_master);
         sys.basis[add_sec].push_back(global_best_g);
         slots_filled++;
+        E_cur = global_best_E;
 
         std::cout << "\r  [SVM] Building basis... " << std::setw(3) << slots_filled
                   << "/" << total_slots
                   << " | E = " << std::fixed << std::setprecision(5) << global_best_E
                   << std::flush;
-        E_cur = global_best_E;
     }
-
     std::cout << "\n";
     return E_cur;
 }
@@ -488,7 +611,7 @@ int main(int argc, char* argv[]) {
     long double       S_pion   = cfg.ld("S");
     long double       b_pion   = cfg.ld("b");
     const size_t      n_pn     = cfg.sz("n_pn");
-    const size_t      n_pnπ    = cfg.sz("n_pnπ");
+    const size_t      n_pnpi   = cfg.sz("n_pnpi");
     const int         n_cand   = cfg.i("n_cand");
     const int         n_refine = cfg.i("n_refine");
     const long double mean_r   = cfg.ld("mean_r");
@@ -503,10 +626,11 @@ int main(int argc, char* argv[]) {
 
     std::cout << "===============================================\n";
     std::cout << "[main] Deuteron + explicit pion  (9-sector SVM)\n";
+    std::cout << "[main] W = W_1 + W_2, complex Hermitian H\n";
     std::cout << "===============================================\n";
 
     // ------------------------------------------------------------------
-    // Particles and vertex coefficients
+    // Particles
     // ------------------------------------------------------------------
     Nucleon proton  = Nucleon::Proton();
     Nucleon neutron = Nucleon::Neutron();
@@ -514,11 +638,21 @@ int main(int argc, char* argv[]) {
     Pion    piplus  = Pion::PiPlus();
     Pion    piminus = Pion::PiMinus();
 
-    // Isospin vertices (tau.pi coupling)
-    VertexResult v0_p = apply_pion_emission(proton,  pi0);     // proton  + pi0  -> coef +1
-    VertexResult v_pp = apply_pion_emission(proton,  piplus);  // proton  + pi+  -> coef +sqrt2
-    VertexResult v_nm = apply_pion_emission(neutron, piminus); // neutron + pi-  -> coef +sqrt2
-    VertexResult v0_n = apply_pion_emission(neutron, pi0);     // neutron + pi0  -> coef -1
+    // ------------------------------------------------------------------
+    // Print vertex table so we can verify the spin-isospin algebra
+    // ------------------------------------------------------------------
+    std::cerr << "\n[Vertex table]  (tau.pi)(sigma.r) -- coeff[m] per spherical component\n";
+    std::cerr << "  Format: nucleon + pion -> [m=0 (z), m=1 (x+iy), m=2 (x-iy)]\n";
+    for (auto& [nuc, pi] : std::vector<std::pair<Nucleon,Pion>>{
+            {proton, pi0}, {proton, piplus}, {neutron, piminus}, {neutron, pi0}}) {
+        auto terms = apply_vertex(nuc, pi);
+        std::cerr << "  " << nuc.name << " + " << pi.name << " :";
+        if (terms.empty()) { std::cerr << "  (forbidden)\n"; continue; }
+        for (auto& t : terms)
+            std::cerr << "  [" << t.coeff[0] << ", " << t.coeff[1]
+                      << ", " << t.coeff[2] << "] bra_sz=" << t.bra_sz;
+        std::cerr << "\n";
+    }
 
     // ------------------------------------------------------------------
     // Build PionSystem
@@ -528,74 +662,45 @@ int main(int argc, char* argv[]) {
     sys.S_pion       = S_pion;
     sys.b_pion       = b_pion;
 
-    // Jacobi systems for each physical channel
-    sys.jac_phys[0] = jacobian({proton,  neutron});                   // bare PN
-    sys.jac_phys[1] = jacobian({proton,  neutron, pi0});              // PN+pi0 (proton emits)
-    sys.jac_phys[2] = jacobian({neutron, neutron, piplus});           // NN+pi+
-    sys.jac_phys[3] = jacobian({proton,  proton,  piminus});          // PP+pi-
-    sys.jac_phys[4] = jacobian({proton,  neutron, pi0});              // PN+pi0 (neutron emits)
+    sys.jac_phys[0] = jacobian({proton,  neutron});
+    sys.jac_phys[1] = jacobian({proton,  neutron, pi0});
+    sys.jac_phys[2] = jacobian({neutron, neutron, piplus});
+    sys.jac_phys[3] = jacobian({proton,  proton,  piminus});
+    sys.jac_phys[4] = jacobian({proton,  neutron, pi0});    // same particles as p=1
 
-    // Meson rest masses per physical channel
-    sys.meson_mass[0] = 0.0;
+    sys.meson_mass[0] = 0.0L;
     sys.meson_mass[1] = pi0.mass;
     sys.meson_mass[2] = piplus.mass;
     sys.meson_mass[3] = piminus.mass;
     sys.meson_mass[4] = pi0.mass;
 
-    // Isospin coupling coefficients from (tau.pi) vertex
-    sys.iso_weight[0] = 0.0;
-    sys.iso_weight[1] = v0_p.coefficient;   // +1
-    sys.iso_weight[2] = v_pp.coefficient;   // +sqrt2
-    sys.iso_weight[3] = v_nm.coefficient;   // +sqrt2
-    sys.iso_weight[4] = v0_n.coefficient;   // -1  (destructive interference with p=1)
-
-    // ------------------------------------------------------------------
-    // Print vertex summary so it is easy to verify the signs
-    // ------------------------------------------------------------------
-    std::cerr << "\n[Vertices]\n";
-    std::cerr << "  p+pi0  -> coef " << v0_p.coefficient << "  (" << v0_p.resulting_nucleon.name << ")\n";
-    std::cerr << "  p+pi+  -> coef " << v_pp.coefficient << "  (" << v_pp.resulting_nucleon.name << ")\n";
-    std::cerr << "  n+pi-  -> coef " << v_nm.coefficient << "  (" << v_nm.resulting_nucleon.name << ")\n";
-    std::cerr << "  n+pi0  -> coef " << v0_n.coefficient << "  (" << v0_n.resulting_nucleon.name << ")\n";
-
-    {
-        auto sc_p = proton.spin_dot_r_coefficients();
-        auto sc_n = neutron.spin_dot_r_coefficients();
-        std::cerr << "\n[Spin couplings]\n";
-        std::cerr << "  proton  coef_z=" << sc_p.coef_z << "  coef_perp=" << sc_p.coef_perp << "\n";
-        std::cerr << "  neutron coef_z=" << sc_n.coef_z << "  coef_perp=" << sc_n.coef_perp << "\n";
-    }
-
-    // ------------------------------------------------------------------
-    // SVM target basis sizes: one entry per sector
-    // ------------------------------------------------------------------
+    // Target basis sizes
     const size_t target_n[PionSystem::N_SEC] = {
-        n_pn,    // sec 0: bare PN
-        n_pnπ,   // sec 1: PN+pi0 chan A (proton emits)
-        n_pnπ,   // sec 2: PN+pi0 chan B (proton emits)
-        n_pnπ,   // sec 3: NN+pi+ chan A
-        n_pnπ,   // sec 4: NN+pi+ chan B
-        n_pnπ,   // sec 5: PP+pi- chan A
-        n_pnπ,   // sec 6: PP+pi- chan B
-        n_pnπ,   // sec 7: PN+pi0 chan A (neutron emits)
-        n_pnπ,   // sec 8: PN+pi0 chan B (neutron emits)
+        n_pn,     // sec 0: bare PN
+        n_pnpi,   // sec 1: PN+pi0, z-shift, chan A
+        n_pnpi,   // sec 2: PN+pi0, x-shift, chan B
+        n_pnpi,   // sec 3: NN+pi+, chan A
+        n_pnpi,   // sec 4: NN+pi+, chan B
+        n_pnpi,   // sec 5: PP+pi-, chan A
+        n_pnpi,   // sec 6: PP+pi-, chan B
+        n_pnpi,   // sec 7: PN+pi0 neutron side, chan A
+        n_pnpi,   // sec 8: PN+pi0 neutron side, chan B
     };
 
-    matrix      H_cur, N_cur;
-    long double E_best = 0.0;
+    cmatrix H_cur; matrix N_cur;
+    long double E_best = 0.0L;
 
     std::cout << std::fixed << std::setprecision(4);
-    std::cout << "\n=== Phase 0.0: Generating Initial Rough Basis ===\n";
+    std::cout << "\n=== Phase 0: Generating Initial Basis ===\n";
     run_selection(sys, target_n, n_cand, mean_r, mean_R);
 
     for (int macro = 1; macro <= n_macro; ++macro) {
         std::cout << "\n====== MACRO CYCLE " << macro << " / " << n_macro << " ======\n";
 
-        // --- Tune S with frozen basis ---
+        // Tune S
         std::cout << "\n=== Phase 0a: Tuning S ===\n";
-        long double E_cur     = std::numeric_limits<long double>::quiet_NaN();
-        long double cur_kS    = std::abs(k_S);
-        long double prev_errS = 0.0;
+        long double E_cur = std::numeric_limits<long double>::quiet_NaN();
+        long double cur_kS = std::abs(k_S), prev_errS = 0.0L;
         for (int it = 0; it < n_opt_S; ++it) {
             sys.S_pion = S_pion; sys.b_pion = b_pion;
             sys.build_full(H_cur, N_cur);
@@ -606,17 +711,17 @@ int main(int argc, char* argv[]) {
                       << "  b=" << std::setw(6) << b_pion
                       << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV" << std::flush;
-            if (std::abs(err) < 0.001) { std::cout << "\n --- [S converged] --- \n"; break; }
-            if (it > 0 && err * prev_errS < 0) cur_kS *= 0.5;
+            if (std::abs(err) < 0.001L) { std::cout << "\n --- [S converged] ---\n"; break; }
+            if (it > 0 && err * prev_errS < 0) cur_kS *= 0.5L;
             long double step = std::abs(cur_kS * err);
             S_pion += (err > 0) ? +step : -step;
-            if (S_pion < 0.1) S_pion = 0.1;
+            if (S_pion < 0.1L) S_pion = 0.1L;
             prev_errS = err;
         }
 
-        // --- Tune b with frozen basis ---
+        // Tune b
         std::cout << "\n=== Phase 0b: Tuning b ===\n";
-        long double prev_err = 0.0;
+        long double prev_err = 0.0L;
         for (int it = 0; it < n_opt_b; ++it) {
             sys.S_pion = S_pion; sys.b_pion = b_pion;
             sys.build_full(H_cur, N_cur);
@@ -627,16 +732,13 @@ int main(int argc, char* argv[]) {
                       << "  b=" << std::setw(6) << b_pion
                       << "  E=" << std::setw(10) << E_cur
                       << "  err=" << std::setw(9) << err << " MeV" << std::flush;
-            if (std::abs(err) < 0.001) { std::cout << "\n --- [b converged] --- \n"; break; }
-            if (it > 0 && err * prev_err < 0) {
-                k_b *= 0.5;
-                std::cout << "      [Overshoot: halving k_b to " << k_b << "]\n";
-            }
+            if (std::abs(err) < 0.001L) { std::cout << "\n --- [b converged] ---\n"; break; }
+            if (it > 0 && err * prev_err < 0) { k_b *= 0.5L; }
             b_pion += k_b * err;
             prev_err = err;
         }
 
-        // --- Full basis selection ---
+        // Full basis selection
         if (macro == 1 && (n_opt_S + n_opt_b) > 0) {
             std::cout << "\n=== Phase 1: Full Selection (S=" << S_pion << " b=" << b_pion << ") ===\n";
             E_best = run_selection(sys, target_n, n_cand, mean_r, mean_R);
@@ -646,53 +748,46 @@ int main(int argc, char* argv[]) {
             std::cout << "\n[Phase 1 skipped. E=" << E_best << " MeV]\n";
         }
 
-        // --- Refinement: replace each basis function with a better candidate ---
+        // Refinement
         std::cout << "\n=== Phase 2: Refining ===\n";
-        size_t total_states = sys.total_size();
-        matrix H_master, N_master;
+        cmatrix H_master; matrix N_master;
         sys.build_full(H_master, N_master);
 
         for (int cycle = 1; cycle <= n_refine; ++cycle) {
-            long double E_start  = E_best;
-            size_t      state_idx = 0;
-
+            long double E_start = E_best;
+            size_t state_idx = 0;
             for (int sec = 0; sec < PionSystem::N_SEC; ++sec) {
-                bool   bare   = (sec == 0);
-                bool   chan_A = PionSystem::is_chan_A(sec);
-                size_t dim    = sys.jac(sec).dim();
+                bool   bare  = (sec == 0);
+                bool   chanA = PionSystem::is_chan_A(sec);
+                size_t dim   = sys.jac(sec).dim();
 
                 for (size_t k = 0; k < sys.basis[sec].size(); ++k) {
                     state_idx++;
                     long double global_best_E = E_best;
                     gaus        global_best_g = sys.basis[sec][k];
 
-                    std::vector<gaus> candidates;
+                    std::vector<gaus> candidates(n_cand);
                     for (int c = 0; c < n_cand; ++c)
-                        candidates.push_back(bare ? make_swave(dim, mean_r)
-                                                  : make_pwave(dim, mean_r, mean_R, chan_A));
+                        candidates[c] = bare ? make_swave(dim, mean_r)
+                                             : make_pwave(dim, mean_r, mean_R, chanA);
 
                     #pragma omp parallel
                     {
                         long double local_best_E = global_best_E;
-                        gaus        local_best_g = global_best_g;
+                        gaus        local_best_g  = global_best_g;
 
                         #pragma omp for
                         for (int c = 0; c < n_cand; ++c) {
                             const gaus& trial = candidates[c];
                             if (is_linearly_dependent(trial, sys.basis[sec], k)) continue;
-                            matrix H_trial, N_trial;
+                            cmatrix H_trial; matrix N_trial;
                             sys.replace_matrix(H_master, N_master, sec, k, trial, H_trial, N_trial);
                             long double E = solve(H_trial, N_trial);
-                            if (!std::isnan(E) && E < local_best_E) {
-                                local_best_E = E; local_best_g = trial;
-                            }
+                            if (!std::isnan(E) && E < local_best_E) { local_best_E = E; local_best_g = trial; }
                         }
-
                         #pragma omp critical
                         {
-                            if (local_best_E < global_best_E) {
-                                global_best_E = local_best_E; global_best_g = local_best_g;
-                            }
+                            if (local_best_E < global_best_E) { global_best_E = local_best_E; global_best_g = local_best_g; }
                         }
                     }
 
@@ -701,10 +796,10 @@ int main(int argc, char* argv[]) {
                         sys.replace_matrix(H_master, N_master, sec, k, global_best_g, H_master, N_master);
                         E_best = global_best_E;
                     }
-
-                    std::cout << "\r  [Refine] Cycle " << cycle << "/" << n_refine
-                              << " | State " << std::setw(3) << state_idx << "/" << total_states
-                              << " | E = " << std::fixed << std::setprecision(5) << E_best << std::flush;
+                    std::cout << "\r  [Refine] cycle=" << cycle
+                              << " state=" << std::setw(3) << state_idx
+                              << " E=" << std::fixed << std::setprecision(5) << E_best
+                              << std::flush;
                 }
             }
             std::cout << "\n";
@@ -716,82 +811,56 @@ int main(int argc, char* argv[]) {
     // Final observables
     // ------------------------------------------------------------------
     sys.S_pion = S_pion; sys.b_pion = b_pion;
-    matrix H_final, N_final;
+    cmatrix H_final; matrix N_final;
     sys.build_full(H_final, N_final);
 
-    EigenResult res = solve_generalized_eigensystem(H_final, N_final);
-    long double E_gs = res.evals.size() > 0 ? res.evals[0]
-                                            : std::numeric_limits<long double>::quiet_NaN();
+    // Use real-doubled solver to get the ground state
+    long double E_gs = solve(H_final, N_final);
 
-    // Norm weights per sector
-    long double prob_bare = 0.0, prob_pion = 0.0;
-    if (res.evecs.size1() > 0) {
-        const auto& c = res.evecs;
-        for (size_t i = 0; i < sys.basis[0].size(); ++i)
-            for (size_t j = 0; j < sys.basis[0].size(); ++j)
-                prob_bare += c(i, 0) * N_final(i, j) * c(j, 0);
-        for (int sec = 1; sec < PionSystem::N_SEC; ++sec) {
-            size_t off = sys.offset(sec);
-            for (size_t i = 0; i < sys.basis[sec].size(); ++i)
-                for (size_t j = 0; j < sys.basis[sec].size(); ++j)
-                    prob_pion += c(off + i, 0) * N_final(off + i, off + j) * c(off + j, 0);
+    // Norm probabilities: use real part of H (diagonal blocks are real)
+    // For sector weights we use the overlap matrix N which is always real.
+    // We solve the real symmetric GEP on the real part to get the eigenvector.
+    long double prob_bare = 0.0L, prob_pion = 0.0L, r2_exp = 0.0L;
+    {
+        matrix H_r_final(H_final.size1(), H_final.size2());
+        for (size_t i = 0; i < H_final.size1(); ++i)
+            for (size_t j = 0; j < H_final.size2(); ++j)
+                H_r_final(i,j) = H_final(i,j).real();
+
+        EigenResult res = solve_generalized_eigensystem(H_r_final, N_final);
+        if (res.evecs.size1() > 0) {
+            const auto& cv = res.evecs;
+            // Bare sector probability
+            for (size_t i = 0; i < sys.basis[0].size(); ++i)
+                for (size_t j = 0; j < sys.basis[0].size(); ++j)
+                    prob_bare += cv(i,0) * N_final(i,j) * cv(j,0);
+            // Pion sector probability
+            for (int sec = 1; sec < PionSystem::N_SEC; ++sec) {
+                size_t off = sys.offset(sec);
+                for (size_t i = 0; i < sys.basis[sec].size(); ++i)
+                    for (size_t j = 0; j < sys.basis[sec].size(); ++j)
+                        prob_pion += cv(off+i,0) * N_final(off+i, off+j) * cv(off+j,0);
+            }
+            // <r^2>
+            for (size_t i = 0; i < sys.basis[0].size(); ++i)
+                for (size_t j = 0; j < sys.basis[0].size(); ++j)
+                    r2_exp += cv(i,0) * sys.H.R2_matrix_element(sys.basis[0][i], sys.basis[0][j]) * cv(j,0);
         }
-        prob_bare *= 100.0L;
-        prob_pion *= 100.0L;
-    }
-
-    // <r^2> and charge radius
-    long double r2_exp = 0.0;
-    if (res.evecs.size1() > 0) {
-        const auto& c = res.evecs;
-        for (size_t i = 0; i < sys.basis[0].size(); ++i)
-            for (size_t j = 0; j < sys.basis[0].size(); ++j)
-                r2_exp += c(i, 0) * sys.H.R2_matrix_element(sys.basis[0][i], sys.basis[0][j]) * c(j, 0);
     }
     long double r_c = std::sqrt(std::abs(r2_exp) / 4.0L);
 
     std::cout << "\n==========================================\n";
     std::cout << "  Ground-state energy : " << E_gs << " MeV\n";
-    std::cout << "  Relativistic        : " << (rel ? "True\n" : "False\n");
+    std::cout << "  Relativistic        : " << (rel ? "True" : "False") << "\n";
+    std::cout << "  S_pion              : " << S_pion << " MeV\n";
+    std::cout << "  b_pion              : " << b_pion << " fm\n";
     std::cout << "  --------------------------------------\n";
-    std::cout << "  <r^2>_pn     : " << r2_exp << " fm^2\n";
-    std::cout << "  Charge Rad   : " << r_c    << " fm\n";
+    std::cout << "  <r^2>_pn            : " << r2_exp << " fm^2\n";
+    std::cout << "  Charge radius       : " << r_c    << " fm\n";
     std::cout << "  --------------------------------------\n";
-    std::cout << "  Bare Sector (PN)   : " << prob_bare << " %\n";
-    std::cout << "  Pion Cloud (PN+pi) : " << prob_pion << " %\n";
+    std::cout << "  Bare PN sector      : " << prob_bare*100.0L << " %\n";
+    std::cout << "  Pion cloud sectors  : " << prob_pion*100.0L << " %\n";
     std::cout << "==========================================\n";
-
-    // ============================================================
-    // Phase 5: Fast 2D Heatmap Scan (b vs S)
-    // ============================================================
-    std::cout << "\n=== Phase 5: Generating 2D Heatmap Data ===\n";
-    std::ofstream scan_out("heatmap.dat");
-    scan_out << "# b_pion (fm) \t S_pion (MeV) \t Energy (MeV)\n";
-    
-    // Outer loop: b from 0.8 to 2.0
-    for (long double b_test = 0.8; b_test <= 2.0; b_test += 0.05) {
-        sys.b_pion = b_test;
-        
-        // Inner loop: S from 10 to 100
-        for (long double s_test = 10.0; s_test <= 100.0; s_test += 2.0) {
-            sys.S_pion = s_test;
-            matrix H_scan, N_scan;
-            sys.build_full(H_scan, N_scan); 
-            long double e_scan = solve(H_scan, N_scan);
-            
-            // Cap explosive positive/NaN energies to 0.0 for a cleaner color scale
-            if (std::isnan(e_scan) || e_scan > 0.0) e_scan = 0.0;
-            
-            scan_out << b_test << " \t " << s_test << " \t " << e_scan << "\n";
-        }
-        scan_out << "\n"; // MANDATORY BLANK LINE for Gnuplot grid formatting!
-    }
-    scan_out.close();
-    std::cout << "  -> Heatmap data saved to 'heatmap.dat'.\n";
-    
-    // Restore the physical parameters
-    sys.b_pion = b_pion;
-    sys.S_pion = S_pion;
 
     return 0;
 }

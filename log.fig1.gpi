@@ -1,0 +1,13 @@
+\
+set terminal pngcairo size 800,600 enhanced font "Arial,12";\
+set output "heatmap.png";\
+set title "Deuteron Binding Energy Heatmap";\
+set xlabel "Form Factor Width b (fm)";\
+set ylabel "Coupling Strength S (MeV)";\
+set cblabel "Binding Energy (MeV)";\
+set pm3d map;\
+set palette rgbformulae 22,13,-31;\
+set zrange [-5:0];\
+set cbrange [-5:0];\
+splot "heatmap.dat" using 1:2:3 title "";\
+
