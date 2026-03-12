@@ -86,7 +86,17 @@ EigenResult jacobi_eigensystem(const matrix& M) {
 //   H' = L^{-1} H (L^{-1})^T,  c = (L^{-1})^T v
 // Returns eigenvalues and eigenvectors sorted ascending.
 EigenResult solve_generalized_eigensystem(const matrix& H, const matrix& N) {
-    matrix L = cholesky(N);
+    // 1. Tikhonov Regularization: stabilize the global overlap matrix
+    // This prevents fake negative energies when the basis becomes 
+    // globally linearly dependent during SVM selection.
+    matrix N_stable = N;
+    long double epsilon = 1e-8L; 
+    for (size_t i = 0; i < N_stable.size1(); i++) {
+        N_stable(i, i) += epsilon;
+    }
+
+    // 2. Proceed with standard Cholesky on the stabilized matrix
+    matrix L = cholesky(N_stable);
     if (L.size1() == 0) return {vector(), matrix()};
 
     matrix Li = L.inverse_lower();
@@ -96,7 +106,7 @@ EigenResult solve_generalized_eigensystem(const matrix& H, const matrix& N) {
     EigenResult sys = jacobi_eigensystem(Hp);
     sys.evecs = Li.transpose() * sys.evecs;
 
-    // Sort by eigenvalue (ascending)
+    // 3. Sort by eigenvalue (ascending)
     size_t n = sys.evals.size();
     for (size_t i = 0; i < n - 1; i++)
         for (size_t j = 0; j < n - i - 1; j++)
@@ -104,6 +114,7 @@ EigenResult solve_generalized_eigensystem(const matrix& H, const matrix& N) {
                 std::swap(sys.evals[j], sys.evals[j + 1]);
                 for (size_t k = 0; k < n; k++) std::swap(sys.evecs(k, j), sys.evecs(k, j + 1));
             }
+            
     return sys;
 }
 

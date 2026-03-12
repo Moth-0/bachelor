@@ -112,7 +112,7 @@ inline long double overlap(const gaus& a, const gaus& b) {
     size_t d = a.dim();
     matrix B     = a.A + b.A;
     long double detB = B.determinant();
-    if (detB <= 1e-30L) return 0.0L;
+    if (detB <= ZERO_LIMIT) return 0.0L;
     matrix B_inv = B.inverse();
 
     long double vBv = 0.0L;

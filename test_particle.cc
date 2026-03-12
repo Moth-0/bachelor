@@ -1,68 +1,68 @@
+// test_particle.cc -- Unit test for spin-isospin algebra in particle.h
 #include <iostream>
 #include <iomanip>
-#include <cmath>
-#include <cassert>
-#include "qm/particle.h" // Assuming the header is named particle.h
+#include <vector>
+#include "qm/particle.h"
 
 using namespace qm;
-using namespace std;
 
-// Helper function to compare floating point values
-bool almost_equal(long double a, long double b, long double epsilon = 1e-6) {
-    return std::abs(a - b) < epsilon;
-}
-
-// --- Previous Test Functions Omitted for Brevity (Assume they are here) ---
-
-// Calculates the W coefficient for a 2-nucleon system emitting a pion: 
-// < n1_out, n2_out, pi | O | n1_in, n2_in >
-double calculate_W(Nucleon n1_in, Nucleon n2_in, Nucleon n1_out, Nucleon n2_out, Pion pi) {
-    double W_total = 0.0;
-
-    // Path A: Nucleon 1 emits the pion, Nucleon 2 is a spectator
-    VertexResult v1 = apply_pion_emission(n1_in, pi);
-    if (v1.allowed && v1.resulting_nucleon.name == n1_out.name && n2_in.name == n2_out.name) {
-        W_total += v1.coefficient;
+void print_vertex(const Nucleon& nuc, const Pion& pi) {
+    std::cout << "Reaction: " << std::setw(7) << nuc.name 
+              << " |sz=" << std::showpos << nuc.sz << "> + " 
+              << std::setw(3) << pi.name << "\n";
+              
+    auto terms = apply_vertex(nuc, pi);
+    
+    if (terms.empty()) {
+        std::cout << "  -> [FORBIDDEN BY ISOSPIN]\n\n";
+        return;
     }
+    
+    for (const auto& t : terms) {
+        std::string spin_op;
+        long double val = 0.0;
+        
+        // Identify which spherical component this term represents
+        if (std::abs(t.coeff[0]) > 1e-10) { spin_op = "sigma_z"; val = t.coeff[0].real(); }
+        if (std::abs(t.coeff[1]) > 1e-10) { spin_op = "sigma_-"; val = t.coeff[1].real(); }
+        if (std::abs(t.coeff[2]) > 1e-10) { spin_op = "sigma_+"; val = t.coeff[2].real(); }
 
-    // Path B: Nucleon 2 emits the pion, Nucleon 1 is a spectator
-    VertexResult v2 = apply_pion_emission(n2_in, pi);
-    if (v2.allowed && v2.resulting_nucleon.name == n2_out.name && n1_in.name == n1_out.name) {
-        W_total += v2.coefficient;
+        std::cout << "  -> Output Bra: <tz=" << std::showpos << t.bra_tz 
+                  << ", sz=" << std::showpos << t.bra_sz << "|  "
+                  << "Operator: " << std::setw(7) << std::noshowpos << spin_op 
+                  << "  | Coeff = " << std::showpos << val << "\n";
     }
-
-    return W_total;
+    std::cout << std::noshowpos << "\n";
 }
 
 int main() {
-    cout << "--- Calculating Interaction W Coefficients ---" << endl;
+    std::cout << "========================================================\n";
+    std::cout << " TESTING NUCLEON-PION VERTEX: W = (tau.pi)(sigma.r)     \n";
+    std::cout << "========================================================\n\n";
 
-    // Define our initial state particles
-    Nucleon p = Nucleon::Proton(+0.5);
-    Nucleon n = Nucleon::Neutron(+0.5);
+    Nucleon p_up = Nucleon::Proton(+0.5);
+    Nucleon p_dn = Nucleon::Proton(-0.5);
+    Nucleon n_up = Nucleon::Neutron(+0.5);
+    Nucleon n_dn = Nucleon::Neutron(-0.5);
 
-    // Define the available pions
     Pion pi0 = Pion::PiZero();
-    Pion pi_plus = Pion::PiPlus();
-    Pion pi_minus = Pion::PiMinus();
+    Pion pip = Pion::PiPlus();
+    Pion pim = Pion::PiMinus();
 
-    // 1. Calculate W for <pn | pn pi0>
-    // Proton emits pi0 (coef +1) + Neutron emits pi0 (coef -1)
-    double W_pn_pi0 = calculate_W(p, n, p, n, pi0);
-    cout << "<p n | O | p n pi0>   W = " << W_pn_pi0 << " (Cancellation!)" << endl;
+    std::cout << "--- Neutral Pion Emission (tau_z) ---\n";
+    print_vertex(p_up, pi0); // Expect coefs: +1 (z), +1 (-)
+    print_vertex(p_dn, pi0); // Expect coefs: -1 (z), +1 (+)
+    print_vertex(n_up, pi0); // Expect coefs: -1 (z), -1 (-)
 
-    // 2. Calculate W for <pp | pp pi0>
-    // Proton 1 emits pi0 (+1) + Proton 2 emits pi0 (+1)
-    double W_pp_pi0 = calculate_W(p, p, p, p, pi0);
-    cout << "<p p | O | p p pi0>   W = " << W_pp_pi0 << endl;
+    std::cout << "--- Charged Pion Emission (tau_+, tau_-) ---\n";
+    print_vertex(p_up, pip); // Proton emits pi+, becomes neutron. Expect sqrt(2)
+    print_vertex(p_dn, pip);
+    print_vertex(n_up, pim); // Neutron emits pi-, becomes proton. Expect sqrt(2)
+    print_vertex(n_dn, pim);
 
-    // 3. Calculate W for <nn | p n pi-> (Neutron 1 turns into a proton, emits pi-)
-    double W_nn_pn_pim = calculate_W(n, n, p, n, pi_minus);
-    cout << "<n n | O | p n pi->   W = " << W_nn_pn_pim << " (sqrt 2)" << endl;
-
-    // 4. Calculate W for <pn | nn pi+> (Proton turns into neutron, emits pi+)
-    double W_pn_nn_pip = calculate_W(p, n, n, n, pi_plus);
-    cout << "<p n | O | n n pi+>   W = " << W_pn_nn_pip << " (sqrt 2)" << endl;
+    std::cout << "--- Forbidden Transitions ---\n";
+    print_vertex(n_up, pip); // Neutron cannot emit pi+
+    print_vertex(p_up, pim); // Proton cannot emit pi-
 
     return 0;
 }
