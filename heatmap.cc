@@ -202,7 +202,7 @@ struct Config {
     // SVM parameters
     int  K_max           = 15;
     int  N_trial         = 30;
-    int  refine_every    = 10;
+    int  refine_every    = 0;
     int  N_refine_trial  = 10;
     ld   b0              = ld{1.4L};
     ld   s_max           = ld{0.0L};
@@ -391,6 +391,23 @@ int main(int argc, char* argv[])
     out << "# Columns: S[MeV]  b[fm]  E0[MeV]\n";
     out << "#\n";
     out << std::fixed << std::setprecision(6);
+
+    // ── Pre-warm the Gauss-Legendre static cache (MUST be before parallel) ────
+    // detail::integrate() in hamiltonian.h uses a lazy static initialisation:
+    //   static bool initialised = false;
+    //   if (!initialised) { gauss_legendre_nodes(...); initialised = true; }
+    // If the first call happens inside the parallel region, all threads race
+    // to write the same static vectors simultaneously — undefined behaviour
+    // that typically manifests as a hang or silent wrong results.
+    // Forcing one call here on the main thread fills the cache before any
+    // OpenMP thread can see it uninitialised.
+    {
+        Gaussian g_warm(ld{1.0L}, ld{0.0L});   // trivial 1D Gaussian
+        GaussianPair gp_warm(g_warm, g_warm);
+        rvec c1(1); c1[0] = ld{1};
+        KineticParams kp_warm(gp_warm, c1);
+        (void) ke_relativistic(gp_warm, kp_warm, sys.mu[0]);  // fills the cache
+    }
 
     // ── Allocate results buffer ───────────────────────────────────────────────
     // Each grid point is independent so we compute in parallel, then write

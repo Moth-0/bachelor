@@ -28,7 +28,7 @@ heatmap.png : heatmap.dat
 	plot '$<' using 1:2:3 with image notitle"
 
 heatmap.dat : heatmap
-	./heatmap --K_max 25 --N_trial 20 \
+	./heatmap --K_max 20 --N_trial 20 \
     --S_min 10 --S_max 100 --N_S 15 \
     --b_min 0.5 --b_max 4.0 --N_b 15 \
 	--s_max 0.1 \
