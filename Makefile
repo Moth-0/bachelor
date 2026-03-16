@@ -27,12 +27,15 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h q
 	set xrange [10:50]; \
 	plot '$<' using 1:2:3 with image notitle"
 
-heatmap.dat : 
+heatmap.dat : heatmap
 	./heatmap --K_max 10 --N_trial 10 \
     --S_min 10 --S_max 50 --N_S 50 \
     --b_min 0.5 --b_max 4.0 --N_b 50 \
 	--s_max 0.1 \
     --output heatmap.dat
+
+fastscan.dat : fastscan
+	./fastscan --S_ref 22.0 --b_ref 1.4 --N_S 50 --N_b 50 --output fastscan.dat
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
