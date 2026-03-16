@@ -10,10 +10,10 @@ all : main
 
 HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h qm/solver.h
 
-heatmap.png : heatmap.dat
+%.png : %.dat Makefile
 	gnuplot -e " \
 	set terminal pngcairo size 900,700 enhanced font 'Arial,12'; \
-	set output 'heatmap.png'; \
+	set output '$@'; \
 	set title 'Deuteron E_0(S,b)'; \
 	set xlabel 'S (MeV)'; \
 	set ylabel 'b (fm)'; \
@@ -24,10 +24,10 @@ heatmap.png : heatmap.dat
 		-2.2   'white',     \
 		0       'dark-red'); \
 	set yrange [0.5:4.0]; \
-	set xrange [10:100]; \
+	set xrange [10:50]; \
 	plot '$<' using 1:2:3 with image notitle"
 
-heatmap.dat : heatmap
+heatmap.dat : 
 	./heatmap --K_max 10 --N_trial 10 \
     --S_min 10 --S_max 50 --N_S 50 \
     --b_min 0.5 --b_max 4.0 --N_b 50 \

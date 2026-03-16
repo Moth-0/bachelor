@@ -420,9 +420,16 @@ int main(int argc, char* argv[])
 
     std::cout << "Running scan";
 #ifdef _OPENMP
-    std::cout << "  (OpenMP threads: " << omp_get_max_threads() << ")";
+    // Suppress nested parallelism: solver.h also has omp parallel regions
+    // inside run_svm (trial loops). When called from within this outer
+    // parallel for, those inner regions must be serialised — otherwise
+    // each grid-point thread would try to spawn N more threads, overloading
+    // the CPU. omp_set_max_active_levels(1) makes this explicit.
+    omp_set_max_active_levels(1);
+    std::cout << "  (OpenMP threads: " << omp_get_max_threads() << ", nested OMP disabled)";
 #endif
     std::cout << "\n";
+    std::cout << "  Tip: for a fast first-pass scan use --K_max 8 --N_trial 20\n";
     print_progress(0, total_points, 0.0);
 
     // Flatten the 2D grid into a single index so OpenMP can schedule it.

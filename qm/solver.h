@@ -13,6 +13,9 @@
 #include <limits>
 #include <random>
 #include <vector>
+#ifdef _OPENMP
+#  include <omp.h>
+#endif
 
 // ─────────────────────────────────────────────────────────────────────────────
 // solver.h  —  Generalised eigenvalue problem and SVM optimisation loop
@@ -358,34 +361,65 @@ SvmState run_svm(const JacobiSystem&          sys,
                   << "  b0=" << params.b0 << " fm"
                   << "  s_max=" << params.s_max << " fm^-1"
                   << "  " << (params.relativistic ? "relativistic" : "classical")
-                  << " KE\n";
+                  << " KE";
+#ifdef _OPENMP
+        std::cout << "  threads=" << omp_get_max_threads();
+#endif
+        std::cout << "\n";
         std::cout << std::string(60, '-') << "\n";
     }
 
     // ── Phase 1: Build ────────────────────────────────────────────────────────
     for (int k = 0; k < params.K_max; k++) {
-        ld best_E  = std::numeric_limits<ld>::max();
-        Gaussian best_bare, best_dress;
 
-        for (int trial = 0; trial < params.N_trial; trial++) {
-            Gaussian g_b = random_gaussian_bare(sys, params.b0, params.s_max, rng);
-            Gaussian g_d = random_gaussian_dressed(sys, params.b0, params.s_max, rng);
+        // Pre-generate all candidates with the shared rng (single-threaded)
+        // so results are identical regardless of thread count.
+        std::vector<Gaussian> cand_bare(params.N_trial);
+        std::vector<Gaussian> cand_dress(params.N_trial);
+        for (int t = 0; t < params.N_trial; t++) {
+            cand_bare[t]  = random_gaussian_bare   (sys, params.b0, params.s_max, rng);
+            cand_dress[t] = random_gaussian_dressed(sys, params.b0, params.s_max, rng);
+        }
 
-            ld E_trial = eval_candidate(state, g_b, g_d, sys, channels, params);
+        // Evaluate all candidates in parallel.
+        // Each thread tracks its own local best; we reduce afterwards.
+        int    best_idx = -1;
+        ld     best_E   = std::numeric_limits<ld>::max();
 
-            if (std::isfinite(E_trial) && E_trial < best_E) {
-                best_E    = E_trial;
-                best_bare = g_b;
-                best_dress = g_d;
+        #pragma omp parallel
+        {
+            int local_idx = -1;
+            ld  local_E   = std::numeric_limits<ld>::max();
+
+            #pragma omp for schedule(dynamic) nowait
+            for (int t = 0; t < params.N_trial; t++) {
+                ld E_trial = eval_candidate(state, cand_bare[t], cand_dress[t],
+                                            sys, channels, params);
+                if (std::isfinite(E_trial) && E_trial < local_E) {
+                    local_E   = E_trial;
+                    local_idx = t;
+                }
+            }
+
+            // Reduce: one thread at a time updates the shared best
+            #pragma omp critical
+            {
+                if (local_idx >= 0 && local_E < best_E) {
+                    best_E   = local_E;
+                    best_idx = local_idx;
+                }
             }
         }
 
         // Accept the best candidate
-        if (!std::isfinite(best_E)) {
+        if (best_idx < 0) {
             if (params.verbose)
                 std::cout << "  [step " << k << "] all trials failed Cholesky — stopping.\n";
             break;
         }
+
+        const Gaussian& best_bare  = cand_bare [best_idx];
+        const Gaussian& best_dress = cand_dress[best_idx];
 
         ld delta_E = best_E - state.E0;
         grow_matrices(state, best_bare, best_dress, sys, channels, params);
@@ -395,9 +429,9 @@ SvmState run_svm(const JacobiSystem&          sys,
         state.energy_history.push_back(best_E);
 
         if (params.verbose) {
-            std::cout << "\r" 
+            std::cout << "\r"
                       << std::setw(5)  << "K = " << (k + 1)
-                      << std::setw(10) << "E0 = " <<  best_E << " MeV"
+                      << std::setw(10) << "E0 = " << best_E << " MeV"
                       << std::setw(15) << "delta E = " << (k > 0 ? delta_E : ld{0}) << " MeV"
                       << std::flush;
         }
@@ -425,45 +459,67 @@ SvmState run_svm(const JacobiSystem&          sys,
             const ld E_floor = ld{-1000};   // reject anything below −1000 MeV
 
             for (size_t j = 0; j < state.K(); j++) {
-                ld       best_E = state.E0;  // must strictly improve
-                Gaussian best_b, best_d;
-                cmat     best_H, best_N;
-                bool     found = false;
-
+                // Pre-generate refine candidates with the shared rng
+                std::vector<Gaussian> rc_bare (params.N_refine_trial);
+                std::vector<Gaussian> rc_dress(params.N_refine_trial);
                 for (int t = 0; t < params.N_refine_trial; t++) {
-                    Gaussian g_b = random_gaussian_bare  (sys, params.b0, params.s_max, rng);
-                    Gaussian g_d = random_gaussian_dressed(sys, params.b0, params.s_max, rng);
+                    rc_bare [t] = random_gaussian_bare   (sys, params.b0, params.s_max, rng);
+                    rc_dress[t] = random_gaussian_dressed(sys, params.b0, params.s_max, rng);
+                }
 
-                    SvmState trial_state = state;
-                    trial_state.basis_bare[j]    = g_b;
-                    trial_state.basis_dressed[j] = g_d;
+                int  best_rt  = -1;
+                ld   best_rE  = state.E0;   // must strictly improve
+                cmat best_H, best_N;
 
-                    HamiltonianBuilder hb(sys, channels,
-                                          trial_state.basis_bare,
-                                          trial_state.basis_dressed,
-                                          params.b_ff, params.S_coupling,
-                                          params.relativistic);
-                    cmat H_t = hb.build_H();
-                    cmat N_t = hb.build_N();
-                    ld   E_t = solve_gevp(H_t, N_t);
+                #pragma omp parallel
+                {
+                    int  local_rt = -1;
+                    ld   local_rE = state.E0;
+                    cmat local_H, local_N;
 
-                    if (std::isfinite(E_t) && E_t > E_floor && E_t < best_E) {
-                        best_E = E_t;
-                        best_b = g_b;  best_d = g_d;
-                        best_H = H_t;  best_N = N_t;
-                        found  = true;
+                    #pragma omp for schedule(dynamic) nowait
+                    for (int t = 0; t < params.N_refine_trial; t++) {
+                        SvmState trial_state = state;
+                        trial_state.basis_bare[j]    = rc_bare [t];
+                        trial_state.basis_dressed[j] = rc_dress[t];
+
+                        HamiltonianBuilder hb(sys, channels,
+                                              trial_state.basis_bare,
+                                              trial_state.basis_dressed,
+                                              params.b_ff, params.S_coupling,
+                                              params.relativistic);
+                        cmat H_t = hb.build_H();
+                        cmat N_t = hb.build_N();
+                        ld   E_t = solve_gevp(H_t, N_t);
+
+                        if (std::isfinite(E_t) && E_t > E_floor && E_t < local_rE) {
+                            local_rE = E_t;
+                            local_rt = t;
+                            local_H  = H_t;
+                            local_N  = N_t;
+                        }
+                    }
+
+                    #pragma omp critical
+                    {
+                        if (local_rt >= 0 && local_rE < best_rE) {
+                            best_rE = local_rE;
+                            best_rt = local_rt;
+                            best_H  = local_H;
+                            best_N  = local_N;
+                        }
                     }
                 }
 
-                if (found) {
-                    state.basis_bare[j]    = best_b;
-                    state.basis_dressed[j] = best_d;
+                if (best_rt >= 0) {
+                    state.basis_bare[j]    = rc_bare [best_rt];
+                    state.basis_dressed[j] = rc_dress[best_rt];
                     state.H  = best_H;
                     state.N  = best_N;
-                    state.E0 = best_E;
+                    state.E0 = best_rE;
                     if (params.verbose)
                         std::cout << "\r  [Refining]  replaced basis[" << j
-                                  << "] → E0 = " << best_E << " MeV" << std::flush;
+                                  << "] -> E0 = " << best_rE << " MeV" << std::flush;
                 }
             }
 
