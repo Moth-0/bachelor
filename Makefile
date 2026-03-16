@@ -10,20 +10,29 @@ all : main
 
 HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h qm/solver.h
 
-heatmap.png : heatmap.dat Makefile
-	echo '\
-	set terminal pngcairo size 800,600 enhanced font "Arial,12";\
-	set output "heatmap.png";\
-	set title "Deuteron Binding Energy Heatmap";\
-	set xlabel "Form Factor Width b (fm)";\
-	set ylabel "Coupling Strength S (MeV)";\
-	set cblabel "Binding Energy (MeV)";\
-	set pm3d map;\
-	set palette rgbformulae 22,13,-31;\
-	set zrange [-5:0];\
-	set cbrange [-5:0];\
-	splot "heatmap.dat" using 1:2:3 title "";\
-	' | tee log.fig1.gpi | gnuplot
+heatmap.png : heatmap.dat
+	gnuplot -e " \
+	set terminal pngcairo size 900,700 enhanced font 'Arial,12'; \
+	set output 'heatmap.png'; \
+	set title 'Deuteron E_0(S,b)'; \
+	set xlabel 'S (MeV)'; \
+	set ylabel 'b (fm)'; \
+	set cblabel 'E_0 (MeV)'; \
+	set cbrange [-5.0:0.0]; \
+	set palette defined ( \
+		-5 'dark-blue', \
+		-2.2   'white',     \
+		0       'dark-red'); \
+	set yrange [0.5:4.0]; \
+	set xrange [10:100]; \
+	plot '$<' using 1:2:3 with image notitle"
+
+heatmap.dat : heatmap
+	./heatmap --K_max 25 --N_trial 20 \
+    --S_min 10 --S_max 100 --N_S 15 \
+    --b_min 0.5 --b_max 4.0 --N_b 15 \
+	--s_max 0.1 \
+    --output heatmap.dat
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^

@@ -149,7 +149,7 @@ int main()
     params.s_max          = ld{0};   // paper: unshifted Gaussians
     params.b_ff           = b_sigma; // form-factor range  → w_matrix_element
     params.S_coupling     = S_sigma; // coupling strength  → w_matrix_element
-    params.relativistic   = false;   // switch to true for relativistic KE
+    params.relativistic   = true;   // switch to true for relativistic KE
     params.verbose        = true;
 
     // ── Run ──────────────────────────────────────────────────────────────────
