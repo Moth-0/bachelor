@@ -1,152 +1,252 @@
 #pragma once
-#include <cmath>
-#include <numbers>
-#include <random>
-#include <vector>
-#include <cassert>
+
 #include "matrix.h"
+#include "jacobi.h"
+#include <random>
+#include <cmath>
+#include <cassert>
+#include <iostream>
+#include <iomanip>
+
+// ─────────────────────────────────────────────────────────────────────────────
+// gaussian.h  —  Correlated Shifted Gaussian basis functions
+//
+// Implements the wavefunction basis from thesis ch.2 and ch.5:
+//
+//   ⟨r|g⟩ = exp(-r^T A r + s^T r)
+//
+// where:
+//   A   — positive-definite (dim × dim) correlation matrix
+//   s   — dim-dimensional shift vector  (encodes angular momentum)
+//   dim — number of active Jacobi coordinates
+//         = 1    for the bare pn state  (only x_0 = r_p - r_n)
+//         = N-1  for dressed pion states (all relative coordinates)
+//
+// Key geometric quantities derived from a pair (g', g):
+//   B   = A' + A
+//   v   = s' + s
+//   M   = (π^dim / det B)^{3/2} exp(1/4 v^T B^{-1} v)   [overlap]
+//   u   = (1/2) B^{-1} v                                 [⟨g'|r|g⟩ = u M]
+//
+// Kinetic energy parameters (γ, η) are physics quantities and live in
+// hamiltonian.h, not here.
+//
+// Random generation (thesis §5.1, Fedorov eq.19):
+//   A = Σ_{i<j}  w_{ij} w_{ij}^T / b_{ij}^2
+//   b_{ij} = -ln(u) * b0    (u ~ Uniform(0,1))
+//   s[k]   ~ Uniform(-s_max, s_max)
+//
+// Units: masses in MeV, lengths in fm,  hbar*c = 197.3269804 MeV·fm
+// ─────────────────────────────────────────────────────────────────────────────
 
 namespace qm {
 
-const long double pi = std::numbers::pi_v<long double>;
+// ─────────────────────────────────────────────────────────────────────────────
+// Gaussian  —  a single basis function  |g⟩ = |A, s⟩
+// ─────────────────────────────────────────────────────────────────────────────
+struct Gaussian {
+    rmat   A;    // correlation matrix  (dim × dim), positive definite
+    rvec   s;    // shift vector        (dim)
+    size_t dim;  // number of active Jacobi coordinates
 
-// Cosine similarity threshold for linear dependence rejection.
-// Candidates with |<trial|g_i>| / sqrt(<trial|trial><g_i|g_i>) > LINEAR_DEP_TOL are rejected.
-constexpr long double LINEAR_DEP_TOL = 0.80;
+    Gaussian() : dim(0) {}
 
-long double random_ld(long double lo, long double hi) {
-    thread_local std::mt19937_64 rng(std::random_device{}());
-    std::uniform_real_distribution<long double> dist(lo, hi);
-    return dist(rng);
-}
-
-// Correlated shifted Gaussian basis function:
-//   phi(x) = exp(-x^T A x + s^T x)
-// where x is a (dim x 3) matrix of Jacobi coordinates,
-// A is (dim x dim) symmetric positive-definite, s is (dim x 3).
-// The Gaussian peaks at u = (1/2) A^{-1} s,  i.e. s = 2 A u.
-struct gaus {
-    matrix A;  // (dim x dim) exponent matrix
-    matrix s;  // (dim x 3)  shift vectors
-
-    gaus() = default;
-
-    explicit gaus(size_t dim, long double mean_r = 2.0, long double mean_R = 0.0) {
-        A = matrix(dim, dim);
-        s = matrix(dim, 3);
-        randomize(mean_r, mean_R);
+    Gaussian(const rmat& A_, const rvec& s_)
+        : A(A_), s(s_), dim(s_.size())
+    {
+        assert(A_.size1() == dim);
+        assert(A_.size2() == dim);
     }
 
-    gaus(const matrix& A_in, const matrix& s_in) : A(A_in), s(s_in) {
-        assert(A_in.size1() == A_in.size2());
-        assert(A_in.size1() == s_in.size1());
-        assert(s_in.size2() == 3);
+    // Convenience: build from scalars (1D bare state)
+    Gaussian(ld a_scalar, ld s_scalar)
+        : A(1, 1), s(1), dim(1)
+    {
+        A(0,0) = a_scalar;
+        s[0]   = s_scalar;
     }
 
-    size_t dim() const { return A.size1(); }
-
-    // Build A = L L^T with L_{ii} log-uniform in
-    //   [1/(sqrt(2)*spread*mean_r),  1/(sqrt(2)*mean_r/spread)],  spread=3
-    // so A_{ii} ~ 1/(2 mean_r^2) over one decade each side.
-    // Off-diagonals: L_{ij} in [-corr*L_{jj}, +corr*L_{jj}], corr=0.3.
-    // Shifts: s = 2 A u,  u_ik ~ Uniform(-mean_R, +mean_R).
-    void randomize(long double mean_r, long double mean_R = 0.0) {
-        size_t d = A.size1();
-
-        const long double spread = 3.0;
-        const long double L_lo   = 1.0 / (std::sqrt(2.0) * spread * mean_r);
-        const long double L_hi   = 1.0 / (std::sqrt(2.0) * mean_r / spread);
-        const long double log_lo = std::log(L_lo);
-        const long double log_hi = std::log(L_hi);
-        const long double corr   = 0.3;
-
-        matrix L(d, d);
-        for (size_t i = 0; i < d; ++i) {
-            L(i, i) = std::exp(random_ld(log_lo, log_hi));
-            for (size_t j = 0; j < i; ++j)
-                L(i, j) = random_ld(-corr * L(j, j), +corr * L(j, j));
-        }
-
-        // A = L L^T
-        for (size_t i = 0; i < d; ++i)
-            for (size_t j = 0; j < d; ++j) {
-                long double s = 0.0;
-                for (size_t k = 0; k <= std::min(i, j); ++k) s += L(i, k) * L(j, k);
-                A(i, j) = s;
-            }
-
-        // s = 2 A u,  u drawn per coordinate and direction
-        matrix u(d, 3);
-        for (size_t i = 0; i < d; ++i)
-            for (size_t k = 0; k < 3; ++k)
-                u(i, k) = (mean_R > 0.0) ? random_ld(-mean_R, +mean_R) : 0.0;
-
-        for (size_t i = 0; i < d; ++i)
-            for (size_t k = 0; k < 3; ++k) {
-                long double val = 0.0;
-                for (size_t j = 0; j < d; ++j) val += A(i, j) * u(j, k);
-                s(i, k) = 2.0 * val;
-            }
-    }
-
-    void zero_shifts() {
-        for (size_t i = 0; i < dim(); ++i)
-            for (size_t k = 0; k < 3; ++k)
-                s(i, k) = 0.0;
+    void print(const std::string& label = "") const {
+        std::cout << std::fixed << std::setprecision(5);
+        if (!label.empty()) std::cout << label << "\n";
+        std::cout << "  dim = " << dim << "\n";
+        std::cout << "  A =\n  " << A << "\n";
+        std::cout << "  s = " << s << "\n";
     }
 };
 
-// Pad A and s with zeros to embed a lower-dim Gaussian into a higher-dim space
-gaus promote(const gaus& g, size_t new_dim) {
-    size_t old_dim = g.dim();
-    assert(new_dim >= old_dim);
-    matrix A_new(new_dim, new_dim);
-    matrix s_new(new_dim, 3);
-    for (size_t i = 0; i < new_dim; ++i) {
-        for (size_t j = 0; j < new_dim; ++j)
-            A_new(i, j) = (i < old_dim && j < old_dim) ? g.A(i, j) : 0.0;
-        for (size_t k = 0; k < 3; ++k)
-            s_new(i, k) = (i < old_dim) ? g.s(i, k) : 0.0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GaussianPair  —  geometric intermediates for the pair (g', g)
+//
+// Caches B, B^{-1}, det(B), v, M and u — quantities shared by every
+// matrix element between the same pair (overlap, KE, potential, W-operator).
+// Construct once per (i,j) pair and pass to all hamiltonian functions.
+//
+// Usage:
+//   GaussianPair gp(g_bra, g_ket);
+//   ld N_ij    = gp.M;          // overlap matrix element
+//   rvec r_ij  = gp.u * gp.M;  // ⟨g'|r|g⟩  (thesis eq.4)
+// ─────────────────────────────────────────────────────────────────────────────
+struct GaussianPair {
+    Gaussian bra;   // stored by VALUE — avoids dangling-reference issues
+    Gaussian ket;   // storing copies is safe and cheap for our small matrices
+
+    size_t dim;
+
+    rmat B;       // A_bra + A_ket
+    rvec v;       // s_bra + s_ket
+    rmat Binv;    // B^{-1}
+    ld   detB;    // det(B)
+    ld   M;       // overlap ⟨g'|g⟩
+    rvec u;       // (1/2) B^{-1} v   →   ⟨g'|r|g⟩ = u * M
+
+    GaussianPair(const Gaussian& bra_, const Gaussian& ket_)
+        : bra(bra_), ket(ket_)
+    {
+        assert(bra.dim == ket.dim);
+        dim  = bra.dim;
+
+        B    = bra.A + ket.A;
+        v    = bra.s + ket.s;
+        Binv = B.inverse();
+        detB = B.determinant();
+
+        // M = (π^dim / det B)^{3/2} * exp(1/4 * v^T B^{-1} v)
+        ld pi_over_det = std::pow(static_cast<ld>(M_PI),
+                                  static_cast<ld>(dim)) / detB;
+        ld exponent    = ld{0.25L} * dot(v, Binv * v);
+        M = std::pow(pi_over_det, ld{1.5L}) * std::exp(exponent);
+
+        // u = (1/2) B^{-1} v
+        u = (Binv * v) * ld{0.5L};
     }
-    return gaus(A_new, s_new);
+
+    GaussianPair() = delete;  // always needs real Gaussians
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Standalone overlap  ⟨g'|g⟩
+//
+// Convenience wrapper — builds GaussianPair and returns M.
+// For repeated calls between the same pair, build GaussianPair directly.
+// ─────────────────────────────────────────────────────────────────────────────
+inline ld overlap(const Gaussian& bra, const Gaussian& ket) {
+    assert(bra.dim == ket.dim);
+    return GaussianPair(bra, ket).M;
 }
 
-// Overlap integral <phi_a|phi_b>:
-//   N_ab = (pi^d / det B)^{3/2} exp(1/4 v^T B^{-1} v)
-// where B = A_a + A_b,  v^k = s_a[:,k] + s_b[:,k].
-long double overlap(const gaus& a, const gaus& b) {
-    assert(a.dim() == b.dim());
-    size_t d = a.dim();
-    matrix B     = a.A + b.A;
-    matrix B_inv = B.inverse();
-    long double detB = B.determinant();
-    if (detB <= 1e-30) return 0.0;
+inline ld self_overlap(const Gaussian& g) {
+    return overlap(g, g);
+}
 
-    long double vBv = 0.0;
-    for (size_t k = 0; k < 3; ++k)
-        for (size_t i = 0; i < d; ++i) {
-            long double vi = a.s(i, k) + b.s(i, k);
-            for (size_t j = 0; j < d; ++j)
-                vBv += B_inv(i, j) * vi * (a.s(j, k) + b.s(j, k));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟨g'|r|g⟩  —  position expectation value  (thesis eq.4)
+//
+//   ⟨g'|r|g⟩ = u * M    where  u = (1/2) B^{-1} v
+//
+// Returns the full dim-vector.  Used for the W-operator coupling in
+// hamiltonian.h:  the spatial factor is (σ·r) with r extracted via u.
+// ─────────────────────────────────────────────────────────────────────────────
+inline rvec r_expectation(const Gaussian& bra, const Gaussian& ket) {
+    GaussianPair gp(bra, ket);
+    return gp.u * gp.M;
+}
+
+inline ld r_expectation_component(const Gaussian& bra,
+                                   const Gaussian& ket,
+                                   size_t alpha)
+{
+    GaussianPair gp(bra, ket);
+    return gp.u[alpha] * gp.M;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Random Gaussian generation  (thesis §5.1, Fedorov eq.19)
+//
+//   A = Σ_{i<j}  w_{ij}(dim) w_{ij}(dim)^T / b_{ij}^2
+//   b_{ij} = -ln(u) * b0,     u ~ Uniform(0,1)
+//   s[k]   ~ Uniform(-s_max, s_max)
+//
+// Parameters:
+//   sys    — JacobiSystem providing w_rel vectors
+//   dim    — 1 = bare pn state,  N-1 = dressed pion state
+//   b0     — length scale in fm              (thesis: ~1.4 fm)
+//   s_max  — shift bound in fm^{-1}
+//             15–30 MeV / (ħc = 197.3 MeV·fm) ≈ 0.076–0.152 fm^{-1}
+//   rng    — std::mt19937 or compatible engine (passed by reference)
+// ─────────────────────────────────────────────────────────────────────────────
+template<typename RNG>
+Gaussian random_gaussian(const JacobiSystem& sys,
+                         size_t              dim,
+                         ld                  b0,
+                         ld                  s_max,
+                         RNG&                rng)
+{
+    assert(dim >= 1 && dim <= sys.N - 1);
+
+    std::uniform_real_distribution<long double> uniform01(
+        std::numeric_limits<long double>::epsilon(), ld{1});
+    std::uniform_real_distribution<long double> uniform_s(-s_max, s_max);
+
+    // ── A = Σ_{i<j} w_{ij} w_{ij}^T / b_{ij}^2 ──────────────────────────────
+    rmat A(dim, dim);
+
+    for (size_t i = 0; i < sys.N; i++) {
+        for (size_t j = i + 1; j < sys.N; j++) {
+            ld u_rand = uniform01(rng);
+            ld b_ij   = -std::log(u_rand) * b0;
+
+            rvec w_full = sys.w_rel(i, j);
+            rvec w_ij(dim);
+            for (size_t k = 0; k < dim; k++) w_ij[k] = w_full[k];
+
+            A += (outer_no_conj(w_ij, w_ij) * (ld{1} / (b_ij * b_ij)));
         }
+    }
 
-    long double front = std::pow(pi, 1.5 * (long double)d) / std::pow(detB, 1.5);
-    return front * std::exp(0.25 * vBv);
+    // ── s[k] ~ Uniform(-s_max, s_max) ────────────────────────────────────────
+    rvec s(dim);
+    for (size_t k = 0; k < dim; k++) s[k] = uniform_s(rng);
+
+    return Gaussian(A, s);
 }
 
-// Returns true if trial is nearly linearly dependent on basis.
-// Computes cosine similarity |<trial|g_i>| / sqrt(<trial|trial><g_i|g_i>).
-// skip: index within basis to exclude (used during refinement to ignore the replaced state).
-bool is_linearly_dependent(const gaus& trial, const std::vector<gaus>& basis,
-                           size_t skip = static_cast<size_t>(-1)) {
-    long double n_tt = overlap(trial, trial);
-    for (size_t i = 0; i < basis.size(); ++i) {
-        if (i == skip) continue;
-        long double n_ii = overlap(basis[i], basis[i]);
-        long double n_ti = std::abs(overlap(trial, basis[i]));
-        if (n_ti / std::sqrt(n_tt * n_ii) > LINEAR_DEP_TOL) return true;
+template<typename RNG>
+Gaussian random_gaussian_bare(const JacobiSystem& sys,
+                               ld b0, ld s_max, RNG& rng)
+{
+    return random_gaussian(sys, 1, b0, s_max, rng);
+}
+
+template<typename RNG>
+Gaussian random_gaussian_dressed(const JacobiSystem& sys,
+                                  ld b0, ld s_max, RNG& rng)
+{
+    return random_gaussian(sys, sys.N - 1, b0, s_max, rng);
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Positive-definiteness check  (Sylvester's criterion on leading minors)
+//
+// Guaranteed true by construction for random_gaussian.
+// Useful as a sanity check for manually constructed Gaussians.
+// ─────────────────────────────────────────────────────────────────────────────
+inline bool is_positive_definite(const rmat& A) {
+    size_t n = A.size1();
+    assert(n == A.size2());
+    for (size_t k = 1; k <= n; k++) {
+        rmat sub(k, k);
+        for (size_t i = 0; i < k; i++)
+            for (size_t j = 0; j < k; j++)
+                sub(i,j) = A(i,j);
+        if (sub.determinant() <= ld{0}) return false;
     }
-    return false;
+    return true;
 }
 
 } // namespace qm
