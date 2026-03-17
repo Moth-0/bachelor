@@ -6,7 +6,7 @@ LDFLAGS += -fopenmp
 LDLIBS = -lstdc++ -lm
 RM = rm -f
 
-all : main fastscan.dat heatmap.dat
+all : main 
 
 HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h qm/solver.h
 
