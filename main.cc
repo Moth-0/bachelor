@@ -1,3 +1,10 @@
+//
+// main.cc  —  Master Workflow (Parser + Annealing + Relativistic Shift)
+//
+// Compile: g++ -std=c++17 -O2 -fopenmp -o main main.cc
+// Run:     ./main --K_max 40 --b 1.4
+//
+
 #include "qm/matrix.h"
 #include "qm/jacobi.h"
 #include "qm/gaussian.h"
@@ -15,28 +22,42 @@
 using namespace qm;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Simplified Configuration & Parser
+// 1. Configuration & Parser
 // ─────────────────────────────────────────────────────────────────────────────
 struct Config {
-    ld S = 20.0;          // Coupling strength [MeV]
+    ld S = 12.6;          // Final/Target physical coupling [MeV] (if not annealing)
     ld b = 1.4;           // Form-factor range [fm]
-    int K_max = 25;       // Basis size
+    int K_max = 40;       // Basis size
     int N_trial = 50;     // Stochastic trials per step
+    int refine_every = 0; // Periodic refinement (0 during annealing build)
+    int N_refine_trial = 50;
     ld b0 = 1.4;          // Gaussian range [fm]
-    ld s_max = 0.1;       // Shift bound [fm^-1]
-    uint64_t seed = 0;   // RNG Seed
-    bool verbose = true;       // Print SVM-loop
+    ld s_max = 0.5;       // Shift bound [fm^-1]
+    uint64_t seed = 0;    // RNG Seed
+    bool verbose = true;  // Print SVM-loop
+    
+    // Annealing specific
+    bool do_annealing = true;
+    ld S_build = 18.0;    // Artificially strong coupling for phase 1
+    ld E_target = -2.224; // Target experimental energy
+    int relax_sweeps = 3; // Sweeps to relax back to physical state
 };
- 
+
 void apply_arg(Config& cfg, const std::string& key, const std::string& val) {
-    if      (key == "S")       cfg.S = std::stold(val);
-    else if (key == "b")       cfg.b = std::stold(val);
-    else if (key == "K_max")   cfg.K_max = std::stoi(val);
-    else if (key == "N_trial") cfg.N_trial = std::stoi(val);
-    else if (key == "b0")      cfg.b0 = std::stold(val);
-    else if (key == "s_max")   cfg.s_max = std::stold(val);
-    else if (key == "seed")    cfg.seed = std::stoull(val);
-    else if (key == "verbose") cfg.verbose = (val == "true" || val == "1");
+    if      (key == "S")              cfg.S = std::stold(val);
+    else if (key == "b")              cfg.b = std::stold(val);
+    else if (key == "K_max")          cfg.K_max = std::stoi(val);
+    else if (key == "N_trial")        cfg.N_trial = std::stoi(val);
+    else if (key == "refine_every")   cfg.refine_every = std::stoi(val);
+    else if (key == "N_refine_trial") cfg.N_refine_trial = std::stoi(val);
+    else if (key == "b0")             cfg.b0 = std::stold(val);
+    else if (key == "s_max")          cfg.s_max = std::stold(val);
+    else if (key == "seed")           cfg.seed = std::stoull(val);
+    else if (key == "verbose")        cfg.verbose = (val == "true" || val == "1");
+    else if (key == "do_annealing")   cfg.do_annealing = (val == "true" || val == "1");
+    else if (key == "S_build")        cfg.S_build = std::stold(val);
+    else if (key == "E_target")       cfg.E_target = std::stold(val);
+    else if (key == "relax_sweeps")   cfg.relax_sweeps = std::stoi(val);
 }
 
 Config parse_config(int argc, char* argv[]) {
@@ -46,22 +67,15 @@ Config parse_config(int argc, char* argv[]) {
     std::ifstream file("run.cfg");
     std::string line;
     while (std::getline(file, line)) {
-        // Strip comments FIRST
         auto hash = line.find('#');
-        if (hash != std::string::npos) {
-            line = line.substr(0, hash); 
-        }
+        if (hash != std::string::npos) line = line.substr(0, hash); 
         
-        // THEN look for the equals sign on the clean line
         auto eq = line.find('=');
         if (eq != std::string::npos) {
             std::string key = line.substr(0, eq);
             std::string val = line.substr(eq + 1);
-            
-            // Remove all spaces
             key.erase(remove_if(key.begin(), key.end(), isspace), key.end());
             val.erase(remove_if(val.begin(), val.end(), isspace), val.end());
-            
             if (!key.empty() && !val.empty()) apply_arg(cfg, key, val);
         }
     }
@@ -69,49 +83,48 @@ Config parse_config(int argc, char* argv[]) {
     // 2. Command line overrides
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        
-        // Handle standalone boolean flags immediately
         if (arg == "-verbose") { cfg.verbose = true;  continue; }
         if (arg == "-quiet")   { cfg.verbose = false; continue; }
-        
-        // Handle key-value pairs (e.g., --S 25.0)
-        if (arg.rfind("-", 0) == 0 && i + 1 < argc) { 
+        if (arg.rfind("--", 0) == 0 && i + 1 < argc) { 
             apply_arg(cfg, arg.substr(2), argv[i+1]);
-            i++; // Skip the value since we just consumed it
+            i++; 
         }
     }
     return cfg;
-
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Channel Setup (9-channel system)
 // ─────────────────────────────────────────────────────────────────────────────
 std::vector<Channel> build_pion_channels(const JacobiSystem& sys) {
-    // Standard setup matching your physical model
+    constexpr ld m_pi0   = ld{134.977L};
+    constexpr ld m_pi_pm = ld{139.570L};
+    constexpr ld c1 =  ld{1};
+    const     ld c2 =  std::sqrt(ld{2});
+    const     ld c3 =  std::sqrt(ld{2});
+    constexpr ld c4 = -ld{1};
+
     rvec w_pp = sys.w_meson_proton();
     rvec w_pn = sys.w_meson_neutron();
 
-    auto make = [&](int idx, ld m_pi, ld iso, const rvec& w, SpinType st) {
-        Channel ch;
-        ch.index = idx; ch.is_bare = false; ch.pion_mass = m_pi;
+    auto make = [&](int idx, ld mp, ld iso, const rvec& w, SpinType st) {
+        Channel ch; ch.index = idx; ch.is_bare = false; ch.pion_mass = mp;
         ch.iso_coeff = iso; ch.w_piN = w; ch.spin_type = st; ch.dim = sys.N - 1;
         return ch;
     };
 
     std::vector<Channel> ch(9);
-    ch[0].index = 0; ch[0].is_bare = true; ch[0].pion_mass = 0;
-    ch[0].iso_coeff = 0; ch[0].w_piN = rvec(sys.N - 1);
+    ch[0].index = 0; ch[0].is_bare = true; ch[0].pion_mass = ld{0};
+    ch[0].iso_coeff = ld{0}; ch[0].w_piN = rvec(sys.N-1);
     ch[0].spin_type = SpinType::NO_FLIP; ch[0].dim = 1;
-
-    ch[1] = make(1, 134.977, +1.0,           w_pp, SpinType::NO_FLIP);
-    ch[2] = make(2, 139.570, +std::sqrt(2.), w_pp, SpinType::NO_FLIP);
-    ch[3] = make(3, 139.570, +std::sqrt(2.), w_pn, SpinType::NO_FLIP);
-    ch[4] = make(4, 134.977, -1.0,           w_pn, SpinType::NO_FLIP);
-    ch[5] = make(5, 134.977, +1.0,           w_pp, SpinType::SPIN_FLIP);
-    ch[6] = make(6, 139.570, +std::sqrt(2.), w_pp, SpinType::SPIN_FLIP);
-    ch[7] = make(7, 139.570, +std::sqrt(2.), w_pn, SpinType::SPIN_FLIP);
-    ch[8] = make(8, 134.977, -1.0,           w_pn, SpinType::SPIN_FLIP);
+    ch[1] = make(1, m_pi0,   +c1, w_pp, SpinType::NO_FLIP);
+    ch[2] = make(2, m_pi_pm, +c2, w_pp, SpinType::NO_FLIP);
+    ch[3] = make(3, m_pi_pm, +c3, w_pn, SpinType::NO_FLIP);
+    ch[4] = make(4, m_pi0,   +c4, w_pn, SpinType::NO_FLIP);
+    ch[5] = make(5, m_pi0,   +c1, w_pp, SpinType::SPIN_FLIP);
+    ch[6] = make(6, m_pi_pm, +c2, w_pp, SpinType::SPIN_FLIP);
+    ch[7] = make(7, m_pi_pm, +c3, w_pn, SpinType::SPIN_FLIP);
+    ch[8] = make(8, m_pi0,   +c4, w_pn, SpinType::SPIN_FLIP);
     return ch;
 }
 
@@ -124,7 +137,20 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================================\n";
     std::cout << "  Deuteron 9-Channel SVM (Classical vs Relativistic)\n";
     std::cout << "========================================================\n";
-    std::cout << "Params: S = " << cfg.S << " MeV, b = " << cfg.b << " fm, K = " << cfg.K_max << "\n\n";
+    std::cout << "[Parameters]\n";
+    std::cout << "  K_max        = " << cfg.K_max << "\n";
+    std::cout << "  b (Form Fac) = " << cfg.b << " fm\n";
+    std::cout << "  b0 (Gauss)   = " << cfg.b0 << " fm\n";
+    std::cout << "  s_max        = " << cfg.s_max << " fm^-1\n";
+    std::cout << "  Annealing    = " << (cfg.do_annealing ? "ON" : "OFF") << "\n";
+    if (cfg.do_annealing) {
+        std::cout << "    S_build    = " << cfg.S_build << " MeV\n";
+        std::cout << "    E_target   = " << cfg.E_target << " MeV\n";
+        std::cout << "    Relax Swps = " << cfg.relax_sweeps << "\n";
+    } else {
+        std::cout << "  S (Coupling) = " << cfg.S << " MeV\n";
+    }
+    std::cout << "========================================================\n\n";
 
     JacobiSystem sys({938.272, 939.565, 139.570}, {"p", "n", "pi"});
     auto channels = build_pion_channels(sys);
@@ -136,44 +162,53 @@ int main(int argc, char* argv[]) {
     params.s_max = cfg.s_max;
     params.b_ff = cfg.b;
     params.S_coupling = cfg.S;
-    params.refine_every = 5; // Fixed refinement rate
-    params.verbose = true;
+    params.refine_every = cfg.refine_every;
+    params.N_refine_trial = cfg.N_refine_trial;
+    params.verbose = cfg.verbose;
+    
+    params.do_annealing = cfg.do_annealing;
+    params.S_build = cfg.S_build;
+    params.E_target = cfg.E_target;
+    params.relax_sweeps = cfg.relax_sweeps;
 
-    // ── Pre-warm Gaussian Integrator 
-    {
-        Gaussian g(1.0, 0.0); GaussianPair gp(g, g); rvec c(1); c[0] = 1.0;
-        ke_relativistic(gp, KineticParams(gp, c), sys.mu[0]);
-    }
+    // Force phase 1 to be Classical
+    params.relativistic = false;
 
-    // ── Evaluate the seed
+#ifdef _OPENMP
+    omp_set_max_active_levels(1);
+#endif
+
     std::random_device rd;
     uint64_t seed = (cfg.seed == 0) ? rd() : cfg.seed;
+    std::mt19937 rng(seed); 
 
-    // ── 1. Classical Run
-    std::cout << "Running Classical SVM..." << std::flush;
-    std::mt19937 rng_cla(seed); // Ensure exact same seed
-    params.relativistic = false;
-    
+    // ── 1. Classical Run (Annealing workflow)
+    std::cout << "Running Classical SVM (with Annealing)...\n";
     auto t0 = std::chrono::steady_clock::now();
-    SvmState state_cla = run_svm(sys, channels, params, rng_cla);
+    SvmState state_cla = run_svm(sys, channels, params, rng);
     double t_cla = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << " Done (" << std::setprecision(1) << std::fixed << t_cla << " s)\n\n";
+    std::cout << "Classical Run Done (" << std::setprecision(1) << std::fixed << t_cla << " s)\n\n";
 
-    // ── 2. Relativistic Run
-    std::cout << "Running Relativistic SVM..." << std::flush;
-    std::mt19937 rng_rel(seed); // Ensure exact same seed again
-    params.relativistic = true;
-    
+    ld e_cla = state_cla.E0;
+    ld tuned_S = state_cla.S_final;
+
+    // ── 2. Relativistic Evaluation
+    std::cout << "Evaluating Relativistic Shift on locked wavefunction...\n";
     t0 = std::chrono::steady_clock::now();
-    SvmState state_rel = run_svm(sys, channels, params, rng_rel);
+    
+    // Build Relativistic Hamiltonian using the exact same basis and tuned S
+    HamiltonianBuilder hb_rel(sys, channels, state_cla.basis_bare, state_cla.basis_dressed, 
+                              params.b_ff, tuned_S, true); // true = relativistic
+    cmat H_rel = hb_rel.build_H();
+    
+    // Evaluate against the same overlap matrix N
+    ld e_rel = solve_gevp(H_rel, state_cla.N);
     double t_rel = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << " Done (" << std::setprecision(1) << std::fixed << t_rel << " s)\n\n";
+    std::cout << "Relativistic Eval Done (" << std::setprecision(1) << std::fixed << t_rel << " s)\n\n";
 
     // ── 3. Deviation Calculations
-    ld e_cla = state_cla.E0;
-    ld e_rel = state_rel.E0;
-    ld delta_E = std::abs(e_rel - e_cla);
-    ld rel_diff = std::abs(delta_E / e_cla) * 100.0;
+    ld delta_E = e_rel - e_cla;
+    ld rel_diff = (std::abs(e_cla) > 1e-12) ? std::abs(delta_E / e_cla) * 100.0 : 0.0;
 
     // ── 4. Final Data Table
     std::cout << "========================================================\n";

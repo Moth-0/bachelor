@@ -73,9 +73,9 @@ int main() {
     // 2. Reference Point & SVM Parameters
     ld S_ref = 15.0, b_ref = 1.4;
     SvmParams params;
-    params.K_max = 40; 
+    params.K_max = 30; 
     params.N_trial = 50;
-    params.refine_every = 10;
+    params.refine_every = params.K_max;
     params.S_coupling = S_ref;
     params.b_ff = b_ref;
     params.s_max = 0.1;

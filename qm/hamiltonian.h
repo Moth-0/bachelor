@@ -278,7 +278,7 @@ inline ld kinetic_energy(const GaussianPair& gp,
     ld total = ld{0};
     for (size_t alpha = 0; alpha < gp.dim; alpha++) {
         KineticParams kp(gp, sys.c_vec[alpha]);
-        if (relativistic && alpha==0) { // temporary sanity check
+        if (relativistic) {
             total += ke_relativistic(gp, kp, sys.mu[alpha]);
         } else {
             total += (phys::hbar_c2 / (ld{2} * sys.mu[alpha]))
