@@ -1,10 +1,3 @@
-//
-// main.cc — Streamlined Deuteron SVM (Energy & Relativistic Deviation)
-//
-// Compile: g++ -std=c++17 -O2 -fopenmp -o main main.cc
-// Usage:   ./main --config run.cfg --S 20.0 --b 1.4
-//
-
 #include "qm/matrix.h"
 #include "qm/jacobi.h"
 #include "qm/gaussian.h"

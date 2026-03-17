@@ -18,14 +18,17 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h q
 	set xlabel 'S (MeV)'; \
 	set ylabel 'b (fm)'; \
 	set cblabel 'E_0 (MeV)'; \
-	set cbrange [-5.0:0.0]; \
+	set cbrange [-15.0:5.0]; \
 	set palette defined ( \
-		-5 'dark-blue', \
+		-15 'dark-blue', \
 		-2.2   'white',     \
-		0       'dark-red'); \
-	set yrange [0.5:4.0]; \
-	set xrange [10:50]; \
-	plot '$<' using 1:2:3 with image notitle"
+		5      'dark-red'); \
+	set yrange [0.8:2.0]; \
+	set xrange [10:40]; \
+	set view map; \
+	set pm3d interpolate 10,10; \
+	set ticscale 0; \
+	splot '$<' using 1:2:3 with pm3d"
 
 heatmap.dat : heatmap
 	./heatmap --K_max 10 --N_trial 10 \
@@ -34,10 +37,8 @@ heatmap.dat : heatmap
 	--s_max 0.1 \
     --output heatmap.dat
 
-fastscan.dat : fastscan
-	./fastscan --S_ref 22.0 --b_ref 1.4 \
-	--N_S 50 --N_b 50 \
-	--output fastscan.dat
+fastscan.dat : 
+	
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
