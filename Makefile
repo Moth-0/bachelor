@@ -23,8 +23,8 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h q
 		-15 'dark-blue', \
 		-2.2   'white',     \
 		5      'dark-red'); \
-	set yrange [0.8:2.0]; \
-	set xrange [10:40]; \
+	set yrange [1.2:1.6]; \
+	set xrange [10:20]; \
 	set view map; \
 	set pm3d interpolate 10,10; \
 	set ticscale 0; \
