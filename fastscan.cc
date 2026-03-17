@@ -120,6 +120,7 @@ int main() {
     SvmParams params;
     params.K_max = 20; 
     params.N_trial = 50;
+    params.refine_every = 5;
     params.S_coupling = S_ref;
     params.b_ff = b_ref;
     params.relativistic = false;
