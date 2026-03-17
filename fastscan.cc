@@ -116,7 +116,7 @@ int main() {
     auto channels = build_pion_channels(sys); // Assumes this is available in your headers or main.cc
 
     // 2. Reference Point & SVM Parameters
-    ld S_ref = 18.0, b_ref = 1.4;
+    ld S_ref = 15.0, b_ref = 1.4;
     SvmParams params;
     params.K_max = 20; 
     params.N_trial = 50;
@@ -132,8 +132,8 @@ int main() {
 
     // 3. Define the Grid for Heatmap
     int n_points = 20;
-    ld S_min = 10, S_max = 40.0;
-    ld b_min = 0.8, b_max = 2.0;
+    ld S_min = 10.0, S_max = 20.0;
+    ld b_min = 1.2, b_max = 1.6;
 
     std::ofstream out("fastscan.dat");
     out << "# S [MeV]   b [fm]   E0 [MeV]" << std::endl;
