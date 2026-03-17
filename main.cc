@@ -32,6 +32,7 @@ struct Config {
     ld b0 = 1.4;          // Gaussian range [fm]
     ld s_max = 0.1;       // Shift bound [fm^-1]
     uint64_t seed = 42;   // RNG Seed
+    bool verbose = true;       // Print SVM-loop
 };
 
 void apply_arg(Config& cfg, const std::string& key, const std::string& val) {
@@ -42,6 +43,7 @@ void apply_arg(Config& cfg, const std::string& key, const std::string& val) {
     else if (key == "b0")      cfg.b0 = std::stold(val);
     else if (key == "s_max")   cfg.s_max = std::stold(val);
     else if (key == "seed")    cfg.seed = std::stoull(val);
+    else if (key == "verbose") cfg.verbose = (val == "true" || val == "1");
 }
 
 Config parse_config(int argc, char* argv[]) {
@@ -72,13 +74,21 @@ Config parse_config(int argc, char* argv[]) {
     }
 
     // 2. Command line overrides
-    for (int i = 1; i < argc - 1; i++) {
+    for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg.rfind("--", 0) == 0) { // starts with "--"
+        
+        // Handle standalone boolean flags immediately
+        if (arg == "--verbose") { cfg.verbose = true;  continue; }
+        if (arg == "--quiet")   { cfg.verbose = false; continue; }
+        
+        // Handle key-value pairs (e.g., --S 25.0)
+        if (arg.rfind("--", 0) == 0 && i + 1 < argc) { 
             apply_arg(cfg, arg.substr(2), argv[i+1]);
+            i++; // Skip the value since we just consumed it
         }
     }
     return cfg;
+
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,7 +144,7 @@ int main(int argc, char* argv[]) {
     params.b_ff = cfg.b;
     params.S_coupling = cfg.S;
     params.refine_every = 5; // Fixed refinement rate
-    params.verbose = false;  // Keep output clean!
+    params.verbose = true;
 
     // ── Pre-warm Gaussian Integrator 
     {
