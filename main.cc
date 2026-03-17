@@ -78,11 +78,11 @@ Config parse_config(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         // Handle standalone boolean flags immediately
-        if (arg == "--verbose") { cfg.verbose = true;  continue; }
-        if (arg == "--quiet")   { cfg.verbose = false; continue; }
+        if (arg == "-verbose") { cfg.verbose = true;  continue; }
+        if (arg == "-quiet")   { cfg.verbose = false; continue; }
         
         // Handle key-value pairs (e.g., --S 25.0)
-        if (arg.rfind("--", 0) == 0 && i + 1 < argc) { 
+        if (arg.rfind("-", 0) == 0 && i + 1 < argc) { 
             apply_arg(cfg, arg.substr(2), argv[i+1]);
             i++; // Skip the value since we just consumed it
         }
@@ -179,7 +179,7 @@ int main(int argc, char* argv[]) {
     // ── 3. Deviation Calculations
     ld e_cla = state_cla.E0;
     ld e_rel = state_rel.E0;
-    ld delta_E = e_rel - e_cla;
+    ld delta_E = std::abs(e_rel - e_cla);
     ld rel_diff = std::abs(delta_E / e_cla) * 100.0;
 
     // ── 4. Final Data Table

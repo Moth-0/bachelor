@@ -116,10 +116,10 @@ int main() {
     auto channels = build_pion_channels(sys); // Assumes this is available in your headers or main.cc
 
     // 2. Reference Point & SVM Parameters
-    ld S_ref = 25.0, b_ref = 1.4;
+    ld S_ref = 18.0, b_ref = 1.4;
     SvmParams params;
     params.K_max = 20; 
-    params.N_trial = 30;
+    params.N_trial = 50;
     params.S_coupling = S_ref;
     params.b_ff = b_ref;
     params.relativistic = false;
