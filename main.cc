@@ -27,7 +27,7 @@ struct Config {
     uint64_t seed = 0;   // RNG Seed
     bool verbose = true;       // Print SVM-loop
 };
-
+ 
 void apply_arg(Config& cfg, const std::string& key, const std::string& val) {
     if      (key == "S")       cfg.S = std::stold(val);
     else if (key == "b")       cfg.b = std::stold(val);
