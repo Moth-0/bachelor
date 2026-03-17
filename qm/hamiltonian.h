@@ -8,6 +8,7 @@
 #include <functional>
 #include <iostream>
 #include <iomanip>
+#include <omp.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // hamiltonian.h  —  Matrix elements for a general multi-channel Hamiltonian
@@ -139,8 +140,13 @@ inline ld integrate(std::function<ld(ld)> f, ld x_max) {
     static std::vector<ld> nodes, weights;
     static bool initialised = false;
     if (!initialised) {
-        gauss_legendre_nodes(nodes, weights);
-        initialised = true;
+        #pragma omp critical 
+        {
+            if (!initialised) {
+            gauss_legendre_nodes(nodes, weights);
+            initialised = true;
+            }
+        }
     }
     ld sum = ld{0};
     for (size_t i = 0; i < nodes.size(); i++)
@@ -455,6 +461,8 @@ public:
             size_t off = offset(a);
             size_t sz  = block_size(a);
             const auto& bas = (a == 0) ? basis_bare : basis_dressed;
+
+            #pragma omp parallel for collapse(2) schedule(static)
             for (size_t i = 0; i < sz; i++)
                 for (size_t j = 0; j < sz; j++) {
                     GaussianPair gp(bas[i], bas[j]);
@@ -474,6 +482,7 @@ public:
             size_t sz  = block_size(a);
             const auto& bas = (a == 0) ? basis_bare : basis_dressed;
 
+            #pragma omp parallel for collapse(2) schedule(static)
             for (size_t i = 0; i < sz; i++) {
                 for (size_t j = 0; j < sz; j++) {
                     GaussianPair gp(bas[i], bas[j]);
@@ -506,6 +515,7 @@ public:
             size_t off_0 = offset(0);
             size_t off_a = offset(a);
 
+            #pragma omp parallel for collapse(2) schedule(static)
             for (size_t i = 0; i < K_dress; i++) {    // dressed index
                 for (size_t j = 0; j < K_bare; j++) { // bare index
                     cld w = w_matrix_element(

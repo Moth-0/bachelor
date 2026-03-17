@@ -2,3 +2,5 @@
 *.o
 *.log
 /qm_old
+perf.data.old
+perf.data

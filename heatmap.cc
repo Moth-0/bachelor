@@ -189,7 +189,8 @@ ld run_one_point(const JacobiSystem&          sys,
     params.S_coupling = S_val;
     params.verbose    = false;  // silence SVM output during scan
 
-    std::mt19937 rng(static_cast<uint32_t>(point_seed));
+    std::random_device rd;
+    std::mt19937 rng(rd());
     SvmState result = run_svm(sys, channels, params, rng);
     return result.E0;
 }

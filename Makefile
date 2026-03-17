@@ -6,7 +6,7 @@ LDFLAGS += -fopenmp
 LDLIBS = -lstdc++ -lm
 RM = rm -f
 
-all : main
+all : main fastscan.dat heatmap.dat
 
 HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h qm/solver.h
 
@@ -35,7 +35,9 @@ heatmap.dat : heatmap
     --output heatmap.dat
 
 fastscan.dat : fastscan
-	./fastscan --S_ref 22.0 --b_ref 1.4 --N_S 50 --N_b 50 --output fastscan.dat
+	./fastscan --S_ref 22.0 --b_ref 1.4 \
+	--N_S 50 --N_b 50 \
+	--output fastscan.dat
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
