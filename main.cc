@@ -31,7 +31,7 @@ struct Config {
     int N_trial = 50;     // Stochastic trials per step
     ld b0 = 1.4;          // Gaussian range [fm]
     ld s_max = 0.1;       // Shift bound [fm^-1]
-    uint64_t seed = 42;   // RNG Seed
+    uint64_t seed = 0;   // RNG Seed
     bool verbose = true;       // Print SVM-loop
 };
 
@@ -152,19 +152,23 @@ int main(int argc, char* argv[]) {
         ke_relativistic(gp, KineticParams(gp, c), sys.mu[0]);
     }
 
+    // ── Evaluate the seed
+    std::random_device rd;
+    uint64_t seed = (cfg.seed == 0) ? rd() : cfg.seed;
+
     // ── 1. Classical Run
     std::cout << "Running Classical SVM..." << std::flush;
-    std::mt19937 rng_cla(cfg.seed); // Ensure exact same seed
+    std::mt19937 rng_cla(seed); // Ensure exact same seed
     params.relativistic = false;
     
     auto t0 = std::chrono::steady_clock::now();
     SvmState state_cla = run_svm(sys, channels, params, rng_cla);
     double t_cla = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    std::cout << " Done (" << std::setprecision(1) << std::fixed << t_cla << " s)\n";
+    std::cout << " Done (" << std::setprecision(1) << std::fixed << t_cla << " s)\n\n";
 
     // ── 2. Relativistic Run
     std::cout << "Running Relativistic SVM..." << std::flush;
-    std::mt19937 rng_rel(cfg.seed); // Ensure exact same seed again
+    std::mt19937 rng_rel(seed); // Ensure exact same seed again
     params.relativistic = true;
     
     t0 = std::chrono::steady_clock::now();
