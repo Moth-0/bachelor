@@ -123,6 +123,7 @@ int main() {
     params.refine_every = 5;
     params.S_coupling = S_ref;
     params.b_ff = b_ref;
+    params.s_max = 0.1;
     params.relativistic = false;
 
     std::cout << "Optimizing basis at S=" << S_ref << ", b=" << b_ref << "..." << std::endl;
