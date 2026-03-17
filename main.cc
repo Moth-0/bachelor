@@ -51,14 +51,22 @@ Config parse_config(int argc, char* argv[]) {
     std::ifstream file("run.cfg");
     std::string line;
     while (std::getline(file, line)) {
-        auto eq = line.find('=');
+        // Strip comments FIRST
         auto hash = line.find('#');
-        if (hash != std::string::npos) line = line.substr(0, hash); // strip comments
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash); 
+        }
+        
+        // THEN look for the equals sign on the clean line
+        auto eq = line.find('=');
         if (eq != std::string::npos) {
             std::string key = line.substr(0, eq);
             std::string val = line.substr(eq + 1);
+            
+            // Remove all spaces
             key.erase(remove_if(key.begin(), key.end(), isspace), key.end());
             val.erase(remove_if(val.begin(), val.end(), isspace), val.end());
+            
             if (!key.empty() && !val.empty()) apply_arg(cfg, key, val);
         }
     }
