@@ -70,11 +70,11 @@ int main() {
     // 2. Base SVM Parameters
     ld b_target = 1.4;
     SvmParams params;
-    params.K_max = 10; // Lower K slightly so 120 runs don't take all day
-    params.N_trial = 30;
+    params.K_max = 20; // Lower K slightly so 120 runs don't take all day
+    params.N_trial = 50;
     params.refine_every = params.K_max; // Refine once at the end
     params.b_ff = b_target;
-    params.s_max = 0.5;
+    params.s_max = 0.2;
     params.relativistic = false;
     params.verbose = true; // Turn off inner loop printing so it doesn't flood terminal
 
