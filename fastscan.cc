@@ -1,7 +1,8 @@
 //
-// fastscan.cc  —  Lightning-Fast (S, b) parameter scan
+// fastscan_1d.cc  —  Independent SVM evaluations across S
 //
-// Compile: g++ -std=c++17 -O2 -fopenmp -o fastscan fastscan.cc
+// Compile: g++ -std=c++17 -O2 -fopenmp -o fastscan_1d fastscan_1d.cc
+// Run:     ./fastscan_1d
 //
 
 #include "qm/matrix.h"
@@ -10,7 +11,6 @@
 #include "qm/hamiltonian.h"
 #include "qm/solver.h"
 
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -19,9 +19,6 @@
 #include <random>
 #include <string>
 #include <vector>
-#ifdef _OPENMP
-#  include <omp.h>
-#endif
 
 using namespace qm;
 
@@ -70,129 +67,56 @@ int main() {
     JacobiSystem sys({938.27, 939.57, 139.57}, {"p", "n", "pi"});
     auto channels = build_pion_channels(sys); 
 
-    // 2. Reference Point & SVM Parameters
-    ld S_ref = 15.0, b_ref = 1.4;
+    // 2. Base SVM Parameters
+    ld b_target = 1.4;
     SvmParams params;
-    params.K_max = 30; 
-    params.N_trial = 50;
-    params.refine_every = params.K_max;
-    params.S_coupling = S_ref;
-    params.b_ff = b_ref;
-    params.s_max = 0.1;
+    params.K_max = 10; // Lower K slightly so 120 runs don't take all day
+    params.N_trial = 30;
+    params.refine_every = params.K_max; // Refine once at the end
+    params.b_ff = b_target;
+    params.s_max = 0.5;
     params.relativistic = false;
+    params.verbose = true; // Turn off inner loop printing so it doesn't flood terminal
 
-    std::cout << "Optimizing basis at S=" << S_ref << ", b=" << b_ref << "..." << std::endl;
-    std::random_device rd;
-    std::mt19937 rng(rd()); // Using fixed seed here for reproducibility, or rd()
-    SvmState ref = run_svm(sys, channels, params, rng);
+    std::cout << "========================================================\n";
+    std::cout << "  Full SVM 1D S-Scan (Fixed b = 1.4 fm)\n";
+    std::cout << "========================================================\n";
+    std::cout << "Running independent optimization from scratch for every S...\n\n";
+    
+    // 3. Setup CSV
+    std::string filename = "data_1d.csv";
+    std::ofstream out(filename);
+    out << "S_MeV,b_fm,E0_MeV\n";
+    out << std::fixed << std::setprecision(6);
 
-    // 3. Define the Grid for Heatmap
-    int n_points = 20;
-    ld S_min = 10.0, S_max = 20.0;
-    ld b_min = 1.2, b_max = 1.6;
-    ld E_clip = 5.0; // Clip positive unbound energies
-
-    std::vector<ld> S_vals(n_points), b_vals(n_points);
-    for (int i = 0; i < n_points; ++i) {
-        S_vals[i] = S_min + i * (S_max - S_min) / (n_points - 1);
-        b_vals[i] = b_min + i * (b_max - b_min) / (n_points - 1);
-    }
-
-    std::cout << "\nPre-computing constant matrices..." << std::endl;
-
-    // ── Pre-compute the Constant Matrices (Outside the loops!) ────────────────
-    // Build N and H_diag (setting S=0 so we only get Kinetic Energy and masses)
-    HamiltonianBuilder hb_base(sys, channels, ref.basis_bare, ref.basis_dressed, 1.0, 0.0, params.relativistic);
-    cmat N = hb_base.build_N();
-    cmat H_diag = hb_base.build_H();
-    size_t dim = H_diag.size1();
-
-    // Pre-compute the Cholesky inversion of N 
-    cmat L = N.cholesky();
-    if (L.size1() == 0) {
-        std::cerr << "Error: Reference basis is linearly dependent.\n";
-        return 1;
-    }
-    cmat Linv = L.inverse_lower();
-    cmat Linv_dag = Linv.adjoint();
-
-    std::cout << "Starting lightning-fast grid scan..." << std::endl;
     auto t1 = std::chrono::steady_clock::now();
-    std::atomic<int> done{0};
 
-    // Store results to write sequentially later
-    std::vector<std::vector<ld>> results(n_points, std::vector<ld>(n_points, 0.0));
+    // 4. The Independent Scan Loop
+    for (ld S = 12.0; S <= 20.01; S += 0.1) {
+        
+        params.S_coupling = S;
 
-    // ── Outer Loop: Form-factor 'b' ───────────────────────────────────────────
-    #pragma omp parallel for schedule(dynamic)
-    for (int ib = 0; ib < n_points; ib++) {
-        ld b = b_vals[ib];
+        // Reset the RNG seed for each run so they are compared fairly
+        std::random_device rd;
+        std::mt19937 rng(rd());
 
-        // Build the Hamiltonian for this 'b', with S=1.0 to get the raw W matrix
-        HamiltonianBuilder hb_b(sys, channels, ref.basis_bare, ref.basis_dressed, b, 1.0, params.relativistic);
-        cmat H_b_S1 = hb_b.build_H();
+        // Run the FULL SVM loop from K=1 to K_max
+        SvmState state = run_svm(sys, channels, params, rng);
+        
+        ld E0 = state.E0;
 
-        // Extract JUST the interaction block W(b) by subtracting the kinetic energy
-        cmat W_raw = zeros<cld>(dim, dim);
-        for(size_t r = 0; r < dim; ++r) {
-            for(size_t c = 0; c < dim; ++c) {
-                W_raw(r, c) = H_b_S1(r, c) - H_diag(r, c);
-            }
-        }
-
-        // ── Inner Loop: Coupling 'S' ──────────────────────────────────────────
-        for (int iS = 0; iS < n_points; iS++) {
-            ld S = S_vals[iS];
-
-            // 1. Assemble the full H instantly: H = H_diag + S * W_raw
-            cmat H_final = zeros<cld>(dim, dim);
-            for(size_t r = 0; r < dim; ++r) {
-                for(size_t c = 0; c < dim; ++c) {
-                    H_final(r, c) = H_diag(r, c) + cld{S, 0.0} * W_raw(r, c);
-                }
-            }
-
-            // 2. Transform to standard Eigenvalue Problem H' = L⁻¹ H L⁻†
-            cmat Hp = Linv * H_final * Linv_dag;
-            
-            // 3. Diagonalize H'
-            jacobi_diag(Hp);
-
-            // 4. Extract the ground state energy
-            ld E0 = std::numeric_limits<ld>::max();
-            for (size_t d = 0; d < dim; d++) {
-                ld e = std::real(Hp(d, d));
-                if (e < E0) E0 = e;
-            }
-
-            // Clip for plotting
-            if (!std::isfinite(E0) || E0 > E_clip) E0 = E_clip;
-            results[iS][ib] = E0; // Store based on S (outer) and b (inner)
-        }
-
-        // Progress
-        int n_done = ++done;
-        #pragma omp critical
-        {
-            std::cout << "\r Progress: " << (n_done * 100) / n_points << "%" << std::flush;
-        }
+        // Write to CSV
+        out << S << "," << b_target << "," << E0 << "\n";
+        
+        // Terminal Progress
+        std::cout << "\r  [Scanning] S = " << std::fixed << std::setprecision(1) << S 
+                  << " MeV  |  Optimized E0 = " << std::setprecision(4) << E0 
+                  << " MeV    " << std::flush;
     }
 
     double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t1).count();
-    std::cout << "\nGrid scan finished in " << std::fixed << std::setprecision(2) << elapsed << " s!\n";
-
-    // ── Write output for Gnuplot ──────────────────────────────────────────────
-    std::ofstream out("fastscan.dat");
-    out << "# S [MeV]   b [fm]   E0 [MeV]\n";
-    out << std::fixed << std::setprecision(6);
-
-    for (int iS = 0; iS < n_points; ++iS) {
-        for (int ib = 0; ib < n_points; ++ib) {
-            out << S_vals[iS] << "  " << b_vals[ib] << "  " << results[iS][ib] << "\n";
-        }
-        out << "\n"; // Gnuplot block separator for pm3d
-    }
-
-    std::cout << "Data saved to fastscan.dat\n";
+    std::cout << "\n\nFull independent scan finished in " << std::fixed << std::setprecision(2) << elapsed << " s!\n";
+    std::cout << "Data saved to " << filename << "\n";
+    
     return 0;
 }
