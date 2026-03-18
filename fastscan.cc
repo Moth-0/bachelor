@@ -1,10 +1,3 @@
-//
-// fastscan_1d.cc  —  Independent SVM evaluations across S
-//
-// Compile: g++ -std=c++17 -O2 -fopenmp -o fastscan_1d fastscan_1d.cc
-// Run:     ./fastscan_1d
-//
-
 #include "qm/matrix.h"
 #include "qm/jacobi.h"
 #include "qm/gaussian.h"
@@ -71,7 +64,7 @@ int main() {
     ld b_target = 1.4;
     SvmParams params;
     params.K_max = 20; // Lower K slightly so 120 runs don't take all day
-    params.N_trial = 50;
+    params.N_trial = 40;
     params.refine_every = params.K_max; // Refine once at the end
     params.b_ff = b_target;
     params.s_max = 0.2;
@@ -84,7 +77,7 @@ int main() {
     std::cout << "Running independent optimization from scratch for every S...\n\n";
     
     // 3. Setup CSV
-    std::string filename = "data_1d.csv";
+    std::string filename = "fastscan.csv";
     std::ofstream out(filename);
     out << "S_MeV,b_fm,E0_MeV\n";
     out << std::fixed << std::setprecision(6);
@@ -92,7 +85,7 @@ int main() {
     auto t1 = std::chrono::steady_clock::now();
 
     // 4. The Independent Scan Loop
-    for (ld S = 12.0; S <= 20.01; S += 0.1) {
+    for (ld S = 15.0; S <= 20.01; S += 0.25) {
         
         params.S_coupling = S;
 
