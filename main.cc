@@ -1,10 +1,3 @@
-//
-// main.cc  —  Master Workflow (Parser + Annealing + Relativistic Shift)
-//
-// Compile: g++ -std=c++17 -O2 -fopenmp -o main main.cc
-// Run:     ./main --K_max 40 --b 1.4
-//
-
 #include "qm/matrix.h"
 #include "qm/jacobi.h"
 #include "qm/gaussian.h"
@@ -25,22 +18,16 @@ using namespace qm;
 // 1. Configuration & Parser
 // ─────────────────────────────────────────────────────────────────────────────
 struct Config {
-    ld S = 12.6;          // Final/Target physical coupling [MeV] (if not annealing)
+    ld S = 16;          // Final/Target physical coupling [MeV] (if not annealing)
     ld b = 1.4;           // Form-factor range [fm]
-    int K_max = 40;       // Basis size
+    int K_max = 5;       // Basis size
     int N_trial = 50;     // Stochastic trials per step
-    int refine_every = 0; // Periodic refinement (0 during annealing build)
-    int N_refine_trial = 50;
+    int refine_every = 5; // Periodic refinement (0 during annealing build)
+    int N_refine_trial = 20;
     ld b0 = 1.4;          // Gaussian range [fm]
     ld s_max = 0.5;       // Shift bound [fm^-1]
     uint64_t seed = 0;    // RNG Seed
     bool verbose = true;  // Print SVM-loop
-    
-    // Annealing specific
-    bool do_annealing = true;
-    ld S_build = 18.0;    // Artificially strong coupling for phase 1
-    ld E_target = -2.224; // Target experimental energy
-    int relax_sweeps = 3; // Sweeps to relax back to physical state
 };
 
 void apply_arg(Config& cfg, const std::string& key, const std::string& val) {
@@ -54,10 +41,6 @@ void apply_arg(Config& cfg, const std::string& key, const std::string& val) {
     else if (key == "s_max")          cfg.s_max = std::stold(val);
     else if (key == "seed")           cfg.seed = std::stoull(val);
     else if (key == "verbose")        cfg.verbose = (val == "true" || val == "1");
-    else if (key == "do_annealing")   cfg.do_annealing = (val == "true" || val == "1");
-    else if (key == "S_build")        cfg.S_build = std::stold(val);
-    else if (key == "E_target")       cfg.E_target = std::stold(val);
-    else if (key == "relax_sweeps")   cfg.relax_sweeps = std::stoi(val);
 }
 
 Config parse_config(int argc, char* argv[]) {
@@ -94,7 +77,7 @@ Config parse_config(int argc, char* argv[]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Channel Setup (9-channel system)
+// 2. Channel Setup (14-channel system)
 // ─────────────────────────────────────────────────────────────────────────────
 std::vector<Channel> build_pion_channels(const JacobiSystem& sys) {
     constexpr ld m_pi0   = ld{134.977L};
