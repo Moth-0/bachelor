@@ -16,8 +16,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 #define FORV(i,v)      for (size_t i = 0; i < (v).size(); i++)
 #define FOR_COLS(i,A)  for (size_t i = 0; i < (A).size2(); i++)
-#define FOR_MAT(M)     for (size_t i = 0; i < (M).size1(); i++) \
-                           for (size_t j = 0; j < (M).size2(); j++)
+#define FOR_MAT(M)     for (size_t i = 0; i < (M).size2(); i++) \
+                           for (size_t j = 0; j < (M).size1(); j++)
 #define SELF           (*this)
 #define ZERO_LIMIT     1e-10
 
@@ -191,7 +191,7 @@ struct matrix {
 
     // ── Size ─────────────────────────────────────────────────────────────────
     size_t size1() const { return cols.empty() ? 0 : cols[0].size(); } // rows
-    size_t size2() const { return cols.size(); }                        // cols
+    size_t size2() const { return cols.size(); }                       // cols
 
     void resize(size_t rows, size_t ncols) {
         cols.resize(ncols);

@@ -8,7 +8,7 @@ RM = rm -f
 
 all : main 
 
-HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/particle.h qm/jacobi.h qm/solver.h
+HEADERS = qm/matrix.h qm/gaussian.h qm/hamiltonian.h qm/svm.h
 
 %.png : %.dat Makefile
 	gnuplot -e " \
@@ -42,6 +42,7 @@ fastscan.dat :
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
+	./$@
 
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
