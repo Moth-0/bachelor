@@ -52,16 +52,64 @@ struct SpatialWavefunction {
     SpatialWavefunction() = default;
     ~SpatialWavefunction() = default;
 
-    // ... [Your randomize function stays exactly as you wrote it!] ...
+    void randomize(const Jacobian& jac, ld b_range) {
+        size_t N = jac.N;           // Number of physical particles
+        size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
+        
+        rmat A_new(dim, dim); 
+
+        // 1. Loop over pairs (i < j), not matrix dimensions!
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = i + 1; j < N; ++j) {
+                
+                // Get full N-dimensional physical selection vectors
+                rvec w_i = jac.transform_w(i);
+                rvec w_j = jac.transform_w(j);
+                rvec w_ij_full = w_i - w_j;
+                
+                // 2. Truncate the Center of Mass coordinate (drop the last element)
+                rvec w_ij(dim);
+                for (size_t k = 0; k < dim; ++k) {
+                    w_ij[k] = w_ij_full[k];
+                }
+                
+                // The outer product is now safely (N-1) x (N-1)
+                rmat outer = outer_no_conj(w_ij, w_ij);
+                
+                // 3. Stochastically pick b_ij
+                ld u = random_ld(1e-10, 1.0); 
+                ld b_ij = -std::log(u) * b_range;
+                
+                A_new += outer / (b_ij * b_ij);
+            }
+        }
+        
+        SELF.A = A_new;
+
+        rmat s_new(dim, 3);
+        // 4. Randomize the shift vector 
+        ld range = 0.5 * b_range; 
+        FOR_MAT(s_new) s_new(j, i) = random_ld(-range, range);
+        SELF.s = s_new;
+    }
 
     ld evaluate(const rmat& r) const {
         ld rAr = 0.0;
         ld sr = 0.0;
         
+        size_t dim = A.size1(); // This is correctly N-1
+        
         // Loop over x (0), y (1), z (2) columns
         for (size_t c = 0; c < 3; ++c) {
-            rAr += dot_no_conj(r[c], A * r[c]);
-            sr  += dot_no_conj(s[c], r[c]);
+            // Safely extract only the first 'dim' elements of the column
+            rvec r_c_internal(dim);
+            for (size_t i = 0; i < dim; ++i) {
+                r_c_internal[i] = r[c][i];
+            }
+            
+            // Now do the math safely!
+            rAr += dot_no_conj(r_c_internal, A * r_c_internal);
+            sr  += dot_no_conj(s[c], r_c_internal);
         }
         
         ld g_plus  = std::exp(-rAr + sr);
@@ -112,4 +160,69 @@ inline ld spactial_overlap(const SpatialWavefunction& g1, const SpatialWavefunct
     ld term4 = (g1.parity_sign * g2.parity_sign) * gaussian_overlap(g1.A, -1.0L * g1.s, g2.A, -1.0L * g2.s);
 
     return term1 + term2 + term3 + term4;
+}
+
+template <typename Func>
+auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunction& ket, Func operation) {
+    rmat B = bra.A + ket.A;
+    
+    // Deduce the return type dynamically (ld or cld)
+    using RetType = decltype(operation(Gaussian(bra.A, bra.s), Gaussian(ket.A, ket.s), 0.0L, B));
+    
+    if (std::abs(B.determinant()) < ZERO_LIMIT) return RetType{0}; 
+    
+    rmat R = B.inverse();
+    int num_bra_terms = (bra.parity_sign == 0) ? 1 : 2;
+    int num_ket_terms = (ket.parity_sign == 0) ? 1 : 2;
+
+    rmat s_bra[2] = {bra.s, -bra.s};
+    rmat s_ket[2] = {ket.s, -ket.s};
+    int p_bra[2] = {1, bra.parity_sign}; 
+    int p_ket[2] = {1, ket.parity_sign};
+
+    RetType total_value{0};
+
+    for (int i = 0; i < num_bra_terms; ++i) {
+        for (int j = 0; j < num_ket_terms; ++j) {
+            int parity_factor = p_bra[i] * p_ket[j];
+            Gaussian g_b(bra.A, s_bra[i]);
+            Gaussian g_k(ket.A, s_ket[j]);
+            ld M_term = gaussian_overlap(g_b.A, g_b.s, g_k.A, g_k.s);
+            
+            if (std::abs(M_term) > 1e-25) {
+                // Multiply the scalar parity_factor by the RetType result
+                total_value += static_cast<ld>(parity_factor) * operation(g_b, g_k, M_term, R);
+            }
+        }
+    }
+    return total_value;
+}
+
+// Promotes a bare state (e.g., pn) to the dressed dimension (pn + pion)
+inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim, 
+                                   const rvec& w_piN, ld b) 
+{
+    // 1. Promote A^(d) by padding it with zeros up to target_dim
+    rmat A_tilde = zeros<ld>(target_dim, target_dim);
+    for (size_t i = 0; i < g_bare.A.size1(); ++i) {
+        for (size_t j = 0; j < g_bare.A.size2(); ++j) {
+            A_tilde(i, j) = g_bare.A(i, j);
+        }
+    }
+
+    // 2. Promote the shift vector s by padding it with zeros
+    rmat s_promoted = zeros<ld>(target_dim, 3);
+    for (size_t i = 0; i < g_bare.s.size1(); ++i) {
+        for (size_t col = 0; col < 3; ++col) {
+            s_promoted(i, col) = g_bare.s(i, col);
+        }
+    }
+
+    // 3. Absorb the spatial form factor into the padded matrix!
+    // A_tilde = A_promoted + (1 / b^2) * w_piN * w_piN^T
+    ld inv_b_sq = 1.0 / (b * b);
+    A_tilde += outer_no_conj(w_piN, w_piN) * inv_b_sq;
+
+    // Return the new fully prepped Gaussian
+    return Gaussian(A_tilde, s_promoted);
 }

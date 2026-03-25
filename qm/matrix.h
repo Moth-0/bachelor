@@ -245,7 +245,7 @@ struct matrix {
     matrix& operator-=(const matrix& o) { FOR_COLS(j, SELF) SELF[j] -= o[j]; return SELF; }
     matrix& operator*=(T x)             { FOR_COLS(j, SELF) SELF[j] *= x;    return SELF; }
     matrix& operator/=(T x)             { FOR_COLS(j, SELF) SELF[j] /= x;    return SELF; }
-    matrix& operator-(const matrix& A)  { FOR_COLS(j, SELF) SELF[j] - o[j];  return SELF; }
+    matrix& operator-(const matrix& o)  { FOR_COLS(j, SELF) SELF[j] - o[j];  return SELF; }
 
     // ── Determinant (LU via Gaussian elimination with partial pivoting) ───────
     // Works for both real and complex T.
@@ -405,6 +405,10 @@ matrix<T> operator+(const matrix<T>& A, const matrix<T>& B)
 template<typename T>
 matrix<T> operator-(const matrix<T>& A, const matrix<T>& B)
 { matrix<T> R = A; R -= B; return R; }
+
+template<typename T>
+matrix<T> operator-(const matrix<T>& A)
+{ matrix<T> R(A.size1(), A.size2()); R -= A; return R; }
 
 template<typename T>
 matrix<T> operator*(const matrix<T>& A, T x) { matrix<T> R = A; R *= x; return R; }
