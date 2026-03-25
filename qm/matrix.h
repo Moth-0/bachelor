@@ -245,6 +245,7 @@ struct matrix {
     matrix& operator-=(const matrix& o) { FOR_COLS(j, SELF) SELF[j] -= o[j]; return SELF; }
     matrix& operator*=(T x)             { FOR_COLS(j, SELF) SELF[j] *= x;    return SELF; }
     matrix& operator/=(T x)             { FOR_COLS(j, SELF) SELF[j] /= x;    return SELF; }
+    matrix& operator-(const matrix& A)  { FOR_COLS(j, SELF) SELF[j] - o[j];  return SELF; }
 
     // ── Determinant (LU via Gaussian elimination with partial pivoting) ───────
     // Works for both real and complex T.
