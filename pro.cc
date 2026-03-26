@@ -37,20 +37,23 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
                 unpack_wavefunction(basis[k].psi, p_test);
                 
+                // --- THE PHYSICS BOUNCER ---
                 bool is_physical = true;
 
                 for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                    if (basis[k].psi.A(i, i) <= 1e-4) is_physical = false;
+                    // Mirrored from Deuteron: Prevent the pion from evaporating!
+                    if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
                 }
                 if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
 
                 for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
                     for (size_t col = 0; col < 3; ++col) {
-                        if (std::abs(basis[k].psi.s(i, col)) > 10.0) is_physical = false;
+                        // Mirrored from Deuteron: Keep the pion close to the proton!
+                        if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
                     }
                 }
 
-                if (!is_physical) return 999999.0; 
+                if (!is_physical) return 999999.0;
 
                 return evaluate_basis_energy(basis, b, S, relativistic);
             };
@@ -70,7 +73,7 @@ ld run_proton_svm(bool relativistic) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;  
     ld m_pi0 = 134.97, m_pic = 139.57; 
-    ld b_range = 1.4, b_form = 1.4, S = 22.0;      
+    ld b_range = 1.4, b_form = 1.4, S = 10.0;      
 
     Jacobian jac_bare({m_p});
     Jacobian jac_dressed_0({m_p, m_pi0});

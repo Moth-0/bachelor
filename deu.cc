@@ -74,7 +74,7 @@ ld run_deuteron_svm(bool relativistic) {
     
     ld b_range = 1.4, b_form = 1.4;
     // TUNE THIS 'S' PARAMETER TO HIT -2.224 MeV!
-    ld S = 100.0;      
+    ld S = 200.0;      
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -119,8 +119,8 @@ ld run_deuteron_svm(bool relativistic) {
     // -------------------------------------------------------------
     // PHASE 2: COMPETITIVE SVM GROWTH
     // -------------------------------------------------------------
-    int num_cycles = 3; // Will add 3 more states per channel (40 states total)
-    int num_candidates_per_step = 20;
+    int num_cycles = 1; // Will add more states per channel
+    int num_candidates_per_step = 10;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
@@ -167,7 +167,7 @@ ld run_deuteron_svm(bool relativistic) {
             // Now push the ultimate winner into the real, shared basis!
             basis.push_back(best_candidate);
             sweep_optimize_basis(basis, b_form, S, relativistic);
-            
+
             std::cout << "\rTotal States: " << basis.size() << " (Cycle " << cycle+1 << ", Ch " << t << ") -> Energy: " 
                       << std::fixed << std::setprecision(5) << evaluate_basis_energy(basis, b_form, S, relativistic) << " MeV    " << std::flush;
         }
