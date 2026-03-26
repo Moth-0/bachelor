@@ -8,7 +8,7 @@ RM = rm -f
 
 all : main 
 
-HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h hamiltonian.h
+HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h deuterium.h proton.h
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^

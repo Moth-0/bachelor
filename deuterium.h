@@ -29,6 +29,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
     cmat H = zeros<cld>(size, size);
     cmat N = zeros<cld>(size, size);
     
+    #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
             
@@ -63,17 +64,31 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
                 
             }
 
-            else if (state_i.type == Channel::PN && state_j.type != Channel::PN) {
+            else if ((state_i.type == Channel::PN && state_j.type != Channel::PN) || 
+                     (state_i.type != Channel::PN && state_j.type == Channel::PN)) {
                 
                 // --- W OPERATOR ---
+                // Identify which index holds the Bare state and which holds the Dressed state
+                bool i_is_bare = (state_i.type == Channel::PN);
+                const auto& state_bare  = i_is_bare ? state_i : state_j;
+                const auto& state_dress = i_is_bare ? state_j : state_i;
+
                 // The transition strictly uses the 3-body dressed state's coordinate system
-                // to locate the pion relative to the center of mass.
-                rvec c_pi = state_j.jac.get_c_internal(1); 
+                rvec c_pi = state_dress.jac.get_c_internal(1); 
                 
-                // Remember: total_w_coupling promotes the bare state inside!
-                h_val += total_w_coupling(state_i.psi, state_j.psi, 
-                                        c_pi, b, S, 
-                                        state_j.isospin_factor, state_j.flip);
+                // Calculate <Bare | W | Dressed>
+                cld w_val = total_w_coupling(state_bare.psi, state_dress.psi, 
+                                             c_pi, b, S, 
+                                             state_dress.isospin_factor, state_dress.flip);
+
+                // Because we are building the upper triangle H(i, j):
+                // If 'i' is the bare state, H(i,j) = <Bare | W | Dressed>
+                // If 'i' is the dressed state, H(i,j) = <Dressed | W | Bare> = conj(<Bare | W | Dressed>)
+                if (i_is_bare) {
+                    h_val += w_val;
+                } else {
+                    h_val += std::conj(w_val);
+                }
             }
 
             // 3. APPLY AND MIRROR 

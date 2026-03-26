@@ -2,32 +2,57 @@
 
 #include <cmath>
 #include <functional>
+#include <array>
 #include "matrix.h"
 #include "gaussian.h"
 
 namespace qm {
 
-// A placeholder for whatever 1D numerical integrator you use (e.g., Simpson's rule)
-// It integrates the function 'func' from x = 0 to a sufficiently large cutoff
-ld integrate_1d(std::function<ld(ld)> func, ld lower_bound, ld upper_bound, int steps = 1000) {
+// 16-point Gauss-Legendre Quadrature
+// Integrates 'func' from lower_bound to upper_bound with massive speed and precision.
+inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upper_bound) {
+    // Gauss-Legendre nodes (x_i) on the interval [-1, 1]
+    static constexpr std::array<ld, 16> nodes = {
+        -0.9894009349916499, -0.9445750230732326, -0.8656312023878318, -0.7554044083550030,
+        -0.6178762444026438, -0.4580167776572274, -0.2816035507792589, -0.0950125098376374,
+         0.0950125098376374,  0.2816035507792589,  0.4580167776572274,  0.6178762444026438,
+         0.7554044083550030,  0.8656312023878318,  0.9445750230732326,  0.9894009349916499
+    };
+
+    // Corresponding weights (w_i)
+    static constexpr std::array<ld, 16> weights = {
+         0.0271524594117541,  0.0622535239386479,  0.0951585116824928,  0.1246289712555339,
+         0.1495959888165767,  0.1691565193950025,  0.1826034150449236,  0.1894506104550685,
+         0.1894506104550685,  0.1826034150449236,  0.1691565193950025,  0.1495959888165767,
+         0.1246289712555339,  0.0951585116824928,  0.0622535239386479,  0.0271524594117541
+    };
+
+    // Calculate mapping factors from [-1, 1] to [lower_bound, upper_bound]
+    ld half_width = 0.5 * (upper_bound - lower_bound);
+    ld midpoint   = 0.5 * (upper_bound + lower_bound);
+
     ld sum = 0.0;
-    ld dx = (upper_bound - lower_bound) / steps;
-    for (int i = 0; i < steps; ++i) {
-        ld x = lower_bound + (i + 0.5) * dx; // Midpoint rule for simplicity
-        sum += func(x) * dx;
+
+    // Evaluate the function at only 16 highly optimized points!
+    for (size_t i = 0; i < 16; ++i) {
+        ld x = half_width * nodes[i] + midpoint;
+        sum += weights[i] * func(x);
     }
-    return sum;
+
+    return sum * half_width;
 }
+// Define the global physical constant for hbar * c (in MeV * fm)
+constexpr ld HBARC = 197.3269804;
 
 // --- Classic Kinetic Energy ---
 ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket, 
-                           ld M_overlap, const rmat& R, const rvec& c, ld mass) 
+                          ld M_overlap, const rmat& R, const rvec& c, ld mass) 
 {
-    // 1/gamma = 4 * c^T * A * R * A' * c
+    // 1/gamma = 4 * c^T * A * R * A' * c (Units: fm^-2)
     rvec ARs_ket = g_ket.A * c;
     ld inv_gamma = 4.0 * dot_no_conj(c, g_bra.A * (R * ARs_ket));
     
-    // eta calculation
+    // eta calculation (Units: fm^-2)
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
@@ -35,27 +60,28 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
 
-    // Apply the zero limit explicitly to kill floating point noise
     if (eta_sq < ZERO_LIMIT * ZERO_LIMIT) {
         eta_sq = 0.0;
     }
 
-    // Eq 20 from your thesis
-    return M_overlap * (1.5 * inv_gamma - eta_sq) / (2.0 * mass);
+    // Convert fm^-2 to MeV^2 using (hbar*c)^2, then divide by 2*mass (MeV)
+    // Result is strictly in MeV!
+    ld hbarc_sq = HBARC * HBARC;
+    return M_overlap * hbarc_sq * (1.5 * inv_gamma - eta_sq) / (2.0 * mass);
 }
 
 // --- Relativistic Kinetic Energy ---
 ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket, 
                                 ld M_overlap, const rmat& R, const rvec& c, ld mass) 
 {
-    // Calculate gamma
+    // Calculate gamma (Units: fm^2)
     rvec A_ket_c = g_ket.A * c;
     rvec R_A_ket_c = R * A_ket_c;
     rvec A_bra_R_A_ket_c = g_bra.A * R_A_ket_c;
     ld inv_gamma = 4.0 * dot_no_conj(c, A_bra_R_A_ket_c);
     ld gamma = 1.0 / inv_gamma;
 
-    // Calculate the shift magnitude eta
+    // Calculate the shift magnitude eta (Units: fm^-1)
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec Rs_ket = R * g_ket.s[col];
@@ -68,18 +94,26 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     ld eta = std::sqrt(dot_no_conj(eta_vec, eta_vec)); 
 
     // Define the 1D integrand function f(x)
+    // 'x' here is the wavenumber 'k' in units of fm^-1
     auto integrand = [gamma, eta, mass](ld x) -> ld {
-        ld kinetic_term = std::sqrt(x * x + mass * mass) - mass;
+        
+        // --- UNIT FIX ---
+        // Convert wavenumber k (x) to momentum p (MeV) using p = hbar * c * k
+        ld p = x * HBARC; 
+        
+        // Now it is perfectly safe to add p^2 (MeV^2) to mass^2 (MeV^2)
+        ld kinetic_term = std::sqrt(p * p + mass * mass) - mass;
+        
         if (eta < ZERO_LIMIT) {
-            return x * x * std::exp(-gamma * x * x) * kinetic_term; // Unshifted
+            return x * x * std::exp(-gamma * x * x) * kinetic_term; 
         } else {
-            return x * std::exp(-gamma * x * x) * std::sin(2.0 * gamma * eta * x) * kinetic_term; // Shifted
+            return x * std::exp(-gamma * x * x) * std::sin(2.0 * gamma * eta * x) * kinetic_term; 
         }
     };
 
-    // Perform numerical integration (Ensure integrate_1d is defined!)
+    // Perform numerical integration 
     ld x_max = std::sqrt(20.0 / gamma); 
-    ld integral_result = integrate_1d(integrand, 0.0, x_max, 2000);
+    ld integral_result = integrate_1d(integrand, 0.0, x_max);
 
     // Apply the prefactors
     ld prefactor;

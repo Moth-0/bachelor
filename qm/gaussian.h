@@ -86,11 +86,12 @@ struct SpatialWavefunction {
         
         SELF.A = A_new;
 
-        rmat s_new(dim, 3);
+        rmat r0(dim, 3);
         // 4. Randomize the shift vector 
-        ld range = 0.5 * b_range; 
-        FOR_MAT(s_new) s_new(j, i) = random_ld(-range, range);
-        SELF.s = s_new;
+        ld range = 0.1 * b_range; 
+        FOR_MAT(r0) r0(j, i) = random_ld(-range, range);
+        
+        SELF.s = A_new * r0 * 2.0L;;
     }
 
     ld evaluate(const rmat& r) const {
@@ -225,4 +226,42 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 
     // Return the new fully prepped Gaussian
     return Gaussian(A_tilde, s_promoted);
+}
+
+// Flattens a wavefunction into a 1D rvec for Nelder-Mead
+rvec pack_wavefunction(const SpatialWavefunction& psi) {
+    rvec p;
+    // 1. Pack upper triangle of A
+    for (size_t i = 0; i < psi.A.size1(); ++i) {
+        for (size_t j = i; j < psi.A.size2(); ++j) {
+            p.push_back(psi.A(i, j));
+        }
+    }
+    // 2. Pack the entire s matrix
+    for (size_t i = 0; i < psi.s.size1(); ++i) {
+        for (size_t j = 0; j < psi.s.size2(); ++j) {
+            p.push_back(psi.s(i, j));
+        }
+    }
+    return p;
+}
+
+// Rebuilds the wavefunction from the 1D rvec
+void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p) {
+    size_t idx = 0;
+    // 1. Unpack A (Enforcing symmetry: A(i,j) == A(j,i))
+    for (size_t i = 0; i < psi.A.size1(); ++i) {
+        for (size_t j = i; j < psi.A.size2(); ++j) {
+            psi.A(i, j) = p[idx];
+            psi.A(j, i) = p[idx]; 
+            idx++;
+        }
+    }
+    // 2. Unpack s
+    for (size_t i = 0; i < psi.s.size1(); ++i) {
+        for (size_t j = 0; j < psi.s.size2(); ++j) {
+            psi.s(i, j) = p[idx];
+            idx++;
+        }
+    }
 }

@@ -8,7 +8,8 @@
 #include "qm/jacobi.h"
 #include "qm/gaussian.h"
 #include "qm/operators.h" 
-#include "hamiltonian.h"
+#include "qm/solver.h"
+#include "deuterium.h"
 
 using namespace qm;
 
@@ -126,7 +127,7 @@ void test_complex_w_operator() {
 
     // 4. Calculate Bare -> Dressed (W Operator)
     // We test FLIP_PARTICLE_1 which uses the complex r^+ coordinate
-    cld W_bare_to_dressed = total_w_coupling(psi_bare, psi_dressed, c_vec, alpha, isospin_factor, FLIP_PARTICLE_1);
+    cld W_bare_to_dressed = total_w_coupling(psi_bare, psi_dressed, c_vec, alpha, alpha, isospin_factor, FLIP_PARTICLE_1);
     
     // 5. The Adjoint (Dressed -> Bare)
     // Because H is Hermitian, <bare | W^dag | dressed> = <dressed | W | bare>^*
@@ -137,8 +138,107 @@ void test_complex_w_operator() {
     std::cout << "  -> Hermiticity confirmed: Imaginary parts perfectly flipped.\n";
 }
 
+void test_physics_engine() {
+    std::cout << "\n========================================\n";
+    std::cout << "  PHYSICS ENGINE DIAGNOSTIC TEST\n";
+    std::cout << "========================================\n";
+
+    // 1. Setup standard physical parameters
+    qm::ld m_p = 938.27, m_n = 939.56, m_pi = 134.97;
+    Jacobian jac_bare({m_p, m_n});
+    Jacobian jac_dressed({m_p, m_n, m_pi});
+
+    // 2. Create a perfectly symmetric, well-behaved Bare State
+    // Width A = 0.5 (reasonable), shifts = 0 (centered)
+    qm::rmat A_bare = qm::eye<qm::ld>(1) * 0.5L;
+    qm::rmat s_bare = qm::zeros<qm::ld>(1, 3);
+    SpatialWavefunction psi_bare(A_bare, s_bare, 1);
+
+    // 3. Create a well-behaved Dressed State
+    qm::rmat A_dress = qm::eye<qm::ld>(2) * 0.5L;
+    qm::rmat s_dress = qm::zeros<qm::ld>(2, 3);
+    // Let's give it a tiny shift so the W-operator doesn't return exactly 0 due to parity
+    s_dress(1, 0) = 0.5; // Shift pion slightly in x
+    SpatialWavefunction psi_dress(A_dress, s_dress, -1);
+
+    // 4. Package them
+    std::vector<BasisState> basis;
+    basis.push_back({psi_bare, Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
+    basis.push_back({psi_dress, Channel::PI_0c_1f, FLIP_PARTICLE_1, 1.0, jac_dressed, m_pi});
+
+    // 5. Build the matrices! 
+    qm::ld b = 1.4;
+    qm::ld S = 20.0; // Keep coupling small for the test
+    auto [H, N] = build_matrices(basis, b, S, false);
+
+    std::cout << "\n--- OVERLAP MATRIX (N) ---\n" << N << "\n";
+    std::cout << "\n--- HAMILTONIAN MATRIX (H) ---\n" << H << "\n";
+
+    // 6. The Physics Sanity Checks
+    std::cout << "\n--- DIAGNOSTICS ---\n";
+    
+    // True energy is <psi|H|psi> / <psi|psi>
+    qm::ld bare_E = std::real(H(0,0)) / std::real(N(0,0));
+    qm::ld dress_E = std::real(H(1,1)) / std::real(N(1,1));
+    
+    std::cout << "1. Bare Kinetic Energy:   " << bare_E << " MeV\n";
+    std::cout << "2. Dressed Total Energy:  " << dress_E << " MeV\n";
+    std::cout << "   (Expected roughly: Kinetic + " << m_pi << " MeV)\n";
+    std::cout << "3. Coupling Strength (W): " << H(0,1) << " MeV\n";
+
+    // 7. Test the Solver
+    qm::ld E0 = solve_ground_state_energy(H, N);
+    std::cout << "4. GEVP Solver Result:    " << E0 << " MeV\n";
+    std::cout << "========================================\n\n";
+}
+
+void test_deuteron_matrices() {
+    std::cout << "\n========================================\n";
+    std::cout << "  DEUTERON 3-BODY DIAGNOSTIC TEST\n";
+    std::cout << "========================================\n";
+
+    ld m_p = 938.27, m_n = 939.56, m_pi = 134.97;
+    Jacobian jac_bare({m_p, m_n});
+    Jacobian jac_dressed({m_p, m_n, m_pi});
+
+    // 1. Bare State (1 internal dimension: PN distance)
+    rmat A_bare = eye<ld>(1) * 0.5L;
+    rmat s_bare = zeros<ld>(1, 3);
+    s_bare(0, 2) = 0.5; // Force a shift in the Z-axis!
+    SpatialWavefunction psi_bare(A_bare, s_bare, 1);
+
+    // 2. Dressed State (2 internal dimensions: PN distance, Pion distance)
+    rmat A_dress = eye<ld>(2) * 0.5L;
+    rmat s_dress = zeros<ld>(2, 3);
+    s_dress(0, 2) = 0.5;  // Shift PN distance in Z
+    s_dress(1, 2) = -0.5; // Shift Pion distance in Z
+    SpatialWavefunction psi_dress(A_dress, s_dress, -1);
+
+    std::vector<BasisState> test_basis;
+    test_basis.push_back({psi_bare, Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
+    test_basis.push_back({psi_dress, Channel::PI_0c_0f, NO_FLIP, 1.0, jac_dressed, m_pi});
+
+    ld b = 1.4;
+    ld S = 100.0; // Huge coupling to make it obvious
+    auto [H, N] = build_matrices(test_basis, b, S, false);
+
+    std::cout << "--- OVERLAP MATRIX (N) ---\n" << N << "\n";
+    std::cout << "--- HAMILTONIAN MATRIX (H) ---\n" << H << "\n";
+    
+    ld E0 = solve_ground_state_energy(H, N);
+    std::cout << "\n--- DIAGNOSTICS ---\n";
+    std::cout << "Bare Kinetic Energy:      " << std::real(H(0,0)/N(0,0)) << " MeV\n";
+    std::cout << "Coupling Strength H(0,1): " << H(0,1) << " MeV\n";
+    std::cout << "GEVP Ground State:        " << E0 << " MeV\n";
+    std::cout << "========================================\n\n";
+    
+    exit(0); // Stop the program so we can read this output
+}
+
 int main() {
     //test_spatial_and_kinetic();
-    test_complex_w_operator();
+    //test_complex_w_operator();
+    //test_physics_engine();
+    test_deuteron_matrices();
     return 0;
 }

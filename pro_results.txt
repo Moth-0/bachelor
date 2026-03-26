@@ -1,0 +1,17 @@
+========================================
+  PROTON-PION SYSTEM (COMPETITIVE SVM)
+========================================
+
+>>> RUNNING CLASSIC KINETIC ENERGY (T = p^2 / 2m)
+Added state 25 (Channel 3) -> Energy: -2.11467 MeV
+
+>>> RUNNING RELATIVISTIC KINETIC ENERGY (T = sqrt(p^2 + m^2) - m)
+Added state 25 (Channel 3) -> Energy: -2.11469 MeV
+
+========================================
+  FINAL RESULTS COMPARISON
+========================================
+Classic Energy:      -2.11467 MeV
+Relativistic Energy: -2.11469 MeV
+Difference:          0.00002 MeV
+========================================
