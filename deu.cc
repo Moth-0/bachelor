@@ -74,7 +74,7 @@ ld run_deuteron_svm(bool relativistic) {
     
     ld b_range = 1.4, b_form = 1.4;
     // TUNE THIS 'S' PARAMETER TO HIT -2.224 MeV!
-    ld S = 200.0;      
+    ld S = 100.0;      
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -120,7 +120,7 @@ ld run_deuteron_svm(bool relativistic) {
     // PHASE 2: COMPETITIVE SVM GROWTH
     // -------------------------------------------------------------
     int num_cycles = 1; // Will add more states per channel
-    int num_candidates_per_step = 10;
+    int num_candidates_per_step = 5;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
