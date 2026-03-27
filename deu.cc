@@ -125,8 +125,8 @@ ld run_deuteron_svm(bool relativistic) {
     // -------------------------------------------------------------
     // PHASE 2: COMPETITIVE SVM GROWTH (SWEEP PER CYCLE)
     // -------------------------------------------------------------
-    int num_cycles = 3; 
-    int num_candidates_per_step = 50;
+    int num_cycles = 2; 
+    int num_candidates_per_step = 100;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {

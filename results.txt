@@ -5,34 +5,36 @@
 >>> RUNNING CLASSIC KINETIC ENERGY
 --- 1. Planting Geometric PN Grid & Pion Seeds ---
 Skeleton Size: 14 states.
-Skeleton Energy: 0.677218 MeV
+Optimized Energy (Sweep 6) = 0.800926 MeV
+Skeleton Energy: 0.800926 MeV
 
 --- 2. Competitive SVM Growth ---
-Added State 24 (Cycle 1, Ch 9) -> Fast E: 0.67246 MeV
-  -> Sweeping Cycle 1 basis...
-  -> Cycle 1 Polished Energy: -1.11707 MeV
-Added State 34 (Cycle 2, Ch 9) -> Fast E: -1.12564 MeV
-  -> Sweeping Cycle 2 basis...
-  -> Cycle 2 Polished Energy: -2.20749 MeV
-
+Added State 24 (Cycle 1, Ch 9) -> E = 0.79278 MeV
+ - Sweeping Cycle 1 basis -
+Added State 34 (Cycle 2, Ch 9) -> E = -1.05810 MeV
+ - Sweeping Cycle 2 basis -
+Added State 44 (Cycle 3, Ch 9) -> E = -2.06550 MeV
+ - Sweeping Cycle 3 basis -
+Optimized Energy (Sweep 18) = -2.17308 MeV
 
 >>> RUNNING RELATIVISTIC KINETIC ENERGY
 --- 1. Planting Geometric PN Grid & Pion Seeds ---
 Skeleton Size: 14 states.
-Skeleton Energy: -0.80215 MeV
+Optimized Energy (Sweep 3) = -0.19563 MeV
+Skeleton Energy: -0.19563 MeV
 
 --- 2. Competitive SVM Growth ---
-Added State 24 (Cycle 1, Ch 9) -> Fast E: -0.83148 MeV
-  -> Sweeping Cycle 1 basis...
-  -> Cycle 1 Polished Energy: -7.16167 MeV
-Added State 34 (Cycle 2, Ch 9) -> Fast E: -7.17020 MeV
-  -> Sweeping Cycle 2 basis...
-  -> Cycle 2 Polished Energy: -8.66304 MeV
-
+Added State 24 (Cycle 1, Ch 9) -> E = -0.22526 MeV
+ - Sweeping Cycle 1 basis -
+Added State 34 (Cycle 2, Ch 9) -> E = -6.03252 MeV
+ - Sweeping Cycle 2 basis -
+Added State 44 (Cycle 3, Ch 9) -> E = -8.49439 MeV
+ - Sweeping Cycle 3 basis -
+Optimized Energy (Sweep 18) = -8.75485 MeV
 ========================================
-  FINAL RESULTS S = 140 b = 1.4
+  FINAL RESULTS
 ========================================
-Classic Energy:      -2.20749 MeV
-Relativistic Energy  -8.66304 MeV
-Difference           -6.45554 Mev
+Classic Energy:      -2.17308 MeV
+Relativistic Energy  -8.75485 MeV
+Difference           -6.58177 Mev
 ========================================
