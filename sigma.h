@@ -67,8 +67,12 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
             // ---------------------------------------------------------
             if (state_i.type == state_j.type) {
                 
+                // --- CRITICAL FIX: DYNAMIC RELATIVISTIC FLAGS ---
+                // Creates a vector of the exact right size (1 or 2), filled with the flag
+                std::vector<bool> rel_flags(state_i.jac.dim, relativistic);
+                
                 // --- KINETIC ENERGY & MASS ---
-                ld T_total = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {relativistic, relativistic});
+                ld T_total = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, rel_flags);
                 
                 ld rest_mass_term = 0.0;
                 if (state_i.type == Channel::PN_SIGMA) {

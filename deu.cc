@@ -50,14 +50,13 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
 
                 if (!is_physical) return 999999.0;
                 
-                ld E_now = evaluate_basis_energy(basis, b, S, relativistic);
-                std::cout << "\r" << "Optimized Energy = " << E_now << " MeV" << std::flush;
-                return E_now;
+                return evaluate_basis_energy(basis, b, S, relativistic);
             };
 
             rvec p_best = nelder_mead(p0, objective_func);
             unpack_wavefunction(basis[k].psi, p_best);
             current_E = evaluate_basis_energy(basis, b, S, relativistic);
+            std::cout << "\r" << "Optimized Energy = " << current_E << " MeV" << std::flush;
         }
         sweep++;
     }
