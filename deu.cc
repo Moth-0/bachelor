@@ -172,7 +172,6 @@ ld run_deuteron_svm(bool relativistic) {
             // Lock in the winner, but DO NOT SWEEP YET!
             basis.push_back(best_candidate);
 
-            std::cout << "\n";
             std::cout << "\rAdded State " << basis.size() << " (Cycle " << cycle+1 << ", Ch " << t << ") -> E = " 
                       << std::fixed << std::setprecision(5) << evaluate_basis_energy(basis, b_form, S, relativistic) << " MeV    " << std::flush;
         }
