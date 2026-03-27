@@ -21,7 +21,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
     
     ld previous_E = 999999.0;
     ld sweep_tolerance = 1e-4; // Loosened slightly for tuning speed
-    int max_sweeps = 10;       // Hard cap to prevent infinite stalling
+    int max_sweeps = 50;       // Hard cap to prevent infinite stalling
     int sweep = 0;
 
     while (sweep < max_sweeps && std::abs(previous_E - current_E) > sweep_tolerance) {
@@ -56,7 +56,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             rvec p_best = nelder_mead(p0, objective_func);
             unpack_wavefunction(basis[k].psi, p_best);
             current_E = evaluate_basis_energy(basis, b, S, relativistic);
-            std::cout << "\r" << "Optimized Energy = " << current_E << " MeV" << std::flush;
+            std::cout << "\r" << "Optimized Energy (Sweep " << sweep << ") = " << current_E << " MeV" << std::flush;
         }
         sweep++;
     }
@@ -70,7 +70,7 @@ ld run_deuteron_svm(bool relativistic) {
     
     ld b_range = 1.4, b_form = 1.4;
     // TUNE THIS 'S' PARAMETER TO HIT -2.224 MeV!
-    ld S = 130.0;      
+    ld S = 140.0;      
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -125,8 +125,8 @@ ld run_deuteron_svm(bool relativistic) {
     // -------------------------------------------------------------
     // PHASE 2: COMPETITIVE SVM GROWTH (SWEEP PER CYCLE)
     // -------------------------------------------------------------
-    int num_cycles = 3; 
-    int num_candidates_per_step = 20;
+    int num_cycles = 2; 
+    int num_candidates_per_step = 50;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {

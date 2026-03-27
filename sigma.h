@@ -21,21 +21,26 @@ struct BasisState {
 };
 
 // --- PURE SCALAR COUPLING ---
-// Matches Equation (24) of Fedorov (2020)
+// Matches Equation (24) and (25) of Fedorov (2020) exactly!
 inline cld scalar_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed, 
-                             const rvec& c, ld b, ld S) 
+                             ld b, ld S) 
 {
-    // 1. Calculate the Gaussian width (alpha) from the physical interaction range (b)
     ld alpha = 1.0L / (b * b);
 
-    // 2. Promote the bare state up to the dressed dimension (A_tilde)
-    size_t target_dim = psi_dressed.A.size1();
-    Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
-    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, alpha);
-    
-    SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
+    // Build A_tilde exactly as shown in Eq (25)
+    rmat A_tilde = zeros<ld>(2, 2);
+    A_tilde(0, 0) = psi_bare.A(0, 0) + alpha; // Top-left: Nucleon coupling
+    A_tilde(1, 1) = alpha;                    // Bottom-right: Meson coupling
 
-    // 3. For a purely scalar meson, it's just the spatial overlap multiplied by S!
+    // Carry over the shifts from the 1D bare state to the top row of the 2D state
+    rmat s_tilde = zeros<ld>(2, 3);
+    for (int col = 0; col < 3; ++col) {
+        s_tilde(0, col) = psi_bare.s(0, col);
+    }
+
+    SpatialWavefunction psi_tilde(A_tilde, s_tilde, psi_bare.parity_sign);
+
+    // Eq 24: S * < A_tilde | A_sigma >
     return cld(S * spactial_overlap(psi_tilde, psi_dressed), 0.0);
 }
 
@@ -92,7 +97,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
                 // The sigma meson is the SECOND internal Jacobi coordinate (index 1)
                 rvec c_sigma = state_dress.jac.get_c_internal(1); 
                 
-                cld w_val = scalar_w_coupling(state_bare.psi, state_dress.psi, c_sigma, b, S);
+                cld w_val = scalar_w_coupling(state_bare.psi, state_dress.psi, b, S);
 
                 if (i_is_bare) {
                     h_val += w_val;
