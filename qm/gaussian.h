@@ -13,6 +13,20 @@ inline long double random_ld(long double lo, long double hi) {
     std::uniform_real_distribution<long double> dist(lo, hi);
     return dist(rng);
 }
+
+// Generates the Van der Corput sequence for base 2
+inline ld van_der_corput(size_t n, size_t base = 2) {
+    ld q = 0.0;
+    ld bk = 1.0 / static_cast<ld>(base);
+    while (n > 0) {
+        q += (n % base) * bk;
+        n /= base;
+        bk /= base;
+    }
+    return q;
+}
+
+
 struct Gaussian {
     rmat A; // Correlation matrix (positive definite)
     rmat s; // Shift matrix (N-1 x 3)
@@ -52,11 +66,15 @@ struct SpatialWavefunction {
     SpatialWavefunction() = default;
     ~SpatialWavefunction() = default;
 
+    // --- UPDATED RANDOMIZE FUNCTION ---
     void randomize(const Jacobian& jac, ld b_range) {
         size_t N = jac.N;           // Number of physical particles
         size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
         
         rmat A_new(dim, dim); 
+
+        // We start at 1 because n=0 gives 0.0, which breaks the logarithm!
+        thread_local size_t vdc_counter = 1;
 
         // 1. Loop over pairs (i < j), not matrix dimensions!
         for (size_t i = 0; i < N; ++i) {
@@ -76,8 +94,12 @@ struct SpatialWavefunction {
                 // The outer product is now safely (N-1) x (N-1)
                 rmat outer = outer_no_conj(w_ij, w_ij);
                 
-                // 3. Stochastically pick b_ij
-                ld u = random_ld(1e-10, 1.0); 
+                // 3. Stochastically pick b_ij using the Van der Corput sequence!
+                ld u = van_der_corput(vdc_counter++, 2); 
+                
+                // Safety bound just in case to prevent log(0)
+                if (u < 1e-10) u = 1e-10;
+                
                 ld b_ij = -std::log(u) * b_range;
                 
                 A_new += outer / (b_ij * b_ij);
@@ -88,10 +110,11 @@ struct SpatialWavefunction {
 
         rmat r0(dim, 3);
         // 4. Randomize the shift vector 
-        ld range = 0.1 * b_range; 
+        // Small shifts can remain standard pseudo-random, as they just jitter the spatial center.
+        ld range = 0.2 * b_range; 
         FOR_MAT(r0) r0(j, i) = random_ld(-range, range);
         
-        SELF.s = A_new * r0 * 2.0L;;
+        SELF.s = A_new * r0 * 2.0L;
     }
 
     ld evaluate(const rmat& r) const {

@@ -1,0 +1,38 @@
+========================================
+  DEUTERON SYSTEM (FAST COMPETITIVE SVM)
+========================================
+
+>>> RUNNING CLASSIC KINETIC ENERGY
+--- 1. Planting Geometric PN Grid & Pion Seeds ---
+Skeleton Size: 14 states.
+Skeleton Energy: 0.677218 MeV
+
+--- 2. Competitive SVM Growth ---
+Added State 24 (Cycle 1, Ch 9) -> Fast E: 0.67246 MeV
+  -> Sweeping Cycle 1 basis...
+  -> Cycle 1 Polished Energy: -1.11707 MeV
+Added State 34 (Cycle 2, Ch 9) -> Fast E: -1.12564 MeV
+  -> Sweeping Cycle 2 basis...
+  -> Cycle 2 Polished Energy: -2.20749 MeV
+
+
+>>> RUNNING RELATIVISTIC KINETIC ENERGY
+--- 1. Planting Geometric PN Grid & Pion Seeds ---
+Skeleton Size: 14 states.
+Skeleton Energy: -0.80215 MeV
+
+--- 2. Competitive SVM Growth ---
+Added State 24 (Cycle 1, Ch 9) -> Fast E: -0.83148 MeV
+  -> Sweeping Cycle 1 basis...
+  -> Cycle 1 Polished Energy: -7.16167 MeV
+Added State 34 (Cycle 2, Ch 9) -> Fast E: -7.17020 MeV
+  -> Sweeping Cycle 2 basis...
+  -> Cycle 2 Polished Energy: -8.66304 MeV
+
+========================================
+  FINAL RESULTS S = 140 b = 1.4
+========================================
+Classic Energy:      -2.20749 MeV
+Relativistic Energy  -8.66304 MeV
+Difference           -6.45554 Mev
+========================================

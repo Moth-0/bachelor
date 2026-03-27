@@ -8,39 +8,60 @@
 
 namespace qm {
 
-// 16-point Gauss-Legendre Quadrature
-// Integrates 'func' from lower_bound to upper_bound with massive speed and precision.
+// 32-point Gauss-Legendre Quadrature
+// Computes roots dynamically at startup for perfect machine precision!
 inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upper_bound) {
-    // Gauss-Legendre nodes (x_i) on the interval [-1, 1]
-    static constexpr std::array<ld, 16> nodes = {
-        -0.9894009349916499, -0.9445750230732326, -0.8656312023878318, -0.7554044083550030,
-        -0.6178762444026438, -0.4580167776572274, -0.2816035507792589, -0.0950125098376374,
-         0.0950125098376374,  0.2816035507792589,  0.4580167776572274,  0.6178762444026438,
-         0.7554044083550030,  0.8656312023878318,  0.9445750230732326,  0.9894009349916499
-    };
+    constexpr int N = 32;
+    
+    // C++11 static initialization is guaranteed to be thread-safe.
+    // This lambda runs exactly ONCE, caches the math, and never runs again.
+    static const auto [nodes, weights] = []() {
+        std::array<ld, N> x;
+        std::array<ld, N> w;
+        int m = (N + 1) / 2;
+        
+        for (int i = 0; i < m; i++) {
+            // Initial guess using high-precision PI
+            ld z = std::cos(3.14159265358979323846L * (i + 0.75) / (N + 0.5)); 
+            ld z1 = 0;
+            ld pp = 0;
+            
+            // Newton-Raphson root finding
+            do {
+                ld p1 = 1.0;
+                ld p2 = 0.0;
+                for (int j = 1; j <= N; j++) {
+                    ld p3 = p2;
+                    p2 = p1;
+                    p1 = ((2.0 * j - 1.0) * z * p2 - (j - 1.0) * p3) / j;
+                }
+                pp = N * (z * p1 - p2) / (z * z - 1.0);
+                z1 = z;
+                z = z1 - p1 / pp;
+            } while (std::abs(z - z1) > 1e-15); // Loop until machine precision is hit
+            
+            // Nodes are perfectly symmetric
+            x[i] = -z;
+            x[N - 1 - i] = z;
+            w[i] = 2.0 / ((1.0 - z * z) * pp * pp);
+            w[N - 1 - i] = w[i];
+        }
+        return std::make_pair(x, w);
+    }();
 
-    // Corresponding weights (w_i)
-    static constexpr std::array<ld, 16> weights = {
-         0.0271524594117541,  0.0622535239386479,  0.0951585116824928,  0.1246289712555339,
-         0.1495959888165767,  0.1691565193950025,  0.1826034150449236,  0.1894506104550685,
-         0.1894506104550685,  0.1826034150449236,  0.1691565193950025,  0.1495959888165767,
-         0.1246289712555339,  0.0951585116824928,  0.0622535239386479,  0.0271524594117541
-    };
-
-    // Calculate mapping factors from [-1, 1] to [lower_bound, upper_bound]
+    // The actual high-speed integration loop
     ld half_width = 0.5 * (upper_bound - lower_bound);
     ld midpoint   = 0.5 * (upper_bound + lower_bound);
-
     ld sum = 0.0;
 
-    // Evaluate the function at only 16 highly optimized points!
-    for (size_t i = 0; i < 16; ++i) {
+    for (int i = 0; i < N; ++i) {
         ld x = half_width * nodes[i] + midpoint;
         sum += weights[i] * func(x);
     }
 
     return sum * half_width;
 }
+
 // Define the global physical constant for hbar * c (in MeV * fm)
 constexpr ld HBARC = 197.3269804;
 

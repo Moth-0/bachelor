@@ -235,10 +235,96 @@ void test_deuteron_matrices() {
     exit(0); // Stop the program so we can read this output
 }
 
+// A stripped-down, single-state optimizer for testing
+void test_optimize(std::vector<BasisState>& basis, ld b, ld S) {
+    for (size_t k = 0; k < basis.size(); ++k) {
+        SpatialWavefunction backup_psi = basis[k].psi;
+        rvec p0 = pack_wavefunction(backup_psi);
+
+        auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
+            unpack_wavefunction(basis[k].psi, p_test);
+            
+            bool is_physical = true;
+            for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
+                if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
+            }
+            if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
+            for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
+                for (size_t col = 0; col < 3; ++col) {
+                    if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
+                }
+            }
+            if (!is_physical) return 999999.0; 
+
+            auto [H, N] = build_matrices(basis, b, S, false);
+            return solve_ground_state_energy(H, N);
+        };
+
+        // Run Nelder-Mead with a strict tolerance to ensure it actually finishes
+        rvec p_best = nelder_mead(p0, objective_func); 
+        unpack_wavefunction(basis[k].psi, p_best);
+    }
+}
+
+// The core test function
+void run_stability_test(bool use_grid) {
+    ld m_p = 938.27, m_n = 939.56, m_pi0 = 134.97;
+    ld b_form = 1.4, b_range = 1.4, S = 100.0;
+    
+    Jacobian jac_bare({m_p, m_n});
+    Jacobian jac_dressed({m_p, m_n, m_pi0});
+
+    std::cout << (use_grid ? ">>> RUNNING GEOMETRIC GRID TEST\n" : ">>> RUNNING PURE RANDOM TEST\n");
+
+    for (int run = 1; run <= 5; ++run) {
+        std::vector<BasisState> basis;
+
+        // 1. ADD BARE PN STATES (Either Grid or Random)
+        if (use_grid) {
+            std::vector<ld> widths = {0.05, 0.2, 0.8, 3.0}; // Covers 0.5 fm to ~4.5 fm
+            for (ld w : widths) {
+                SpatialWavefunction psi(eye<ld>(1) * w, zeros<ld>(1, 3), 1);
+                basis.push_back({psi, Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
+            }
+        } else {
+            for (int i = 0; i < 4; ++i) {
+                SpatialWavefunction psi(zeros<ld>(1, 1), zeros<ld>(1, 3), 1);
+                psi.randomize(jac_bare, b_range);
+                basis.push_back({psi, Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
+            }
+        }
+
+        // 2. ADD 4 RANDOM NEUTRAL PION STATES
+        for (int i = 0; i < 4; ++i) {
+            SpatialWavefunction psi(zeros<ld>(2, 2), zeros<ld>(2, 3), -1);
+            psi.randomize(jac_dressed, b_range);
+            basis.push_back({psi, Channel::PI_0c_0f, NO_FLIP, 1.0, jac_dressed, m_pi0});
+        }
+
+        // 3. OPTIMIZE AND EVALUATE
+        // We will loop the optimizer 3 times to simulate a "sweep"
+        for(int sweep = 0; sweep < 3; sweep++) {
+            test_optimize(basis, b_form, S);
+        }
+
+        auto [H, N] = build_matrices(basis, b_form, S, false);
+        ld final_E = solve_ground_state_energy(H, N);
+
+        std::cout << "Run " << run << "/5 Final Energy: " << std::fixed << std::setprecision(5) << final_E << " MeV\n";
+    }
+    std::cout << "\n";
+}
+
 int main() {
     //test_spatial_and_kinetic();
     //test_complex_w_operator();
     //test_physics_engine();
-    test_deuteron_matrices();
+    //test_deuteron_matrices();
+    
+    // Test 1: Let the randomizer pick all starting widths
+    run_stability_test(false);
+
+    // Test 2: Force the PN core to span the correct physical sizes
+    run_stability_test(true);
     return 0;
 }

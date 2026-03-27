@@ -61,7 +61,15 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
             // 2. HAMILTONIAN MATRIX (H)
             // ---------------------------------------------------------
             if (state_i.type == state_j.type && state_i.type != Channel::P) {
-                // ... (Dressed kinetic energy stays the same) ...
+                
+                // --- DRESSED KINETIC ENERGY & MASS ---
+                ld T_total = 0.0;
+                // state_i.jac only has 1 internal coordinate now!
+                T_total += total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {relativistic});
+                
+                ld rest_mass_term = state_i.pion_mass * std::real(n_val); 
+                h_val += cld(T_total + rest_mass_term, 0.0);
+                
             }
             // CRITICAL FIX: Symmetric W-Operator Check!
             else if ((state_i.type == Channel::P && state_j.type != Channel::P) || 
@@ -86,7 +94,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
                     h_val += std::conj(w_val);
                 }
             }
-            
+
             // ---------------------------------------------------------
             // 3. APPLY AND MIRROR 
             // ---------------------------------------------------------
