@@ -95,7 +95,7 @@ template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
     size_t n = p0.size();
     ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    ld tolerance = 1e-5; // Stop when the simplex is tiny enough
+    ld tolerance = 1e-4; // Stop when the simplex is tiny enough
     int max_iter = 300; 
 
     // 1. Initialize the Simplex (n+1 vertices)

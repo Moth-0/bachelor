@@ -21,7 +21,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
     
     ld previous_E = 999999.0;
     ld sweep_tolerance = 1e-4; // Loosened slightly for tuning speed
-    int max_sweeps = 50;       // Hard cap to prevent infinite stalling
+    int max_sweeps = 10;       // Hard cap to prevent infinite stalling
     int sweep = 0;
 
     while (sweep < max_sweeps && std::abs(previous_E - current_E) > sweep_tolerance) {
@@ -49,8 +49,10 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
                 }
 
                 if (!is_physical) return 999999.0;
-
-                return evaluate_basis_energy(basis, b, S, relativistic);
+                
+                ld E_now = evaluate_basis_energy(basis, b, S, relativistic);
+                std::cout << "\r" << "Optimized Energy = " << E_now << " MeV" << std::flush;
+                return E_now;
             };
 
             rvec p_best = nelder_mead(p0, objective_func);
@@ -69,7 +71,7 @@ ld run_deuteron_svm(bool relativistic) {
     
     ld b_range = 1.4, b_form = 1.4;
     // TUNE THIS 'S' PARAMETER TO HIT -2.224 MeV!
-    ld S = 140.0;      
+    ld S = 130.0;      
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -124,7 +126,7 @@ ld run_deuteron_svm(bool relativistic) {
     // -------------------------------------------------------------
     // PHASE 2: COMPETITIVE SVM GROWTH (SWEEP PER CYCLE)
     // -------------------------------------------------------------
-    int num_cycles = 2; // Each cycle adds exactly 10 states (1 per channel)
+    int num_cycles = 3; 
     int num_candidates_per_step = 20;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
@@ -170,14 +172,14 @@ ld run_deuteron_svm(bool relativistic) {
 
             // Lock in the winner, but DO NOT SWEEP YET!
             basis.push_back(best_candidate);
-            std::cout << "\rAdded State " << basis.size() << " (Cycle " << cycle+1 << ", Ch " << t << ") -> Fast E: " 
+            std::cout << "\rAdded State " << basis.size() << " (Cycle " << cycle+1 << ", Ch " << t << ") -> E = " 
                       << std::fixed << std::setprecision(5) << evaluate_basis_energy(basis, b_form, S, relativistic) << " MeV    " << std::flush;
         }
 
         // ONE massive polish per cycle
-        std::cout << "\n  -> Sweeping Cycle " << cycle+1 << " basis...\n";
+        std::cout << "\n - Sweeping Cycle " << cycle+1 << " basis -\n";
         sweep_optimize_basis(basis, b_form, S, relativistic);
-        std::cout << "  -> Cycle " << cycle+1 << " Polished Energy: " << evaluate_basis_energy(basis, b_form, S, relativistic) << " MeV\n";
+        //std::cout << "  -> Cycle " << cycle+1 << " Polished Energy: " << evaluate_basis_energy(basis, b_form, S, relativistic) << " MeV\n";
     }
     
     std::cout << "\n";
