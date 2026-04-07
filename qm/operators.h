@@ -1,3 +1,58 @@
+/*
+╔════════════════════════════════════════════════════════════════════════════════╗
+║         operators.h - KINETIC ENERGY & PION EXCHANGE OPERATORS                 ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║ PURPOSE:                                                                       ║
+║   Computes matrix elements of the kinetic energy operator T and the            ║
+║   pion exchange coupling operator W between Gaussian basis states.             ║
+║                                                                                ║
+║   <ψ_i | T | ψ_j> = Hamiltonian diagonal (kinetic part)                        ║
+║   <ψ_i | W | ψ_j> = W-operator coupling (pion exchange)                        ║
+║                                                                                ║
+║ KINETIC ENERGY MATRIX ELEMENTS:                                                ║
+║                                                                                ║
+║   1. CLASSICAL (non-relativistic):                                             ║
+║      T_classical = ℏ²/2μ × <ψ | ∇² | ψ'>                                       ║
+║      For Gaussians: known analytical form (3/2 × inv_gamma - eta²)             ║
+║                                                                                ║
+║      where inv_gamma = 4 c^T A_bra R A_ket c   (R = (A+A')⁻¹)                  ║
+║      and eta measures shift mismatch between bra and ket                       ║
+║                                                                                ║
+║   2. RELATIVISTIC:                                                             ║
+║      T_rel = <ψ | (√(p²+m²) - m) | ψ'>                                         ║
+║      No closed form → solved via Gauss-Legendre quadrature in momentum space   ║
+║                                                                                ║
+║      Integrand: x² exp(-γx²) × kinetic_term(x) [γ and kinetic_term from data]  ║
+║      Why k-space? Exponential factors → fast convergence at x_max = √(20/γ)    ║
+║                                                                                ║
+║ W-OPERATOR (PION EXCHANGE):                                                    ║
+║   Couples 2-body (bare) and 3-body (dressed+pion) states.                      ║
+║                                                                                ║
+║   Physical process:                                                            ║
+║     Nucleon pair (PN) ←→ Nucleon pair + virtual pion (PN + π)                  ║
+║                                                                                ║
+║   Mathematical form (Section 3.6):                                             ║
+║     W_ij = S × g(b) × f(w_π^T r) × [pion tensor operator]                      ║
+║                                                                                ║
+║   where:                                                                       ║
+║     • S = coupling strength (tuning parameter per deu.cc)                      ║
+║     • g(b) = form factor strength                                              ║
+║     • f(w_π^T r) = spatial form factor exp(-(w_π^T r)²/b²)                     ║
+║     • w_π = pion coordinate direction in Jacobi space                          ║
+║     • Tensor operator ~ rxr spin structure (3 types: no flip, flip1, flip2)    ║
+║                                                                                ║
+║   Spin operators encode which nucleon's spin is flipped (affects amplitude)    ║
+║                                                                                ║
+║ NUMERICAL TECHNIQUES:                                                          ║
+║   • Gaussian overlaps: Analytical via Cholesky ingredients                     ║
+║   • Classica TKE: Rational function of A matrices (fast, exact)                ║
+║   • Relativistic TKE: 32-point Gauss-Legendre quadrature (>10 digit accuracy)  ║
+║   • apply_basis_expansion(): Handles all 4 parity term combinations auto       ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+*/
+
 #pragma once
 
 #include <cmath>
@@ -13,7 +68,6 @@ namespace qm {
 inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upper_bound) {
     constexpr int N = 32;
     
-    // C++11 static initialization is guaranteed to be thread-safe.
     // This lambda runs exactly ONCE, caches the math, and never runs again.
     static const auto [nodes, weights] = []() {
         std::array<ld, N> x;
@@ -21,8 +75,8 @@ inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upp
         int m = (N + 1) / 2;
         
         for (int i = 0; i < m; i++) {
-            // Initial guess using high-precision PI
-            ld z = std::cos(3.14159265358979323846L * (i + 0.75) / (N + 0.5)); 
+            // Initial guess using PI
+            ld z = std::cos(M_PI * (i + 0.75) / (N + 0.5)); 
             ld z1 = 0;
             ld pp = 0;
             
@@ -49,7 +103,7 @@ inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upp
         return std::make_pair(x, w);
     }();
 
-    // The actual high-speed integration loop
+    // The high-speed integration loop
     ld half_width = 0.5 * (upper_bound - lower_bound);
     ld midpoint   = 0.5 * (upper_bound + lower_bound);
     ld sum = 0.0;
@@ -86,7 +140,7 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     }
 
     // Convert fm^-2 to MeV^2 using (hbar*c)^2, then divide by 2*mass (MeV)
-    // Result is strictly in MeV!
+    // Result is in MeV
     ld hbarc_sq = HBARC * HBARC;
     return M_overlap * hbarc_sq * (1.5 * inv_gamma - eta_sq) / (2.0 * mass);
 }
@@ -118,11 +172,9 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     // 'x' here is the wavenumber 'k' in units of fm^-1
     auto integrand = [gamma, eta, mass](ld x) -> ld {
         
-        // --- UNIT FIX ---
         // Convert wavenumber k (x) to momentum p (MeV) using p = hbar * c * k
         ld p = x * HBARC; 
         
-        // Now it is perfectly safe to add p^2 (MeV^2) to mass^2 (MeV^2)
         ld kinetic_term = std::sqrt(p * p + mass * mass) - mass;
         
         if (eta < ZERO_LIMIT) {
@@ -178,38 +230,37 @@ ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefun
 }
 
 
-// Enum to make your code super readable when calling this function
+// Coupeling operator using spin flip 
 enum SpinChannel { NO_FLIP = 0, FLIP_PARTICLE_1 = 1, FLIP_PARTICLE_2 = 2 };
 
 cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed, 
                      const rvec& c, ld b, ld S, ld isospin_factor, SpinChannel spin_chan) 
 {
-    // 1. Calculate the Gaussian width (alpha) from the physical interaction range (b)
-    ld alpha = 1.0L / (b * b);
+    // Calculate the Gaussian width (alpha) from the physical interaction range (b)
+    ld alpha = 1.0 / (b * b);
 
-    // 2. Promote the bare state up to the dressed dimension
+    // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();
     Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
     Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, alpha);
     
     SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
 
-    // Notice we use cld here, because the wrapper will sum up complex terms!
     return apply_basis_expansion(psi_tilde, psi_dressed, 
             [&](const Gaussian& g_t, const Gaussian& g_d, ld M_term, const rmat& R) -> cld {
         
-        // 3. Calculate the real Cartesian vector exactly as before
+        // Calculate the real Cartesian vector
         rmat v = g_t.s + g_d.s; 
         rvec spatial_vec(3); // [x, y, z]
         for (size_t col = 0; col < 3; ++col) {
             spatial_vec[col] = M_term * 0.5 * dot_no_conj(c, R * v[col]);
         }
         
-        // 4. Map Cartesian [x, y, z] to Spherical [r^0, r^+, r^-]
+        // Map Cartesian [x, y, z] to Spherical [r^0, r^+, r^-]
         cld r_0 = cld(spatial_vec[2], 0.0); // z
         cld r_plus = cld(spatial_vec[0], spatial_vec[1]) / std::sqrt(2.0L); // (x + iy)/sqrt(2)
 
-        // 5. Apply the specific spin operator from Section 3.6
+        // Apply the specific spin operator
         cld W_term = 0.0;
         if (spin_chan == NO_FLIP) {
             // No flip: f(w^T r) * w^T r^0
@@ -224,7 +275,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
             W_term = -std::sqrt(2.0L) * r_plus;
         }
 
-        // 6. Multiply by S (strength) and the isospin constant (e.g., 1 for pi^0, sqrt(2) for pi^+)
+        // Multiply by S (strength) and the isospin constant (e.g., 1 for pi^0, sqrt(2) for pi^+)
         return W_term * S * isospin_factor;
     });
 }

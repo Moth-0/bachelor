@@ -1,3 +1,77 @@
+/*
+╔════════════════════════════════════════════════════════════════════════════════╗
+║          solver.h - GENERALIZED EIGENVALUE SOLVER & OPTIMIZATION               ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║ PURPOSE:                                                                       ║
+║   1. Solve the Generalized Eigenvalue Problem (GEVP): H·c = E·N·c              ║
+║   2. Optimize basis parameters via Nelder-Mead simplex method                  ║
+║                                                                                ║
+║   The GEVP is the heart of the Rayleigh-Ritz variational method:               ║
+║     E_0 = min_c [<c|H|c> / <c|N|c>]                                            ║
+║                                                                                ║
+║ GEVP SOLVER ALGORITHM:                                                         ║
+║                                                                                ║
+║   Input: Hamiltonian matrix H (dimensional: basis_size × basis_size)           ║
+║          Overlap matrix N (metric; must be positive definite)                  ║
+║                                                                                ║
+║   Step 1: Cholesky decomposition N = L L†                                      ║
+║           Ensures N is invertible; fails if N singular                         ║
+║                                                                                ║
+║   Step 2: Invert L (lower-triangular specialization)                           ║
+║           L⁻¹ is also lower-triangular (faster than full inverse)              ║
+║                                                                                ║
+║   Step 3: Transform to standard Hermitian problem                              ║
+║           H' = L⁻¹ H (L†)⁻¹                                                    ║
+║           Solves: H' c' = E c'  (standard eigenvalue equation)                 ║
+║                                                                                ║
+║   Step 4: Jacobi rotation diagonalization                                      ║
+║           Rotates matrix to extract eigenvalues from diagonal                  ║
+║                                                                                ║
+║   Output: E_0 = lowest eigenvalue on diagonal of H' (ground state)             ║
+║                                                                                ║
+║                                                                                ║
+║ JACOBI ROTATION METHOD:                                                        ║
+║                                                                                ║
+║   Iterative diagonalization via sweeps of Givens rotations:                    ║
+║                                                                                ║
+║   for each sweep:                                                              ║
+║     for each off-diagonal pair (p,q):                                          ║
+║       if |H[p,q]| > tolerance:                                                 ║
+║         compute rotation angle θ from H[p,p], H[q,q], H[p,q]                   ║
+║         apply rotation: H ← R_θ† H R_θ                                         ║
+║                                                                                ║
+║   Converges when all off-diagonal elements < ZERO_LIMIT                        ║
+║                                                                                ║
+║                                                                                ║
+║ NELDER-MEAD OPTIMIZATION:                                                      ║
+║                                                                                ║
+║   Derivative-free simplex method for basis parameter tuning:                   ║
+║                                                                                ║
+║   Simplex: (N+1)-vertex polytope in N-dimensional parameter space              ║
+║            each vertex = one candidate basis parameter set                     ║
+║                                                                                ║
+║   per iteration:                                                               ║
+║     1. Sort vertices by objective function value (energy)                      ║
+║     2. Try reflection: reflect worst vertex through centroid                   ║
+║     3. If better than best → try expansion to go further                       ║
+║     4. If worse than second-worst → try contraction                            ║
+║     5. If all else fails → shrink all toward best vertex                       ║
+║                                                                                ║
+║   Why Nelder-Mead?                                                             ║
+║     • No gradient computation required (neural net-like robustness)            ║
+║     • Handles non-smooth objective (energy function)                           ║
+║     • Empirically fast for low-dimensional problems (10-20 variables)          ║
+║     • Tolerant to scattered/noisy evaluations                                  ║
+║                                                                                ║
+║   Scaling notes:                                                               ║
+║     • Gaussian basis (N-1)×(N-1) correlation matrix → ~(N-1)² parameters       ║
+║     • For 3-body (PN+pion): 2×2 matrix A + 2×3 matrix s → 4+6 = 10 variables   ║
+║     • Each evaluation: build matrices + solve GEVP → O(basis_size³)            ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+*/
+
 #pragma once
 
 #include <tuple>
@@ -94,22 +168,25 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
 template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
     size_t n = p0.size();
-    ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    ld tolerance = 1e-4; // Stop when the simplex is tiny enough
-    int max_iter = 300; 
+    const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
+    const ld tolerance = 1e-5; // Stop when the simplex is tiny enough
+    const int max_iter = 300;
 
-    // 1. Initialize the Simplex (n+1 vertices)
-    // We use std::vector to hold a list of rvecs
-    std::vector<rvec> simplex(n + 1, p0);
-    std::vector<ld> f_vals(n + 1);
-    
-    // Create initial spread (proportional step size)
+    // 1. Initialize the Simplex (n+1 vertices) 
+    rmat simplex(n + 1);
+    rvec f_vals(n + 1);
+
+    // First vertex is the initial point
+    simplex[0] = p0;
+
+    // Create remaining vertices with proportional perturbations (step by 10% or 0.05)
     for (size_t i = 1; i <= n; ++i) {
-        qm::ld current_val = p0[i - 1];
-        // Step by 10% of the value, or 0.05 if the value is very close to 0
-        qm::ld step_size = std::abs(current_val) * 0.1 + 0.05; 
+        simplex[i] = p0;  
+        ld step_size = std::abs(p0[i - 1]) * 0.1 + 0.05;
         simplex[i][i - 1] += step_size;
     }
+
+    // Evaluate all vertices
     for (size_t i = 0; i <= n; ++i) {
         f_vals[i] = objective(simplex[i]);
     }
@@ -118,53 +195,56 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
         // 2. Order the vertices by their objective function values
         std::vector<size_t> indices(n + 1);
         std::iota(indices.begin(), indices.end(), 0);
-        std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) { 
-            return f_vals[i] < f_vals[j]; 
+        std::sort(indices.begin(), indices.end(), [&](size_t i, size_t j) {
+            return f_vals[i] < f_vals[j];
         });
 
-        size_t best = indices[0];
-        size_t worst = indices[n];
-        size_t second_worst = indices[n - 1];
+        const size_t best = indices[0];
+        const size_t worst = indices[n];
+        const size_t second_worst = indices[n - 1];
 
         // Check for convergence
         if (std::abs(f_vals[worst] - f_vals[best]) < tolerance) break;
 
         // 3. Calculate Centroid of all vertices except the worst
-        rvec centroid(n); // Initializes to zeros natively
+        rvec centroid(n);  
         for (size_t i = 0; i < n; ++i) {
             centroid += simplex[indices[i]];
         }
         centroid /= static_cast<ld>(n);
 
-        // 4. Reflection (Look how clean your overloaded operators make this!)
-        rvec reflected = centroid + alpha * (centroid - simplex[worst]);
+        // Precompute direction from worst to centroid (optimize reflections/contractions)
+        rvec direction = centroid - simplex[worst];
+
+        // 4. Reflection: reflected = centroid + alpha * (centroid - worst)
+        rvec reflected = centroid + direction * alpha;
         ld f_ref = objective(reflected);
 
         if (f_ref >= f_vals[best] && f_ref < f_vals[second_worst]) {
-            simplex[worst] = reflected; 
+            simplex[worst] = reflected;
             f_vals[worst] = f_ref;
             continue;
         }
 
-        // 5. Expansion
+        // 5. Expansion: expanded = centroid + gamma * (reflected - centroid)
         if (f_ref < f_vals[best]) {
-            rvec expanded = centroid + gamma * (reflected - centroid);
+            rvec expanded = centroid + (reflected - centroid) * gamma;
             ld f_exp = objective(expanded);
-            if (f_exp < f_ref) { 
-                simplex[worst] = expanded; 
-                f_vals[worst] = f_exp; 
-            } else { 
-                simplex[worst] = reflected; 
-                f_vals[worst] = f_ref; 
+            if (f_exp < f_ref) {
+                simplex[worst] = expanded;
+                f_vals[worst] = f_exp;
+            } else {
+                simplex[worst] = reflected;
+                f_vals[worst] = f_ref;
             }
             continue;
         }
 
-        // 6. Contraction
-        rvec contracted = centroid + rho * (simplex[worst] - centroid);
+        // 6. Contraction: contracted = centroid + rho * (worst - centroid)
+        rvec contracted = centroid - direction * rho;
         ld f_con = objective(contracted);
         if (f_con < f_vals[worst]) {
-            simplex[worst] = contracted; 
+            simplex[worst] = contracted;
             f_vals[worst] = f_con;
             continue;
         }
@@ -172,15 +252,13 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
         // 7. Shrink (If all else fails, pull all vertices toward the best)
         for (size_t i = 1; i <= n; ++i) {
             size_t idx = indices[i];
-            simplex[idx] = simplex[best] + sigma * (simplex[idx] - simplex[best]);
+            simplex[idx] = simplex[best] + (simplex[idx] - simplex[best]) * sigma;
             f_vals[idx] = objective(simplex[idx]);
         }
     }
-    
-    // Find absolute best to return
-    size_t best_idx = 0;
-    for(size_t i = 1; i <= n; ++i) {
-        if(f_vals[i] < f_vals[best_idx]) best_idx = i;
-    }
+
+    // Find and return absolute best vertex
+    auto best_it = std::min_element(f_vals.begin(), f_vals.end());
+    size_t best_idx = std::distance(f_vals.begin(), best_it);
     return simplex[best_idx];
 }

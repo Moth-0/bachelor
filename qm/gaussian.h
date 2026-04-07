@@ -1,3 +1,39 @@
+/*
+╔════════════════════════════════════════════════════════════════════════════════╗
+║               gaussian.h - GAUSSIAN BASIS FUNCTIONS & OVERLAPS                 ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║ PURPOSE:                                                                       ║
+║   Implements Correlated Shifted Gaussians (CSG) as spatial basis functions     ║
+║   for nuclear wavefunctions. Includes analytical overlap integral              ║
+║   calculations and basis state randomization.                                  ║
+║                                                                                ║
+║ PHYSICS BACKGROUND:                                                            ║
+║   CSG spacial wave functions have the form:                                    ║
+║     ψ(r) = [exp(-r·A·r + s·r) + P·exp(-r·A·r - s·r)]                           ║
+║                                                                                ║
+║   where:                                                                       ║
+║     • A = (N-1)×(N-1) correlation matrix (positive definite)                   ║
+║     • s = (N-1)×3 shift matrix (translates center)                             ║
+║     • P = ±1 parity sign (symmetric or antisymmetric under exchange)           ║
+║     • r = relative Jacobi coordinates                                          ║
+║                                                                                ║
+║                                                                                ║
+║ KEY FUNCTIONS:                                                                 ║
+║   • gaussian_overlap():   <G1|G2> elementary Gaussian overlap (4 terms + P)    ║
+║   • spatial_overlap():    <ψ1|ψ2> including parity structure                   ║
+║   • randomize():          Gaussian method - generate random A,s                ║
+║   • promote_and_absorb(): Embed 2-body Gaussian into 3-body space              ║
+║                                                                                ║
+║ NUMERICAL METHOD:                                                              ║
+║   Gaussian overlap is computed analytically using the formula:                 ║
+║     <g1|g2> = (π/det(A1+A2))^(3/2) exp(v^T(A1+A2)^-1 v/4)                      ║
+║                                                                                ║
+║   where v = s1 + s2. This avoids numerical integration entirely.               ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+*/
+
 #pragma once
 
 #include <cmath>
@@ -8,7 +44,7 @@
 
 using namespace qm; 
 
-inline long double random_ld(long double lo, long double hi) {
+inline ld random_ld(long double lo, long double hi) {
     thread_local std::mt19937_64 rng(std::random_device{}());
     std::uniform_real_distribution<long double> dist(lo, hi);
     return dist(rng);
@@ -17,7 +53,7 @@ inline long double random_ld(long double lo, long double hi) {
 // Generates the Van der Corput sequence for base 2
 inline ld van_der_corput(size_t n, size_t base = 2) {
     ld q = 0.0;
-    ld bk = 1.0 / static_cast<ld>(base);
+    ld bk = 1.0 / base;
     while (n > 0) {
         q += (n % base) * bk;
         n /= base;
@@ -36,21 +72,80 @@ struct Gaussian {
 
     ~Gaussian() = default;
 
-    // r is now an (N-1) x 3 matrix representing the 3D Jacobi vectors
+    // r is an (N-1) x 3 matrix representing the 3D Jacobi vectors
     ld evaluate(const rmat& r) const {
         ld rAr = 0.0;
         ld sr = 0.0;
-        
+
         // Loop over x (0), y (1), z (2) columns
         for (size_t c = 0; c < 3; ++c) {
             rAr += dot_no_conj(r[c], A * r[c]);
             sr  += dot_no_conj(s[c], r[c]);
         }
-        
+
         return std::exp(-rAr + sr);
     }
 
     void set(const rmat& A_in, const rmat& s_in) { SELF.A = A_in; SELF.s = s_in; }
+
+    // Randomize A and s parameters using Van der Corput sequence and pseudo-random numbers.
+    //
+    // Uses Jacobi coordinate information to build correlation matrix A:
+    //   A = Σ (w_ij w_ij^T) / b_ij²
+    // where w_ij are Jacobi coordinate difference vectors and b_ij are stochastically chosen.
+    //
+    // Parameters:
+    //   - jac: Jacobian object with N particles, dimension N-1
+    //   - b_range: Search space for widths (fm); larger → explores wider spatial scales
+    
+    void randomize(const Jacobian& jac, ld b_range) {
+        size_t N = jac.N;           // Number of physical particles
+        size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
+
+        rmat A_new(dim, dim);
+
+        thread_local size_t vdc_counter = 1;
+
+        // 1. Loop over pairs (i < j)
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = i + 1; j < N; ++j) {
+
+                // Get full N-dimensional physical selection vectors
+                rvec w_i = jac.transform_w(i);
+                rvec w_j = jac.transform_w(j);
+                rvec w_ij_full = w_i - w_j;
+
+                // 2. Truncate the Center of Mass coordinate 
+                rvec w_ij(dim);
+                for (size_t k = 0; k < dim; ++k) {
+                    w_ij[k] = w_ij_full[k];
+                }
+
+                // The outer product is now safely (N-1) x (N-1)
+                rmat outer = outer_no_conj(w_ij, w_ij);
+
+                // 3. Stochastically pick b_ij using the Van der Corput sequence
+                ld u = van_der_corput(vdc_counter++, 2);
+
+                // Safety bound just in case to prevent log(0)
+                if (u < ZERO_LIMIT) u = ZERO_LIMIT;
+
+                ld b_ij = -std::log(u) * b_range;
+
+                A_new += outer / (b_ij * b_ij);
+            }
+        }
+
+        SELF.A = A_new;
+
+        rmat r0(dim, 3);
+        // 4. Randomize the shift vector
+        // Small shifts can remain standard pseudo-random, as they just jitter the spatial center.
+        ld range = 0.2 * b_range;
+        FOR_MAT(r0) r0(j, i) = random_ld(-range, range);
+
+        SELF.s = A_new * r0 * 2.0L;
+    }
 };
 
 
@@ -59,70 +154,38 @@ struct SpatialWavefunction {
     rmat s;
     int parity_sign; // +1 for symmetric (pn), -1 for antisymmetric (pn pi)
 
-    // FIXED: s_ is now an rmat
-    SpatialWavefunction(const rmat& A_, const rmat& s_, int parity) 
+    // Constructor with full parameters
+    SpatialWavefunction(const rmat& A_, const rmat& s_, int parity)
         : A(A_), s(s_), parity_sign(parity) {}
+
+    // Constructor with just parity (initializes A, s to empty matrices)
+    explicit SpatialWavefunction(int parity)
+        : A(), s(), parity_sign(parity) {}
 
     SpatialWavefunction() = default;
     ~SpatialWavefunction() = default;
 
-    // --- UPDATED RANDOMIZE FUNCTION ---
-    void randomize(const Jacobian& jac, ld b_range) {
-        size_t N = jac.N;           // Number of physical particles
-        size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
-        
-        rmat A_new(dim, dim); 
-
-        // We start at 1 because n=0 gives 0.0, which breaks the logarithm!
-        thread_local size_t vdc_counter = 1;
-
-        // 1. Loop over pairs (i < j), not matrix dimensions!
-        for (size_t i = 0; i < N; ++i) {
-            for (size_t j = i + 1; j < N; ++j) {
-                
-                // Get full N-dimensional physical selection vectors
-                rvec w_i = jac.transform_w(i);
-                rvec w_j = jac.transform_w(j);
-                rvec w_ij_full = w_i - w_j;
-                
-                // 2. Truncate the Center of Mass coordinate (drop the last element)
-                rvec w_ij(dim);
-                for (size_t k = 0; k < dim; ++k) {
-                    w_ij[k] = w_ij_full[k];
-                }
-                
-                // The outer product is now safely (N-1) x (N-1)
-                rmat outer = outer_no_conj(w_ij, w_ij);
-                
-                // 3. Stochastically pick b_ij using the Van der Corput sequence!
-                ld u = van_der_corput(vdc_counter++, 2); 
-                
-                // Safety bound just in case to prevent log(0)
-                if (u < 1e-10) u = 1e-10;
-                
-                ld b_ij = -std::log(u) * b_range;
-                
-                A_new += outer / (b_ij * b_ij);
-            }
-        }
-        
-        SELF.A = A_new;
-
-        rmat r0(dim, 3);
-        // 4. Randomize the shift vector 
-        // Small shifts can remain standard pseudo-random, as they just jitter the spatial center.
-        ld range = 0.2 * b_range; 
-        FOR_MAT(r0) r0(j, i) = random_ld(-range, range);
-        
-        SELF.s = A_new * r0 * 2.0L;
+    /// Set A and s from a Gaussian basis function.
+    ///
+    /// This allows separate randomization of a Gaussian, then setting
+    /// the wavefunction's parameters all at once.
+    ///
+    /// Example:
+    ///   Gaussian g;
+    ///   g.randomize(jac, b_range);
+    ///   SpatialWavefunction psi(1);  // Initialize with parity +1
+    ///   psi.set_from_gaussian(g);     // Copy A and s
+    void set_from_gaussian(const Gaussian& g) {
+        SELF.A = g.A;
+        SELF.s = g.s;
     }
 
     ld evaluate(const rmat& r) const {
         ld rAr = 0.0;
         ld sr = 0.0;
-        
+
         size_t dim = A.size1(); // This is correctly N-1
-        
+
         // Loop over x (0), y (1), z (2) columns
         for (size_t c = 0; c < 3; ++c) {
             // Safely extract only the first 'dim' elements of the column
@@ -130,15 +193,15 @@ struct SpatialWavefunction {
             for (size_t i = 0; i < dim; ++i) {
                 r_c_internal[i] = r[c][i];
             }
-            
+
             // Now do the math safely!
             rAr += dot_no_conj(r_c_internal, A * r_c_internal);
             sr  += dot_no_conj(s[c], r_c_internal);
         }
-        
+
         ld g_plus  = std::exp(-rAr + sr);
         ld g_minus = std::exp(-rAr - sr);
-        
+
         return g_plus + parity_sign * g_minus;
     }
 };

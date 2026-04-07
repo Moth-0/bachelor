@@ -1,6 +1,5 @@
-/Eigen
+/.gemini
+/.vscode
 *.o
 *.log
-/qm_old
-perf.data.old
-perf.data
+*.tex

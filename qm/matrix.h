@@ -1,3 +1,33 @@
+/*
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                           matrix.h - LINEAR ALGEBRA LIBRARY                    ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║ PURPOSE:                                                                       ║
+║   Custom templated matrix and vector classes supporting both real              ║
+║   (long double) and complex (std::complex<long double>) arithmetic.            ║
+║   Specifically optimized for quantum mechanical calculations.                  ║
+║                                                                                ║
+║ KEY CLASSES:                                                                   ║
+║   • vector<T>: 1D array with +, -, *, /, dot, norm operations                  ║
+║   • matrix<T>: 2D column-major matrix with inverse, determinant, Cholesky      ║
+║                                                                                ║
+║ WHY CUSTOM?                                                                    ║
+║   • Explicit control over numerical thresholds (ZERO_LIMIT)                    ║
+║   • Specialized methods: Cholesky (for overlap matrix N)                       ║
+║   • Inverse of lower-triangular (for GEVP transform)                           ║
+║   • Complex support for W-operator coupling elements                           ║
+║   • Column-major layout: natural for Fortran-style QM code                     ║
+║                                                                                ║
+║ USAGE EXAMPLE:                                                                 ║
+║   rmat A = eye<ld>(3) * 2.0;      // 3×3 identity scaled by 2                  ║
+║   rvec v(3); v[0] = 1.0;           // vector with 3 elements                   ║
+║   rvec u = A * v;                  // matrix-vector multiplication             ║
+║   ld det = A.determinant();        // compute determinant                      ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+*/
+
 #pragma once
 
 #include <vector>
@@ -12,7 +42,7 @@
 #include <type_traits>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Convenience macros 
+// Convenience macros
 // ─────────────────────────────────────────────────────────────────────────────
 #define FORV(i,v)      for (size_t i = 0; i < (v).size(); i++)
 #define FOR_COLS(i,A)  for (size_t i = 0; i < (A).size2(); i++)
@@ -162,7 +192,7 @@ std::ostream& operator<<(std::ostream& os, const vector<T>& v) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Templated matrix<T>  (column-major: cols[j][i] = M(i,j))
-//   T = long double             for real matrices
+//   T = long double               for real matrices
 //   T = std::complex<long double> for complex matrices
 // ─────────────────────────────────────────────────────────────────────────────
 template<typename T = long double>
@@ -212,8 +242,8 @@ struct matrix {
     }
 
     // ── Element access ───────────────────────────────────────────────────────
-    T&       operator()(size_t i, size_t j)       { return cols[j][i]; }
-    const T& operator()(size_t i, size_t j) const { return cols[j][i]; }
+    T&       operator()(size_t i, size_t j)        { return cols[j][i]; }
+    const T& operator()(size_t i, size_t j) const  { return cols[j][i]; }
     vector<T>&       operator[](size_t j)          { return cols[j]; }
     const vector<T>& operator[](size_t j) const    { return cols[j]; }
 
@@ -225,7 +255,6 @@ struct matrix {
                 R(i,j) = SELF(j,i);
         return R;
     }
-    // Note: cannot name this T() - shadows template param. Use transpose() directly.
 
     // ── Conjugate: element-wise conj ─────────────────────────────────────────
     matrix conj() const {
@@ -344,16 +373,7 @@ struct matrix {
     // Returns lower-triangular L, or matrix(0,0) on failure.
     //
     // Failure threshold: diag_val < ZERO_LIMIT * ZERO_LIMIT
-    //
-    //   Previously the threshold was 0.0, which allowed diag_val in the range
-    //   (0, ZERO_LIMIT^2).  That produced L(i,i) = sqrt(diag_val) < ZERO_LIMIT,
-    //   so inverse_lower would still fail — the two functions were inconsistent.
-    //   Worse, if inverse_lower did not catch it, L^{-1} had entries of order
-    //   1/ZERO_LIMIT, amplifying H' = L^{-1} H L^{-dag} enough to produce
-    //   unphysical eigenvalues (e.g. -20 MeV for a deuteron calculation).
-    //
-    //   Now both cholesky() and inverse_lower() use the same ZERO_LIMIT guard.
-    //   To tighten or loosen the acceptance criterion, change ZERO_LIMIT once.
+    
     matrix cholesky() const {
         size_t n = size1();
         assert(n == size2());

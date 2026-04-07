@@ -1,3 +1,78 @@
+/*
+╔════════════════════════════════════════════════════════════════════════════════╗
+║            deuterium.h - DEUTERON SYSTEM DEFINITIONS & HAMILTONIAN             ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║ PURPOSE:                                                                       ║
+║   Physical system definitions for deuteron (proton-neutron) with pion          ║
+║   exchange coupling. Defines the 10 physics channels and constructs the        ║
+║   full Hamiltonian and overlap matrices from basis states.                     ║
+║                                                                                ║
+║ CHANNEL ENUM:                                                                  ║
+║   Deuteron couples between:                                                    ║
+║     • PN: bare proton-neutron (2-body state, parity +1)                        ║
+║     • π⁰: PN + neutral pion (3 spin-flip variants, parity -1 each)             ║
+║     • π⁺: PN + charged pion (3 spin-flip variants, parity -1 each)             ║
+║     • π⁻: PN + charged pion (3 spin-flip variants, parity -1 each)             ║
+║                                                                                ║
+║   Spin flips:                                                                  ║
+║     • NO_FLIP (0f):                                                            ║
+║     • FLIP_PARTICLE_1:                                                         ║
+║     • FLIP_PARTICLE_2:                                                         ║
+║                                                                                ║
+║   Isospin factors:                                                             ║
+║     • π⁰: factor = 1                                                           ║
+║     • π⁺, π⁻: factor = √2                                                      ║
+║                                                                                ║
+║ BASISSTATE STRUCTURE:                                                          ║
+║   Bundles spatial wavefunction + physical metadata:                            ║
+║     • psi:              SpatialWavefunction (A, s, parity ±)                   ║
+║     • type:             Channel (which physics coupling)                       ║
+║     • flip:             SpinChannel (which nucleon(s) flip)                    ║
+║     • isospin_factor:   Iso-coupling weight                                    ║
+║     • jac:              Jacobian (reduced masses, transformations)             ║
+║     • pion_mass:        Rest mass energy offset (if dressed)                   ║
+║                                                                                ║
+║   Example: PN bare state (ground channel)                                      ║
+║     BasisState {psi, Channel::PN, NO_FLIP, 1.0, jac_bare(m_p,m_n), 0.0}        ║
+║                                                                                ║
+║   Example: π⁰ with particle 1 flipped                                          ║
+║     BasisState {psi, Channel::PI_0c_1f, FLIP_PARTICLE_1, 1.0, jac_3body, m_π}  ║
+║                                                                                ║
+║ HAMILTONIAN CONSTRUCTION:                                                      ║
+║   build_matrices() computes H[i,j] and N[i,j] for all basis states:            ║
+║                                                                                ║
+║   Case 1: Same channel (i.j both PN or both pi-X)                              ║
+║     • N[i,j] = <ψ_i | ψ_j>  (spatial overlap)                                  ║
+║     • H[i,j] = T[i,j] + (pion_mass if dressed)                                 ║
+║                                                                                ║
+║   Case 2: PN and pi-dressed states (different channels)                        ║
+║     • N[i,j] = 0  (orthogonal channels)                                        ║
+║     • H[i,j] = <ψ_bare | W | ψ_dressed>  (pion exchange coupling)              ║
+║                                                                                ║
+║   Matrix properties:                                                           ║
+║     • Hermitian: H† = H (ensures real eigenvalues)                             ║
+║     • Positive definite N: ensures GEVP well-conditioned                       ║
+║     • Sparse structure: many H[i,j] = 0 by selection rules                     ║
+║                                                                                ║
+║ PARITY CONSIDERATIONS:                                                         ║
+║   Deuteron has J^PC = 1^++ (total angular momentum 1, positive parity)         ║
+║   PN pairs:            even parity   (+1 spatial parity)                       ║
+║   PN + pion:           odd parity    (-1 spatial parity, one body is particle) ║
+║                                                                                ║
+║   All basis functions constructed to respect parity conservation:              ║
+║     • PN: psi.parity_sign = +1  (symmetric under PN ↔)                         ║
+║     • π*: psi.parity_sign = -1  (antisymmetric, includes pion)                 ║
+║                                                                                ║
+║ NUMERICAL STABILITY:                                                           ║
+║   • Cholesky of N fails if cond(N) > ZERO_LIMIT⁻²                              ║
+║     → SVM rejects linearly dependent basis states automatically                ║
+║   • H elements stay O(1-100 MeV) via proper normalization                      ║
+║   • Careful W-operator branch selection prevents phase issues                  ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+*/
+
 # pragma once
 
 #include "qm/matrix.h"
@@ -13,7 +88,7 @@ enum class Channel { PN,
                      PI_pc_0f, PI_pc_1f, PI_pc_2f, 
                      PI_mc_0f, PI_mc_1f, PI_mc_2f };
 
-// A wrapper that holds the state AND its physical properties
+// A wrapper that holds the state and its physical properties
 struct BasisState {
     SpatialWavefunction psi;
     Channel type;
