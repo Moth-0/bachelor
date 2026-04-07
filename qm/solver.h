@@ -83,15 +83,18 @@
 
 using namespace qm;
 
-// A helper function to find the lowest eigenvalue of a standard Hermitian matrix
-// using the Jacobi rotation method.
-ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
+// Helper function to find lowest eigenvalue and eigenvector using Jacobi diagonalization
+// Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
+std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
     size_t n = A.size1();
     ld tolerance = ZERO_LIMIT;
 
+    // Initialize eigenvector matrix as identity (tracks rotations)
+    cmat V = eye<cld>(n);
+
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         ld max_off_diag = 0.0;
-        
+
         // Standard Jacobi sweep over the upper triangle
         for (size_t p = 0; p < n - 1; ++p) {
             for (size_t q = p + 1; q < n; ++q) {
@@ -103,13 +106,13 @@ ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
                     ld app = std::real(A(p, p));
                     ld aqq = std::real(A(q, q));
                     cld apq = A(p, q);
-                    
+
                     ld theta = 0.5 * std::atan2(2.0 * off_diag_mag, aqq - app);
                     ld cos_t = std::cos(theta);
                     ld sin_t = std::sin(theta);
                     cld phase = std::conj(apq) / off_diag_mag; // Phase to handle complex elements
 
-                    // Apply the Givens rotation to the matrix
+                    // Apply Givens rotation to A
                     for (size_t i = 0; i < n; ++i) {
                         cld ip = A(i, p);
                         cld iq = A(i, q);
@@ -122,58 +125,101 @@ ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
                         A(p, i) = cos_t * pi - sin_t * std::conj(phase) * qi;
                         A(q, i) = sin_t * phase * pi + cos_t * qi;
                     }
+
+                    // Apply same rotation to eigenvector matrix V
+                    for (size_t i = 0; i < n; ++i) {
+                        cld vip = V(i, p);
+                        cld viq = V(i, q);
+                        V(i, p) = cos_t * vip - sin_t * std::conj(phase) * viq;
+                        V(i, q) = sin_t * phase * vip + cos_t * viq;
+                    }
                 }
             }
         }
         if (max_off_diag < tolerance) break; // Converged!
     }
 
-    // Find and return the lowest eigenvalue on the diagonal
+    // Find the lowest eigenvalue and its index
     ld lowest_E = std::real(A(0, 0));
+    size_t min_idx = 0;
     for (size_t i = 1; i < n; ++i) {
         if (std::real(A(i, i)) < lowest_E) {
             lowest_E = std::real(A(i, i));
+            min_idx = i;
         }
     }
-    return lowest_E;
+
+    // Extract the corresponding eigenvector from V
+    cvec eigvec = V[min_idx];
+
+    // Normalize the eigenvector
+    cld norm = 0.0;
+    for (size_t i = 0; i < n; ++i) {
+        norm += std::conj(eigvec[i]) * eigvec[i];
+    }
+    norm = std::sqrt(norm);
+
+    if (std::abs(norm) > ZERO_LIMIT) {
+        for (size_t i = 0; i < n; ++i) {
+            eigvec[i] /= norm;
+        }
+    }
+
+    return {lowest_E, eigvec};
+}
+
+// A helper function to find the lowest eigenvalue of a standard Hermitian matrix
+// using the Jacobi rotation method.
+ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
+    return jacobi_with_eigenvector(A, max_sweeps).first;
 }
 
 
-// The Main GEVP Solver
-ld solve_ground_state_energy(const cmat& H, const cmat& N) {
+// The Main GEVP Solver - with eigenvector
+std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N) {
     // 1. Cholesky Decomposition: N = L * L^dag
     cmat L = N.cholesky();
-    
+
     // Check if the basis is mathematically unstable (linearly dependent)
     if (L.size1() == 0) {
-        return 999999.0; // Return a huge energy penalty so the SVM rejects this state!
+        return {999999.0, cvec()};
     }
 
     // 2. Invert L
     cmat L_inv = L.inverse_lower();
     if (L_inv.size1() == 0) {
-        return 999999.0; 
+        return {999999.0, cvec()};
     }
 
     // 3. Create the standard Hermitian matrix: H' = L^{-1} * H * L^{-dag}
     cmat L_inv_dag = L_inv.adjoint();
     cmat H_prime = L_inv * H * L_inv_dag;
 
-    // 4. Diagonalize to find the ground state!
-    return jacobi_lowest_eigenvalue(H_prime);
+    // 4. Diagonalize to find the ground state with eigenvector!
+    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime);
+
+    // 5. Transform back to original basis: c = L^{-dag} * c'
+    cvec c = L_inv_dag * c_prime;
+
+    return {E0, c};
+}
+
+// The Main GEVP Solver - energy only (backward compatible)
+ld solve_ground_state_energy(const cmat& H, const cmat& N) {
+    return solve_ground_state_with_eigenvector(H, N).first;
 }
 
 
 
 template <typename ObjectiveFunc>
-rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
+rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    const ld tolerance = 1e-5; // Stop when the simplex is tiny enough
-    const int max_iter = 300;
+    const ld tolerance = 1e-4; // Relaxed convergence: was 1e-5
+    const int max_no_improve = 10; // Stop if no improvement for this many iterations
 
-    // 1. Initialize the Simplex (n+1 vertices) 
-    rmat simplex(n + 1);
+    // 1. Initialize the Simplex (n+1 vertices) as vector of vectors
+    std::vector<rvec> simplex(n + 1, rvec(n));
     rvec f_vals(n + 1);
 
     // First vertex is the initial point
@@ -181,7 +227,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
 
     // Create remaining vertices with proportional perturbations (step by 10% or 0.05)
     for (size_t i = 1; i <= n; ++i) {
-        simplex[i] = p0;  
+        simplex[i] = p0;
         ld step_size = std::abs(p0[i - 1]) * 0.1 + 0.05;
         simplex[i][i - 1] += step_size;
     }
@@ -190,6 +236,9 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
     for (size_t i = 0; i <= n; ++i) {
         f_vals[i] = objective(simplex[i]);
     }
+
+    int no_improve_count = 0;
+    ld prev_best = 1e10;
 
     for (int iter = 0; iter < max_iter; ++iter) {
         // 2. Order the vertices by their objective function values
@@ -203,11 +252,20 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
         const size_t worst = indices[n];
         const size_t second_worst = indices[n - 1];
 
-        // Check for convergence
-        if (std::abs(f_vals[worst] - f_vals[best]) < tolerance) break;
+        // Check for convergence: range is small OR no improvement
+        ld range = std::abs(f_vals[worst] - f_vals[best]);
+        if (range < tolerance) break;
+
+        if (std::abs(f_vals[best] - prev_best) < tolerance * 0.1) {
+            no_improve_count++;
+            if (no_improve_count > max_no_improve) break;
+        } else {
+            no_improve_count = 0;
+        }
+        prev_best = f_vals[best];
 
         // 3. Calculate Centroid of all vertices except the worst
-        rvec centroid(n);  
+        rvec centroid(n);
         for (size_t i = 0; i < n; ++i) {
             centroid += simplex[indices[i]];
         }
@@ -258,7 +316,13 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective) {
     }
 
     // Find and return absolute best vertex
-    auto best_it = std::min_element(f_vals.begin(), f_vals.end());
-    size_t best_idx = std::distance(f_vals.begin(), best_it);
+    ld best_f = f_vals[0];
+    size_t best_idx = 0;
+    for (size_t i = 1; i <= n; ++i) {
+        if (f_vals[i] < best_f) {
+            best_f = f_vals[i];
+            best_idx = i;
+        }
+    }
     return simplex[best_idx];
 }
