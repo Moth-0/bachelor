@@ -102,15 +102,13 @@
 
 using namespace qm;
 
-// Evaluate ground state energy via matrix construction + GEVP solving
-
+// Evaluate energy: build H,N and solve GEVP
 ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, bool relativistic) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
     return solve_ground_state_energy(H, N);
 }
 
-// Sweep optimize: sequentially refine each basis state parameter with Nelder-Mead
-
+// Optimize basis parameters via Nelder-Mead sweeping
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic) {
     ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
     
@@ -158,8 +156,6 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
 }
 
 // Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
-//   - Phase 1: Geometric PN grid + 9 pion seeds, optimized with sweeps
-//   - Phase 2: Iteratively grow basis (2 cycles) selecting best candidates per channel
 ld run_deuteron_svm(bool relativistic) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;  
