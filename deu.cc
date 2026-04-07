@@ -138,24 +138,26 @@ GroundStateResult evaluate_with_radius(const std::vector<BasisState>& basis, ld 
     return {E0, charge_radius};
 }
 
-// Optimize basis parameters via Nelder-Mead sweeping with adaptive strategy
+// Optimize basis parameters via Nelder-Mead sweeping with early exit
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic, std::vector<ld>& convergence_energies) {
     ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
 
     ld previous_E = 999999.0;
+    int no_improve_count = 0;  // Early stopping: quit if N sweeps show no progress
 
     // Adaptive parameters based on basis size
     size_t basis_size = basis.size();
-    int max_sweeps = (basis_size <= 20) ? 20 : 10;  // Fewer sweeps for large bases
-    ld sweep_tolerance = (basis_size <= 20) ? 1e-4 : 1e-3;  // Relax tolerance for large bases
-    int nm_max_iter = (basis_size <= 20) ? 100 : 60;   // Fewer NM iterations for large bases
+    int max_sweeps = (basis_size <= 20) ? 20 : 10;
+    ld improvement_threshold = 1e-6;  // Minimum improvement to count as "progress"
+    int patience = 3;  // Exit if 3 consecutive sweeps have negligible improvement
+    int nm_max_iter = (basis_size <= 20) ? 100 : 60;
 
     int sweep = 0;
 
-    while (sweep < max_sweeps && std::abs(previous_E - current_E) > sweep_tolerance) {
+    while (sweep < max_sweeps) {
         previous_E = current_E;
 
-        // Optimize each basis state sequentially (but with stricter stopping in NM)
+        // Optimize each basis state
         for (size_t k = 0; k < basis.size(); ++k) {
             SpatialWavefunction backup_psi = basis[k].psi;
             rvec p0 = pack_wavefunction(backup_psi);
@@ -163,22 +165,19 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
                 unpack_wavefunction(basis[k].psi, p_test);
 
-                // --- THE PHYSICS BOUNCER ---
                 bool is_physical = true;
-
                 for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                    if (basis[k].psi.A(i, i) <= 0.02) is_physical = false; // Grid floor
+                    if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
                 }
                 if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
 
                 for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
                     for (size_t col = 0; col < 3; ++col) {
-                        if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false; // Range limit
+                        if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
                     }
                 }
 
                 if (!is_physical) return 999999.0;
-
                 return evaluate_basis_energy(basis, b, S, relativistic);
             };
 
@@ -188,8 +187,24 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
 
         current_E = evaluate_basis_energy(basis, b, S, relativistic);
         convergence_energies.push_back(current_E);
-        std::cout << "\r" << "Optimized Energy (Sweep " << sweep << ", Basis=" << basis.size() << ") = "
-                  << current_E << " MeV" << std::flush;
+
+        // Check for meaningful improvement
+        ld improvement = previous_E - current_E;  // positive = improvement
+        if (improvement < improvement_threshold) {
+            no_improve_count++;
+        } else {
+            no_improve_count = 0;  // Reset counter on good improvement
+        }
+
+        std::cout << "\r" << "Sweep " << sweep << " (Basis=" << basis.size() << "): E=" << current_E
+                  << " MeV  (ΔE=" << improvement << ")     " << std::flush;
+
+        // Early exit if stalled
+        if (no_improve_count >= patience) {
+            std::cout << "\n  → Sweep converged (no improvement for " << patience << " iterations)\n";
+            break;
+        }
+
         sweep++;
     }
 }
@@ -207,7 +222,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
     // S = coupling strength for pion exchange (in MeV)
     //     Directly controls how strongly pions bind the nucleons
 
-    ld S = 135.0;
+    ld S = 138.0;
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -337,7 +352,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
         sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
     }
 
-    // Save convergence data 
+    // Save convergence data
     {
         std::ofstream outfile(convergence_file);
         outfile << "iteration energy\n";
@@ -346,6 +361,26 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
         }
         outfile.close();
         std::cout << "\nConvergence data saved to: " << convergence_file << "\n";
+    }
+
+    // Generate gnuplot script to visualize convergence
+    {
+        std::string plot_file = relativistic ? "convergence_rel.gp" : "convergence_cla.gp";
+        std::string png_file = relativistic ? "convergence_relativistic.png" : "convergence_classic.png";
+        std::string title = relativistic ? "Deuteron SVM - Relativistic Kinetic Energy Convergence" : "Deuteron SVM - Classic Kinetic Energy Convergence";
+
+        std::ofstream gp(plot_file);
+        gp << "set terminal pngcairo size 1000,600\n";
+        gp << "set output '" << png_file << "'\n";
+        gp << "set xlabel 'Iteration'\n";
+        gp << "set ylabel 'Energy (MeV)'\n";
+        gp << "set title '" << title << "'\n";
+        gp << "set grid\n";
+        gp << "set style data linespoints\n";
+        gp << "set pointsize 0.5\n";
+        gp << "plot '" << convergence_file << "' using 1:2 skip 1 with linespoints title 'Energy' linecolor rgb 'blue' linewidth 2\n";
+        gp.close();
+        std::cout << "Gnuplot script saved to: " << plot_file << "\n";
     }
 
     std::cout << "\n";
@@ -401,6 +436,33 @@ int main() {
     std::cout << "  Target: r_ch = " << R_exp << " fm\n";
     std::cout << "  Deviation from experiment: " << ((R_relativistic - R_exp) / R_exp * 100.0) << "%\n";
     std::cout << "========================================\n";
+
+    // Generate comparison gnuplot script
+    {
+        std::ofstream gp("convergence_comparison.gp");
+        gp << "set terminal pngcairo size 1400,600\n";
+        gp << "set output 'convergence_comparison.png'\n";
+        gp << "set multiplot layout 1, 2\n";
+
+        gp << "set xlabel 'Iteration'\n";
+        gp << "set ylabel 'Energy (MeV)'\n";
+        gp << "set title 'Classic Kinetic Energy Convergence'\n";
+        gp << "set grid\n";
+        gp << "set style data linespoints\n";
+        gp << "set pointsize 0.5\n";
+        gp << "plot 'conv_cla.data' using 1:2 skip 1 with linespoints title 'Energy' linecolor rgb 'blue' linewidth 2\n";
+
+        gp << "set title 'Relativistic Kinetic Energy Convergence'\n";
+        gp << "plot 'conv_rel.data' using 1:2 skip 1 with linespoints title 'Energy' linecolor rgb 'red' linewidth 2\n";
+
+        gp << "unset multiplot\n";
+        gp.close();
+        std::cout << "\nPlotting scripts generated. To create plots, run:\n";
+        std::cout << "  gnuplot convergence_cla.gp\n";
+        std::cout << "  gnuplot convergence_rel.gp\n";
+        std::cout << "  gnuplot convergence_comparison.gp\n";
+        std::cout << "Or use Makefile: make convergence.png\n";
+    }
 
     return 0;
 }
