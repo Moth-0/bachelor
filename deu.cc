@@ -201,13 +201,21 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
     ld m_p = 938.27, m_n = 939.56;
     ld m_pi0 = 134.97, m_pic = 139.57;
 
-    ld b_range = 1.4, b_form = 1.4;
+    ld b_range = 2.8, b_form = 0.8;
     //
     // *** CRITICAL TUNING PARAMETER ***
     // S = coupling strength for pion exchange (in MeV)
     //     Directly controls how strongly pions bind the nucleons
 
-    ld S = 135.0;
+    // Calculate the normalization scaling factor from Eq. 10
+    ld b_pow_5 = std::pow(b_form, 5.0);
+    ld two_pow_11_halves = std::pow(2.0, 5.5); 
+    ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
+    ld norm_factor = 1.0 / std::sqrt(norm_sq);
+
+    ld S = 60 * norm_factor;
+
+    std::cout << norm_factor << " " << S << "\n";
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
