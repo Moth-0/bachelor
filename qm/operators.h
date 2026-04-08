@@ -237,12 +237,18 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
                      const rvec& c, ld b, ld S, ld isospin_factor, SpinChannel spin_chan) 
 {
     // Calculate the Gaussian width (alpha) from the physical interaction range (b)
-    ld alpha = 1.0 / (b * b);
+    //ld alpha = 1.0 / (b * b);
+
+    // Calculate the normalization scaling factor from Eq. 10
+    ld b_pow_5 = std::pow(b, 5.0);
+    ld two_pow_11_halves = std::pow(2.0, 5.5); 
+    ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
+    ld norm_factor = 1.0 / std::sqrt(norm_sq);
 
     // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();
     Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
-    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, alpha);
+    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, b);
     
     SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
 
@@ -276,7 +282,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
         }
 
         // Multiply by S (strength) and the isospin constant (e.g., 1 for pi^0, sqrt(2) for pi^+)
-        return W_term * S * isospin_factor;
+        return W_term * S * isospin_factor * norm_factor;
     });
 }
 

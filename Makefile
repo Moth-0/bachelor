@@ -6,13 +6,12 @@ LDFLAGS += -fopenmp
 LDLIBS = -lstdc++ -lm
 RM = rm -f
 
-all : main 
+all : deu 
 
 HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h deuterium.h proton.h
 
 % : %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
-	./$@
 
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

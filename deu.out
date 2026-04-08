@@ -1,0 +1,31 @@
+========================================
+  DEUTERON SYSTEM (FAST COMPETITIVE SVM)
+========================================
+
+>>> RUNNING CLASSIC KINETIC ENERGY
+--- 1. Planting Geometric PN Grid & Pion Seeds ---
+Skeleton Size: 13 states.
+Sweep 0 (Basis=13): E=-12.1099 MeV  (ΔE=1.00001e+06)     Sweep 1 (Basis=13): E=-25.5491 MeV  (ΔE=13.4393)     Sweep 2 (Basis=13): E=-33.7612 MeV  (ΔE=8.21205)     Sweep 3 (Basis=13): E=-35.206 MeV  (ΔE=1.44487)     Sweep 4 (Basis=13): E=-39.147 MeV  (ΔE=3.94096)     Sweep 5 (Basis=13): E=-39.4628 MeV  (ΔE=0.315787)     Sweep 6 (Basis=13): E=-39.4798 MeV  (ΔE=0.0170536)     Sweep 7 (Basis=13): E=-39.4799 MeV  (ΔE=4.32887e-05)     Sweep 8 (Basis=13): E=-39.4799 MeV  (ΔE=9.49917e-10)     
+  - Converged: improvement < 0.001 MeV for 2 sweeps
+
+
+Skeleton Energy: -39.4799 MeV
+
+--- 2. Competitive SVM Growth ---
+Added State 14 (Cycle 1, Ch 0) -> E = -39.48018 MeV    Added State 15 (Cycle 1, Ch 1) -> E = -39.53040 MeV    Added State 16 (Cycle 1, Ch 2) -> E = -40.08608 MeV    Added State 17 (Cycle 1, Ch 3) -> E = -40.75478 MeV    Added State 18 (Cycle 1, Ch 4) -> E = -40.77373 MeV    Added State 19 (Cycle 1, Ch 5) -> E = -42.40098 MeV    Added State 20 (Cycle 1, Ch 6) -> E = -43.77476 MeV    Added State 21 (Cycle 1, Ch 7) -> E = -43.79954 MeV    Added State 22 (Cycle 1, Ch 8) -> E = -45.59690 MeV    Added State 23 (Cycle 1, Ch 9) -> E = -47.65641 MeV    
+ - Sweeping Cycle 1 basis -
+Sweep 0 (Basis=23): E=-65.57655 MeV  (ΔE=1000064.57655)     Sweep 1 (Basis=23): E=-70.98112 MeV  (ΔE=5.40457)     Sweep 2 (Basis=23): E=-72.14443 MeV  (ΔE=1.16331)     Sweep 3 (Basis=23): E=-72.18840 MeV  (ΔE=0.04398)     Sweep 4 (Basis=23): E=-72.24196 MeV  (ΔE=0.05356)     Sweep 5 (Basis=23): E=-72.32907 MeV  (ΔE=0.08711)     Sweep 6 (Basis=23): E=-72.34753 MeV  (ΔE=0.01846)     Sweep 7 (Basis=23): E=-72.34806 MeV  (ΔE=0.00052)     Sweep 8 (Basis=23): E=-72.34829 MeV  (ΔE=0.00023)     
+  - Converged: improvement < 0.00100 MeV for 2 sweeps
+
+
+=== Refinement Cycle 1 ===
+Refined state 1/23 (0 improved so far)    Refined state 2/23 (1 improved so far)    Refined state 3/23 (2 improved so far)    Refined state 4/23 (3 improved so far)    Refined state 5/23 (3 improved so far)    Refined state 6/23 (3 improved so far)    Refined state 7/23 (3 improved so far)    Refined state 8/23 (3 improved so far)    Refined state 9/23 (4 improved so far)    Refined state 10/23 (4 improved so far)    Refined state 11/23 (4 improved so far)    Refined state 12/23 (5 improved so far)    Refined state 13/23 (5 improved so far)    Refined state 14/23 (6 improved so far)    Refined state 15/23 (6 improved so far)    Refined state 16/23 (6 improved so far)    Refined state 17/23 (6 improved so far)    Refined state 18/23 (6 improved so far)    Refined state 19/23 (6 improved so far)    Refined state 20/23 (6 improved so far)    Refined state 21/23 (6 improved so far)    Refined state 22/23 (6 improved so far)    Refined state 23/23 (6 improved so far)    
+Refinement: 6/23 states improved
+ - Final sweep after refinement cycle 1 -
+Sweep 0 (Basis=23): E=-84.14353 MeV  (ΔE=1000083.14353)     Sweep 1 (Basis=23): E=-84.22527 MeV  (ΔE=0.08175)     Sweep 2 (Basis=23): E=-84.23856 MeV  (ΔE=0.01329)     Sweep 3 (Basis=23): E=-84.23856 MeV  (ΔE=0.00000)     Sweep 4 (Basis=23): E=-84.23856 MeV  (ΔE=0.00000)     
+  - Converged: improvement < 0.00100 MeV for 2 sweeps
+
+
+
+Convergence data saved to: conv_cla.data
+

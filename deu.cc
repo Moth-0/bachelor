@@ -95,6 +95,8 @@
 #include <cmath>
 #include <iomanip>
 #include <fstream>
+#include <omp.h>
+
 #include "qm/matrix.h"
 #include "qm/gaussian.h"
 #include "qm/operators.h"
@@ -138,25 +140,67 @@ GroundStateResult evaluate_with_radius(const std::vector<BasisState>& basis, ld 
     return {E0, charge_radius};
 }
 
+// Refine a single basis state by trying random parameter replacements
+// Returns: true if state was improved, false otherwise
+// Parallelizes candidate generation via OpenMP
+bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld b_form, ld S, bool relativistic, rvec& convergence_energies) {
+    SpatialWavefunction original_psi = basis[k].psi;
+    ld original_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+    int cands = 500;
+
+    ld best_E = original_E;
+    SpatialWavefunction best_psi = original_psi;
+
+    // Parallelize candidate search for this state
+    #pragma omp parallel
+    {
+        ld local_best_E = original_E;
+        SpatialWavefunction local_best_psi = original_psi;
+        std::vector<BasisState> local_basis = basis;  // Each thread gets local copy
+
+        #pragma omp for
+        for (int c = 0; c < cands; ++c) {
+            Gaussian g;
+            g.randomize(local_basis[k].jac, b_range);
+            local_basis[k].psi.set_from_gaussian(g);
+
+            ld E = evaluate_basis_energy(local_basis, b_form, S, relativistic);
+            if (E < local_best_E) {
+                local_best_E = E;
+                local_best_psi = local_basis[k].psi;
+            }
+        }
+
+        // Gather best from this thread with global best
+        #pragma omp critical
+        {
+            if (local_best_E < best_E) {
+                best_E = local_best_E;
+                best_psi = local_best_psi;
+            }
+        }
+    }
+
+    // Keep best candidate found (improved or original)
+    basis[k].psi = best_psi;
+    if (best_E < original_E) {
+        convergence_energies.push_back(best_E);
+    }
+    return (best_E < original_E);
+}
+
+
 // Optimize basis parameters via Nelder-Mead sweeping with early exit
-void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic, std::vector<ld>& convergence_energies) {
-    ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
+void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic, rvec& convergence_energies) {
+    int max_sweeps = 50;
+    int nm_max_iter = 150;  // Increased from 100: allows longer exploration per parameter
+    ld improvement_threshold = 1e-3;  // Exit if improvement < this for patience consecutive sweeps
+    int patience = 2;  // Exit after 2 sweeps with negligible improvement
 
     ld previous_E = 999999.0;
-    int no_improve_count = 0;  // Early stopping: quit if N sweeps show no progress
+    int no_improve_count = 0;
 
-    // Adaptive parameters based on basis size
-    size_t basis_size = basis.size();
-    int max_sweeps = (basis_size <= 20) ? 20 : 10;
-    ld improvement_threshold = 1e-6;  // Minimum improvement to count as "progress"
-    int patience = 3;  // Exit if 3 consecutive sweeps have negligible improvement
-    int nm_max_iter = (basis_size <= 20) ? 100 : 60;
-
-    int sweep = 0;
-
-    while (sweep < max_sweeps) {
-        previous_E = current_E;
-
+    for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         // Optimize each basis state
         for (size_t k = 0; k < basis.size(); ++k) {
             SpatialWavefunction backup_psi = basis[k].psi;
@@ -166,16 +210,16 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
                 unpack_wavefunction(basis[k].psi, p_test);
 
                 bool is_physical = true;
-                for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                    if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
-                }
-                if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
+                // for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
+                //     if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
+                // }
+                // if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
 
-                for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
-                    for (size_t col = 0; col < 3; ++col) {
-                        if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
-                    }
-                }
+                // for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
+                //     for (size_t col = 0; col < 3; ++col) {
+                //         if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
+                //     }
+                // }
 
                 if (!is_physical) return 999999.0;
                 return evaluate_basis_energy(basis, b, S, relativistic);
@@ -185,7 +229,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             unpack_wavefunction(basis[k].psi, p_best);
         }
 
-        current_E = evaluate_basis_energy(basis, b, S, relativistic);
+        ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
         convergence_energies.push_back(current_E);
 
         // Check for meaningful improvement
@@ -201,28 +245,21 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
 
         // Early exit if stalled
         if (no_improve_count >= patience) {
-            std::cout << "\n  → Sweep converged (no improvement for " << patience << " iterations)\n";
+            std::cout << "\n  - Converged: improvement < " << improvement_threshold << " MeV for " << patience << " sweeps\n";
             break;
         }
 
-        sweep++;
+        previous_E = current_E;
     }
+    std::cout << "\n";
 }
 
 // Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
 // Returns: pair of (energy, charge_radius)
-std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
+std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld S) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;
     ld m_pi0 = 134.97, m_pic = 139.57;
-
-    ld b_range = 1.4, b_form = 1.4;
-    //
-    // *** CRITICAL TUNING PARAMETER ***
-    // S = coupling strength for pion exchange (in MeV)
-    //     Directly controls how strongly pions bind the nucleons
-
-    ld S = 138.0;
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -232,7 +269,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
     ld iso_c = std::sqrt(2.0L);
 
     // Track convergence energies
-    std::vector<ld> convergence_energies;
+    rvec convergence_energies;
     std::string convergence_file = relativistic ? "conv_rel.data" : "conv_cla.data";
 
     std::vector<BasisState> channel_templates = {
@@ -255,11 +292,22 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
     
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    // The Anchor: 5 deterministic PN states
-    std::vector<ld> deterministic_widths = {0.02, 0.08, 0.3, 1.2, 4.0};
+    // The Anchor: 4 deterministic PN states with random shifts
+    // Geometric widths anchor the A matrices, shifts allow W operator coupling
+    std::vector<ld> deterministic_widths = {0.01, 0.3, 1.2, 2.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * width;
+
+        // // Add random shift like pion states (enables W operator coupling)
+        // ld range = 0.02 * b_range;
+        // rmat r0(1, 3);
+        // for (size_t i = 0; i < 1; ++i) {
+        //     for (size_t j = 0; j < 3; ++j) {
+        //         r0(i, j) = random_ld(-range, range);
+        //     }
+        // }
         rmat s_fixed = zeros<ld>(1, 3);
+
         SpatialWavefunction psi_fixed(A_fixed, s_fixed, 1);
         basis.push_back({psi_fixed, Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
     }
@@ -290,12 +338,12 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
     //      - Lock it permanently into the basis
     //   2. After all channels: sweep-optimize the expanded basis for polish
     
-    int num_cycles = 3;
+    int num_cycles = 1;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
         // Adaptive candidate count: fewer for later cycles (diminishing returns)
-        int num_candidates_per_step = (cycle == 0) ? 100 : 60;
+        int num_candidates_per_step = 500;
 
         // Loop through all 10 channels, adding 1 state to each
         for (size_t t = 0; t < channel_templates.size(); ++t) {
@@ -347,10 +395,29 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
                       << std::fixed << std::setprecision(5) << current_E << " MeV    " << std::flush;
         }
 
-        // ONE massive polish per cycle
+        // One polish per cycle
         std::cout << "\n - Sweeping Cycle " << cycle+1 << " basis -\n";
         sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
+
+        // Refinement cycle - re-optimize all states now that basis grew
+        std::cout << "\n=== Refinement Cycle " << cycle+1 << " ===\n";
+        int num_improved = 0;
+        for (size_t k = 0; k < basis.size(); ++k) {
+            bool improved = refine_basis_state(basis, k, b_range, b_form, S, relativistic, convergence_energies);
+            if (improved) {
+                num_improved++;
+            }
+            std::cout << "\rRefined state " << k+1 << "/" << basis.size()
+                      << " (" << num_improved << " improved so far)    " << std::flush;
+        }
+        std::cout << "\nRefinement: " << num_improved << "/" << basis.size() << " states improved\n";
+
+        // Polish again after refinement
+        std::cout << " - Final sweep after refinement cycle " << cycle+1 << " -\n";
+        sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
+        std::cout << "\n";
     }
+
 
     // Save convergence data
     {
@@ -363,42 +430,56 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic) {
         std::cout << "\nConvergence data saved to: " << convergence_file << "\n";
     }
 
-    // Generate gnuplot script to visualize convergence
-    {
-        std::string plot_file = relativistic ? "convergence_rel.gp" : "convergence_cla.gp";
-        std::string png_file = relativistic ? "convergence_relativistic.png" : "convergence_classic.png";
-        std::string title = relativistic ? "Deuteron SVM - Relativistic Kinetic Energy Convergence" : "Deuteron SVM - Classic Kinetic Energy Convergence";
-
-        std::ofstream gp(plot_file);
-        gp << "set terminal pngcairo size 1000,600\n";
-        gp << "set output '" << png_file << "'\n";
-        gp << "set xlabel 'Iteration'\n";
-        gp << "set ylabel 'Energy (MeV)'\n";
-        gp << "set title '" << title << "'\n";
-        gp << "set grid\n";
-        gp << "set style data linespoints\n";
-        gp << "set pointsize 0.5\n";
-        gp << "plot '" << convergence_file << "' using 1:2 skip 1 with linespoints title 'Energy' linecolor rgb 'blue' linewidth 2\n";
-        gp.close();
-        std::cout << "Gnuplot script saved to: " << plot_file << "\n";
-    }
-
     std::cout << "\n";
     auto result = evaluate_with_radius(basis, b_form, S, relativistic, jac_bare);
     return {result.energy, result.charge_radius};
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Default values
+    ld b_range = 1.4;
+    ld b_form = 1.4;
+    ld S = 100.0;
+
+    // Parse command-line arguments
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if ((arg == "-b_range" || arg == "--b_range") && i + 1 < argc) {
+            b_range = std::stold(argv[++i]);
+        } else if ((arg == "-b_form" || arg == "--b_form") && i + 1 < argc) {
+            b_form = std::stold(argv[++i]);
+        } else if ((arg == "-S" || arg == "--S") && i + 1 < argc) {
+            S = std::stold(argv[++i]);
+        } else if (arg == "-h" || arg == "--help") {
+            std::cout << "Usage: ./deu [options]\n";
+            std::cout << "Options:\n";
+            std::cout << "  -b_range <value>  Search space for Gaussian width (default: 1.4 fm)\n";
+            std::cout << "  -b_form <value>   Pion interaction range (default: 1.4 fm)\n";
+            std::cout << "  -S <value>        Pion coupling strength (default: 100.0 MeV)\n";
+            std::cout << "  -h, --help        Show this help message\n";
+            return 0;
+        }
+    }
+
+    // Enable nested parallelism (refinement has parallel regions)
+    omp_set_nested(1);
+    omp_set_max_active_levels(2);
+
     std::cout << "========================================\n";
     std::cout << "  DEUTERON SYSTEM (FAST COMPETITIVE SVM)\n";
+    std::cout << "========================================\n";
+    std::cout << "Parameters:\n";
+    std::cout << "  b_range = " << b_range << " fm\n";
+    std::cout << "  b_form  = " << b_form << " fm\n";
+    std::cout << "  S       = " << S << " MeV\n";
     std::cout << "========================================\n\n";
 
     // Run with both kinetic energy models
     std::cout << ">>> RUNNING CLASSIC KINETIC ENERGY\n";
-    auto [E_classic, R_classic] = run_deuteron_svm(false);
-
+    auto [E_classic, R_classic] = run_deuteron_svm(false, b_range, b_form, S);
+    return 0;
     std::cout << "\n>>> RUNNING RELATIVISTIC KINETIC ENERGY\n";
-    auto [E_relativistic, R_relativistic] = run_deuteron_svm(true);
+    auto [E_relativistic, R_relativistic] = run_deuteron_svm(true, b_range, b_form, S);
 
     ld E_diff = E_relativistic - E_classic;
     ld R_diff = R_relativistic - R_classic;
@@ -425,44 +506,7 @@ int main() {
     std::cout << "Difference (rel-cl):     " << R_diff << " fm\n";
     std::cout << "Experimental Value:      " << R_exp << " fm\n";
 
-    std::cout << "\n========================================\n";
-    std::cout << "INTERPRETATION:\n";
     std::cout << "========================================\n";
-    std::cout << "Energy:\n";
-    std::cout << "  Target: E = " << E_exp << " MeV\n";
-    std::cout << "  Relativistic correction: " << (E_diff / E_classic * 100.0) << "%\n";
-
-    std::cout << "\nCharge Radius:\n";
-    std::cout << "  Target: r_ch = " << R_exp << " fm\n";
-    std::cout << "  Deviation from experiment: " << ((R_relativistic - R_exp) / R_exp * 100.0) << "%\n";
-    std::cout << "========================================\n";
-
-    // Generate comparison gnuplot script
-    {
-        std::ofstream gp("convergence_comparison.gp");
-        gp << "set terminal pngcairo size 1400,600\n";
-        gp << "set output 'convergence_comparison.png'\n";
-        gp << "set multiplot layout 1, 2\n";
-
-        gp << "set xlabel 'Iteration'\n";
-        gp << "set ylabel 'Energy (MeV)'\n";
-        gp << "set title 'Classic Kinetic Energy Convergence'\n";
-        gp << "set grid\n";
-        gp << "set style data linespoints\n";
-        gp << "set pointsize 0.5\n";
-        gp << "plot 'conv_cla.data' using 1:2 skip 1 with linespoints title 'Energy' linecolor rgb 'blue' linewidth 2\n";
-
-        gp << "set title 'Relativistic Kinetic Energy Convergence'\n";
-        gp << "plot 'conv_rel.data' using 1:2 skip 1 with linespoints title 'Energy' linecolor rgb 'red' linewidth 2\n";
-
-        gp << "unset multiplot\n";
-        gp.close();
-        std::cout << "\nPlotting scripts generated. To create plots, run:\n";
-        std::cout << "  gnuplot convergence_cla.gp\n";
-        std::cout << "  gnuplot convergence_rel.gp\n";
-        std::cout << "  gnuplot convergence_comparison.gp\n";
-        std::cout << "Or use Makefile: make convergence.png\n";
-    }
 
     return 0;
 }
