@@ -237,7 +237,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
                      const rvec& c, ld b, ld S, ld isospin_factor, SpinChannel spin_chan) 
 {
     // Calculate the Gaussian width (alpha) from the physical interaction range (b)
-    //ld alpha = 1.0 / (b * b);
+    ld alpha = 1.0 / (b * b);
 
     // Calculate the normalization scaling factor from Eq. 10
     ld b_pow_5 = std::pow(b, 5.0);
@@ -248,7 +248,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
     // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();
     Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
-    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, b);
+    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, alpha);
     
     SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
 

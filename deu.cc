@@ -68,7 +68,6 @@
 ║                                                                                ║
 ║   m_p = 938.27 MeV, m_n = 939.56 MeV:  nucleon masses                          ║
 ║   m_pi0 = 134.97 MeV, m_pic = 139.57 MeV:  pion masses                         ║
-║   iso_c = sqrt(2):  isospin weighting for charged pions                        ║
 ║                                                                                ║
 ║ CHANNEL DESCRIPTION:                                                           ║
 ║                                                                                ║
@@ -183,9 +182,8 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
 
     // Keep best candidate found (improved or original)
     basis[k].psi = best_psi;
-    if (best_E < original_E) {
-        convergence_energies.push_back(best_E);
-    }
+    convergence_energies.push_back(best_E);
+    
     return (best_E < original_E);
 }
 
@@ -209,20 +207,42 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
                 unpack_wavefunction(basis[k].psi, p_test);
 
-                bool is_physical = true;
-                // for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                //     if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
-                // }
-                // if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
+                ld penalty = 0.0;
+                ld penalty_weight = 10000.0; // Strong penalty multiplier
 
-                // for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
-                //     for (size_t col = 0; col < 3; ++col) {
-                //         if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
-                //     }
-                // }
+                // 1. Width constraints (Parabolic Soft Wall)
+                for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
+                    ld width = basis[k].psi.A(i, i);
+                    if (width < 0.02) {
+                        penalty += penalty_weight * (0.02 - width) * (0.02 - width);
+                    } else if (width > 10.0) {
+                        penalty += penalty_weight * (width - 10.0) * (width - 10.0);
+                    }
+                }
 
-                if (!is_physical) return 999999.0;
-                return evaluate_basis_energy(basis, b, S, relativistic);
+                // 2. Shift constraints (Parabolic Soft Wall)
+                for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
+                    for (size_t col = 0; col < 3; ++col) {
+                        ld shift_mag = std::abs(basis[k].psi.s(i, col));
+                        if (shift_mag > 5.0) {
+                            penalty += penalty_weight * (shift_mag - 5.0) * (shift_mag - 5.0);
+                        }
+                    }
+                }
+
+                // 3. Positive Definite constraint (CRITICAL)
+                // If the determinant is <= 0, the matrix is invalid and the Cholesky GEVP solver WILL crash.
+                ld det = basis[k].psi.A.determinant();
+                if (det <= ZERO_LIMIT) {
+                    // Bypass the GEVP solver to prevent the crash, but provide a gradient!
+                    // The further negative the determinant goes, the steeper the penalty.
+                    return 99999.0 + penalty_weight * std::abs(det - ZERO_LIMIT) + penalty;
+                }
+
+                // 4. Evaluate true energy and ADD the penalty
+                ld E = evaluate_basis_energy(basis, b, S, relativistic);
+                
+                return E + penalty;
             };
 
             rvec p_best = nelder_mead(p0, objective_func, nm_max_iter);
@@ -266,7 +286,6 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     Jacobian jac_dressed_c({m_p, m_n, m_pic});
 
     std::vector<BasisState> basis;
-    ld iso_c = std::sqrt(2.0L);
 
     // Track convergence energies
     rvec convergence_energies;
@@ -274,15 +293,21 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
 
     std::vector<BasisState> channel_templates = {
         {SpatialWavefunction(1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0},
+        
+        // pi^0 channel (Phase: +1)
         {SpatialWavefunction(-1), Channel::PI_0c_0f, NO_FLIP, 1.0, jac_dressed_0, m_pi0},
         {SpatialWavefunction(-1), Channel::PI_0c_1f, FLIP_PARTICLE_1, 1.0, jac_dressed_0, m_pi0},
         {SpatialWavefunction(-1), Channel::PI_0c_2f, FLIP_PARTICLE_2, 1.0, jac_dressed_0, m_pi0},
-        {SpatialWavefunction(-1), Channel::PI_pc_0f, NO_FLIP, iso_c, jac_dressed_c, m_pic},
-        {SpatialWavefunction(-1), Channel::PI_pc_1f, FLIP_PARTICLE_1, iso_c, jac_dressed_c, m_pic},
-        {SpatialWavefunction(-1), Channel::PI_pc_2f, FLIP_PARTICLE_2, iso_c, jac_dressed_c, m_pic},
-        {SpatialWavefunction(-1), Channel::PI_mc_0f, NO_FLIP, iso_c, jac_dressed_c, m_pic},
-        {SpatialWavefunction(-1), Channel::PI_mc_1f, FLIP_PARTICLE_1, iso_c, jac_dressed_c, m_pic},
-        {SpatialWavefunction(-1), Channel::PI_mc_2f, FLIP_PARTICLE_2, iso_c, jac_dressed_c, m_pic}
+        
+        // pi^+ channel (Phase: +1)
+        {SpatialWavefunction(-1), Channel::PI_pc_0f, NO_FLIP, 1.0, jac_dressed_c, m_pic},
+        {SpatialWavefunction(-1), Channel::PI_pc_1f, FLIP_PARTICLE_1, 1.0, jac_dressed_c, m_pic},
+        {SpatialWavefunction(-1), Channel::PI_pc_2f, FLIP_PARTICLE_2, 1.0, jac_dressed_c, m_pic},
+        
+        // pi^- channel (Phase: -1)
+        {SpatialWavefunction(-1), Channel::PI_mc_0f, NO_FLIP, -1.0, jac_dressed_c, m_pic}, 
+        {SpatialWavefunction(-1), Channel::PI_mc_1f, FLIP_PARTICLE_1, -1.0, jac_dressed_c, m_pic},
+        {SpatialWavefunction(-1), Channel::PI_mc_2f, FLIP_PARTICLE_2, -1.0, jac_dressed_c, m_pic}
     };
 
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
@@ -322,8 +347,8 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     }
     
     std::cout << "Skeleton Size: " << basis.size() << " states.\n";
-    sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
     ld skeleton_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+    sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
     convergence_energies.push_back(skeleton_E);
     std::cout << "\nSkeleton Energy: " << skeleton_E << " MeV\n\n";
 
@@ -338,7 +363,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     //      - Lock it permanently into the basis
     //   2. After all channels: sweep-optimize the expanded basis for polish
     
-    int num_cycles = 1;
+    int num_cycles = 2;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
@@ -400,17 +425,43 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
         sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
 
         // Refinement cycle - re-optimize all states now that basis grew
+        // === DYNAMIC SVM REFINEMENT UNTIL CONVERGENCE ===
         std::cout << "\n=== Refinement Cycle " << cycle+1 << " ===\n";
-        int num_improved = 0;
-        for (size_t k = 0; k < basis.size(); ++k) {
-            bool improved = refine_basis_state(basis, k, b_range, b_form, S, relativistic, convergence_energies);
-            if (improved) {
-                num_improved++;
+        
+        int max_refine_passes = 5;       // Safety limit to prevent infinite loops
+        ld refine_tolerance = 1e-3;       // Convergence threshold (0.0001 MeV)
+        ld previous_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+
+        for (int pass = 0; pass < max_refine_passes; ++pass) {
+            int num_improved_this_pass = 0;
+            
+            // Sweep through every state in the basis
+            for (size_t k = 0; k < basis.size(); ++k) {
+                bool improved = refine_basis_state(basis, k, b_range, b_form, S, relativistic, convergence_energies);
+                if (improved) {
+                    num_improved_this_pass++;
+                }
+                std::cout << "\rPass " << pass+1 << "/" << max_refine_passes 
+                          << " | Refined state " << k+1 << "/" << basis.size()
+                          << " (" << num_improved_this_pass << " improved)    " << std::flush;
             }
-            std::cout << "\rRefined state " << k+1 << "/" << basis.size()
-                      << " (" << num_improved << " improved so far)    " << std::flush;
+
+            // Check how much the total energy dropped after checking EVERY state
+            ld current_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+            ld delta_E = previous_pass_E - current_pass_E;
+
+            std::cout << "\n -> End of Pass " << pass+1 << ": E = " 
+                      << std::fixed << std::setprecision(6) << current_pass_E 
+                      << " MeV (ΔE = " << delta_E << " MeV)\n";
+
+            // Convergence criteria
+            if (delta_E < refine_tolerance) {
+                std::cout << " -> Refinement Converged: Total improvement below " << refine_tolerance << " MeV.\n";
+                break; // Exit the refinement loop early!
+            }
+
+            previous_pass_E = current_pass_E;
         }
-        std::cout << "\nRefinement: " << num_improved << "/" << basis.size() << " states improved\n";
 
         // Polish again after refinement
         std::cout << " - Final sweep after refinement cycle " << cycle+1 << " -\n";
@@ -477,7 +528,7 @@ int main(int argc, char* argv[]) {
     // Run with both kinetic energy models
     std::cout << ">>> RUNNING CLASSIC KINETIC ENERGY\n";
     auto [E_classic, R_classic] = run_deuteron_svm(false, b_range, b_form, S);
-    return 0;
+    //return 0;
     std::cout << "\n>>> RUNNING RELATIVISTIC KINETIC ENERGY\n";
     auto [E_relativistic, R_relativistic] = run_deuteron_svm(true, b_range, b_form, S);
 

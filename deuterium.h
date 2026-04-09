@@ -148,14 +148,32 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
                 const auto& state_bare  = i_is_bare ? state_i : state_j;
                 const auto& state_dress = i_is_bare ? state_j : state_i;
 
-                // The transition strictly uses the 3-body dressed state's coordinate system
-                rvec c_pi = state_dress.jac.get_c_internal(1); 
+                // Extract the exact Jacobi coordinate vectors
+                rvec c_pi_1 = state_dress.jac.get_internal_distance_vector(2, 0); // Pion to N1
+                rvec c_pi_2 = state_dress.jac.get_internal_distance_vector(2, 1); // Pion to N2
                 
-                // Calculate <Bare | W | Dressed>
-                cld w_val = total_w_coupling(state_bare.psi, state_dress.psi, 
-                                             c_pi, b, S, 
-                                             state_dress.isospin_factor, state_dress.flip);
+                cld w_val = 0.0;
 
+                if (state_dress.flip == FLIP_PARTICLE_1) {
+                    w_val = total_w_coupling(state_bare.psi, state_dress.psi, 
+                                             c_pi_1, b, S, state_dress.isospin_factor, state_dress.flip);
+                } 
+                else if (state_dress.flip == FLIP_PARTICLE_2) {
+                    w_val = total_w_coupling(state_bare.psi, state_dress.psi, 
+                                             c_pi_2, b, S, state_dress.isospin_factor, state_dress.flip);
+                } 
+                else { // NO_FLIP
+                    // Combine the emission from both Nucleon 1 and Nucleon 2!
+                    cld w_val_n1 = total_w_coupling(state_bare.psi, state_dress.psi, 
+                                                    c_pi_1, b, S, state_dress.isospin_factor, state_dress.flip);
+                    
+                    cld w_val_n2 = total_w_coupling(state_bare.psi, state_dress.psi, 
+                                                    c_pi_2, b, S, state_dress.isospin_factor, state_dress.flip);
+                    
+                    // Isospin singlet dictates a relative minus sign between N1 and N2 emission
+                    w_val = w_val_n1 - w_val_n2; 
+                }
+                
                 // Because we are building the upper triangle H(i, j):
                 // If 'i' is the bare state, H(i,j) = <Bare | W | Dressed>
                 // If 'i' is the dressed state, H(i,j) = <Dressed | W | Bare> = conj(<Bare | W | Dressed>)

@@ -126,6 +126,19 @@ struct Jacobian {
         c[jacobi_idx] = 1.0;
         return c;
     }
+
+    // NEW: Gets the internal (N-1) vector for the relative distance between particle i and j (r_i - r_j)
+    rvec get_internal_distance_vector(size_t p_i, size_t p_j) const {
+        rvec w_i = transform_w(p_i);
+        rvec w_j = transform_w(p_j);
+        rvec w_ij(dim);
+        
+        // Truncate the COM component, keeping only the internal Jacobi coordinates
+        for (size_t k = 0; k < dim; ++k) {
+            w_ij[k] = w_i[k] - w_j[k];
+        }
+        return w_ij;
+    }
 };
 
 } // namespace qm

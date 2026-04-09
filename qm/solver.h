@@ -269,7 +269,8 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
         for (size_t i = 0; i < n; ++i) {
             centroid += simplex[indices[i]];
         }
-        centroid /= static_cast<ld>(n);
+        ld n_inv = 1.0L / static_cast<ld>(n);
+        centroid *= n_inv;
 
         // Precompute direction from worst to centroid (optimize reflections/contractions)
         rvec direction = centroid - simplex[worst];
@@ -324,5 +325,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             best_idx = i;
         }
     }
+
+    //size_t absolute_best_idx = indices[0]; 
     return simplex[best_idx];
 }

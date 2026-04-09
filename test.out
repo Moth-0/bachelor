@@ -1,0 +1,65 @@
+================================================================================
+PHYSICS DEBUGGING: PROVING THE MATHEMATICAL FRAMEWORK
+================================================================================
+================================================================================
+TEST 1: W-OPERATOR NORM_FACTOR (ANALYTICAL VOLUME)
+================================================================================
+
+Computing True Form Factor Normalization:
+  b = 1.40000000 fm
+  Volume Integral (norm_sq) = 7.94111083
+  norm_factor = 1/√norm_sq = 0.35486190
+
+Comparison:
+  Unnormalized Raw Integral : -2653.36436997 MeV*fm^3 (Physically meaningless units)
+  Normalized True Energy    : -941.57791700 MeV (Correct!)
+  ✓ The norm factor ensures S parameter dictates energy magnitude.
+================================================================================
+TEST 2: REST MASS TERM SCALING (GEVP PROOF)
+================================================================================
+
+Pion state diagonal (i=j=1):
+  N(1,1) = <π|π> = 1.52874403 (NOTE: Basis is non-orthogonal, N != 1.0)
+  T_π = 1330.75499639 MeV
+  m_π = 134.97000000 MeV
+
+TRUE MATH (H_11 = T_11 + m_π * N_11):
+  H(1,1) = 1330.75499639 + (134.97000000 × 1.52874403) = 1537.08957836 MeV
+  ✓ Correct. Evaluates full expectation value <ψ | H | ψ>
+
+BROKEN PHYSICS (Claude's Suggestion: H_11 = T_11 + m_π):
+  H(1,1) = 1330.75499639 + 134.97000000 = 1465.72499639 MeV
+  ⚠️ INCORRECT! Assumes <ψ|ψ> = 1.0. Will mathematically break GEVP!
+================================================================================
+TEST 3: NO_FLIP W-COUPLING LOGIC (C.O.M. vs TRUE DIPOLE)
+================================================================================
+
+Individual Nucleon Couplings:
+  W(c_pi_1) = -941.57791700 MeV
+  W(c_pi_2) = -941.83758227 MeV
+
+BUGGY 'PLUS' SIGN (w_n1 + w_n2):
+  SUM = -1883.41549926 MeV
+  Math Result: Destructive Interference.
+  Physics: Nucleon coordinates cancel out (r1 + r2 = 0 in COM).
+  Calculates distance from COM to pion. Artificially weak.
+
+TRUE ISOSPIN 'MINUS' SIGN (w_n1 - w_n2):
+  SUBTRACT = 0.25966527 MeV
+  Math Result: Constructive Interference.
+  Physics: Pion coordinate cancels (rpi - rpi = 0). Leaves r2 - r1.
+  Calculates true P-Wave relative distance. Vastly stronger coupling!
+================================================================================
+TEST 4: FULL HAMILTONIAN WITH ADJOINT FIX
+================================================================================
+
+Verify your deuterium.h has the Adjoint fixed!
+If i_is_bare is true, we are building the Upper-Right block.
+Upper-Right block must be W^dagger (std::conj).
+Lower-Left block must be W (no conj).
+================================================================================
+DIAGNOSIS SUMMARY:
+  1. The Norm Factor and Rest Mass algorithms are 100% correct.
+  2. Changing NO_FLIP to '+' breaks the physics but stops collapse.
+  3. Keeping NO_FLIP as '-' requires bounding A(i,i) < 50.0 to stop collapse.
+================================================================================

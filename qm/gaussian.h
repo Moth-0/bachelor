@@ -287,7 +287,7 @@ auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunc
 
 // Promotes a bare state (e.g., pn) to the dressed dimension (pn + pion)
 inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim, 
-                                   const rvec& w_piN, ld b) 
+                                   const rvec& w_piN, ld alpha) 
 {
     // 1. Promote A^(d) by padding it with zeros up to target_dim
     rmat A_tilde = zeros<ld>(target_dim, target_dim);
@@ -307,8 +307,7 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 
     // 3. Absorb the spatial form factor into the padded matrix!
     // A_tilde = A_promoted + (1 / b^2) * w_piN * w_piN^T
-    ld inv_b_sq = 1.0 / (b * b);
-    A_tilde += outer_no_conj(w_piN, w_piN) * inv_b_sq;
+    A_tilde += outer_no_conj(w_piN, w_piN) * alpha;
 
     // Return the new fully prepped Gaussian
     return Gaussian(A_tilde, s_promoted);

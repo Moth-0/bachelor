@@ -143,7 +143,7 @@ ld run_proton_svm(bool relativistic) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;  
     ld m_pi0 = 134.97, m_pic = 139.57; 
-    ld b_range = 1.4, b_form = 1.4, S = 140.0;      
+    ld b_range = 1.4, b_form = 1.4, S = 80.0;      
 
     Jacobian jac_bare({m_p});
     Jacobian jac_dressed_0({m_p, m_pi0});
