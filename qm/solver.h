@@ -214,25 +214,23 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
 template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     size_t n = p0.size();
-    const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    const ld tolerance = 1e-4; // Relaxed convergence: was 1e-5
-    const int max_no_improve = 10; // Stop if no improvement for this many iterations
+    const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; 
+    const ld tolerance = 1e-4; 
+    const int max_no_improve = 20; 
 
-    // 1. Initialize the Simplex (n+1 vertices) as vector of vectors
     std::vector<rvec> simplex(n + 1, rvec(n));
     rvec f_vals(n + 1);
 
-    // First vertex is the initial point
+    // 1. Initialize the Simplex
     simplex[0] = p0;
-
-    // Create remaining vertices with proportional perturbations (step by 10% or 0.05)
     for (size_t i = 1; i <= n; ++i) {
         simplex[i] = p0;
+        // The +0.05 ensures we don't get a zero step if the parameter is 0.0
         ld step_size = std::abs(p0[i - 1]) * 0.1 + 0.05;
         simplex[i][i - 1] += step_size;
     }
 
-    // Evaluate all vertices
+    // Evaluate all initial vertices
     for (size_t i = 0; i <= n; ++i) {
         f_vals[i] = objective(simplex[i]);
     }
@@ -252,11 +250,11 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
         const size_t worst = indices[n];
         const size_t second_worst = indices[n - 1];
 
-        // Check for convergence: range is small OR no improvement
+        // Check for convergence
         ld range = std::abs(f_vals[worst] - f_vals[best]);
         if (range < tolerance) break;
 
-        if (std::abs(f_vals[best] - prev_best) < tolerance * 0.1) {
+        if (std::abs(f_vals[best] - prev_best) < tolerance * 0.01) {
             no_improve_count++;
             if (no_improve_count > max_no_improve) break;
         } else {
@@ -264,18 +262,17 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
         }
         prev_best = f_vals[best];
 
-        // 3. Calculate Centroid of all vertices except the worst
-        rvec centroid(n);
+        // 3. Calculate Centroid (safely using inverse multiplication)
+        rvec centroid(n); 
         for (size_t i = 0; i < n; ++i) {
             centroid += simplex[indices[i]];
         }
         ld n_inv = 1.0L / static_cast<ld>(n);
         centroid *= n_inv;
 
-        // Precompute direction from worst to centroid (optimize reflections/contractions)
         rvec direction = centroid - simplex[worst];
 
-        // 4. Reflection: reflected = centroid + alpha * (centroid - worst)
+        // 4. Reflection
         rvec reflected = centroid + direction * alpha;
         ld f_ref = objective(reflected);
 
@@ -285,7 +282,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             continue;
         }
 
-        // 5. Expansion: expanded = centroid + gamma * (reflected - centroid)
+        // 5. Expansion
         if (f_ref < f_vals[best]) {
             rvec expanded = centroid + (reflected - centroid) * gamma;
             ld f_exp = objective(expanded);
@@ -299,7 +296,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             continue;
         }
 
-        // 6. Contraction: contracted = centroid + rho * (worst - centroid)
+        // 6. Contraction
         rvec contracted = centroid - direction * rho;
         ld f_con = objective(contracted);
         if (f_con < f_vals[worst]) {
@@ -308,7 +305,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             continue;
         }
 
-        // 7. Shrink (If all else fails, pull all vertices toward the best)
+        // 7. Shrink
         for (size_t i = 1; i <= n; ++i) {
             size_t idx = indices[i];
             simplex[idx] = simplex[best] + (simplex[idx] - simplex[best]) * sigma;
@@ -316,7 +313,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
         }
     }
 
-    // Find and return absolute best vertex
+    // Safely return the absolute best vertex found
     ld best_f = f_vals[0];
     size_t best_idx = 0;
     for (size_t i = 1; i <= n; ++i) {
@@ -325,7 +322,5 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             best_idx = i;
         }
     }
-
-    //size_t absolute_best_idx = indices[0]; 
     return simplex[best_idx];
 }

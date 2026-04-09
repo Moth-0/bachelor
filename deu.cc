@@ -132,12 +132,26 @@ GroundStateResult evaluate_with_radius(const std::vector<BasisState>& basis, ld 
         }
     }
 
-    // Calculate charge radius: r_ch = sqrt(<r²>)
+    // Calculate charge radius 
     ld r2_val = std::real(r2_expectation);
-    ld charge_radius = (r2_val > 0.0) ? std::sqrt(r2_val) : 0.0;
+    ld charge_radius = 0.0;
+
+    if (r2_val > 0.0) {
+        // Experimental intrinsic nucleon radii (in fm^2)
+        ld rp_sq = 0.8783 * 0.8783; // Proton charge radius squared
+        ld rn_sq = -0.1149;         // Neutron charge radius squared
+
+        // Deuteron radius = sqrt( 1/4 * <r_rel^2> + r_p^2 + r_n^2 )
+        ld rd_sq = (0.25 * r2_val) + rp_sq + rn_sq;
+        
+        if (rd_sq > 0.0) {
+            charge_radius = std::sqrt(rd_sq);
+        }
+    }
 
     return {E0, charge_radius};
 }
+
 
 // Refine a single basis state by trying random parameter replacements
 // Returns: true if state was improved, false otherwise
@@ -191,9 +205,9 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
 // Optimize basis parameters via Nelder-Mead sweeping with early exit
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic, rvec& convergence_energies) {
     int max_sweeps = 50;
-    int nm_max_iter = 150;  // Increased from 100: allows longer exploration per parameter
-    ld improvement_threshold = 1e-3;  // Exit if improvement < this for patience consecutive sweeps
-    int patience = 2;  // Exit after 2 sweeps with negligible improvement
+    int nm_max_iter = 150;  
+    ld improvement_threshold = 1e-3; 
+    int patience = 2; 
 
     ld previous_E = 999999.0;
     int no_improve_count = 0;
@@ -205,14 +219,24 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             rvec p0 = pack_wavefunction(backup_psi);
 
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
-                unpack_wavefunction(basis[k].psi, p_test);
+                // CRITICAL: Create a test basis copy to avoid corrupting main basis during NM iterations
+                std::vector<BasisState> test_basis = basis;
+                unpack_wavefunction(test_basis[k].psi, p_test);
 
+                // --- 1. THE HARD CLIFF (Mathematical Singularities) ---
+                // If A is not positive-definite, the GEVP math physically breaks.
+                // We drop a flat 999999.0 concrete block so Nelder-Mead bounces off immediately.
+                if (test_basis[k].psi.A.determinant() <= ZERO_LIMIT) {
+                    return 999999.0;
+                }
+
+                // --- 2. THE SOFT PENALTIES (Physical Boundaries) ---
                 ld penalty = 0.0;
-                ld penalty_weight = 10000.0; // Strong penalty multiplier
+                ld penalty_weight = 10000.0;
 
-                // 1. Width constraints (Parabolic Soft Wall)
-                for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                    ld width = basis[k].psi.A(i, i);
+                // Width constraints (Parabolic Soft Wall)
+                for (size_t i = 0; i < test_basis[k].psi.A.size1(); ++i) {
+                    ld width = test_basis[k].psi.A(i, i);
                     if (width < 0.02) {
                         penalty += penalty_weight * (0.02 - width) * (0.02 - width);
                     } else if (width > 10.0) {
@@ -220,28 +244,23 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
                     }
                 }
 
-                // 2. Shift constraints (Parabolic Soft Wall)
-                for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
+                // Shift constraints (Parabolic Soft Wall)
+                for (size_t i = 0; i < test_basis[k].psi.s.size1(); ++i) {
                     for (size_t col = 0; col < 3; ++col) {
-                        ld shift_mag = std::abs(basis[k].psi.s(i, col));
+                        ld shift_mag = std::abs(test_basis[k].psi.s(i, col));
                         if (shift_mag > 5.0) {
                             penalty += penalty_weight * (shift_mag - 5.0) * (shift_mag - 5.0);
                         }
                     }
                 }
 
-                // 3. Positive Definite constraint (CRITICAL)
-                // If the determinant is <= 0, the matrix is invalid and the Cholesky GEVP solver WILL crash.
-                ld det = basis[k].psi.A.determinant();
-                if (det <= ZERO_LIMIT) {
-                    // Bypass the GEVP solver to prevent the crash, but provide a gradient!
-                    // The further negative the determinant goes, the steeper the penalty.
-                    return 99999.0 + penalty_weight * std::abs(det - ZERO_LIMIT) + penalty;
+                // Evaluate the true physical energy on the test basis
+                ld E = evaluate_basis_energy(test_basis, b, S, relativistic);
+                if (std::isnan(E)) {
+                    return 999999.0;
                 }
 
-                // 4. Evaluate true energy and ADD the penalty
-                ld E = evaluate_basis_energy(basis, b, S, relativistic);
-                
+                // Add the smooth penalty to push the simplex back to the physical zone
                 return E + penalty;
             };
 
@@ -252,18 +271,16 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
         ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
         convergence_energies.push_back(current_E);
 
-        // Check for meaningful improvement
-        ld improvement = previous_E - current_E;  // positive = improvement
+        ld improvement = previous_E - current_E;  
         if (improvement < improvement_threshold) {
             no_improve_count++;
         } else {
-            no_improve_count = 0;  // Reset counter on good improvement
+            no_improve_count = 0;  
         }
 
         std::cout << "\r" << "Sweep " << sweep << " (Basis=" << basis.size() << "): E=" << current_E
                   << " MeV  (ΔE=" << improvement << ")     " << std::flush;
 
-        // Early exit if stalled
         if (no_improve_count >= patience) {
             std::cout << "\n  - Converged: improvement < " << improvement_threshold << " MeV for " << patience << " sweeps\n";
             break;
@@ -363,7 +380,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     //      - Lock it permanently into the basis
     //   2. After all channels: sweep-optimize the expanded basis for polish
     
-    int num_cycles = 2;
+    int num_cycles = 1;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
@@ -428,7 +445,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
         // === DYNAMIC SVM REFINEMENT UNTIL CONVERGENCE ===
         std::cout << "\n=== Refinement Cycle " << cycle+1 << " ===\n";
         
-        int max_refine_passes = 5;       // Safety limit to prevent infinite loops
+        int max_refine_passes = 20;       // Safety limit to prevent infinite loops
         ld refine_tolerance = 1e-3;       // Convergence threshold (0.0001 MeV)
         ld previous_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
 

@@ -146,14 +146,20 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
 }
 
 // --- Relativistic Kinetic Energy ---
-ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket, 
-                                ld M_overlap, const rmat& R, const rvec& c, ld mass) 
+ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
+                                ld M_overlap, const rmat& R, const rvec& c, ld mass)
 {
     // Calculate gamma (Units: fm^2)
     rvec A_ket_c = g_ket.A * c;
     rvec R_A_ket_c = R * A_ket_c;
     rvec A_bra_R_A_ket_c = g_bra.A * R_A_ket_c;
     ld inv_gamma = 4.0 * dot_no_conj(c, A_bra_R_A_ket_c);
+
+    // Guard against singular/near-singular Gaussians (prevents NaN/infinity)
+    if (inv_gamma <= ZERO_LIMIT) {
+        return 0.0;
+    }
+
     ld gamma = 1.0 / inv_gamma;
 
     // Calculate the shift magnitude eta (Units: fm^-1)
@@ -167,6 +173,10 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
         eta_vec[col] = dot_no_conj(c, diff);
     }
     ld eta = std::sqrt(dot_no_conj(eta_vec, eta_vec)); 
+    ld gamma_eta_sq = gamma * eta * eta;
+    if (gamma_eta_sq > 600.0) {
+        return 0.0; 
+    }
 
     // Define the 1D integrand function f(x)
     // 'x' here is the wavenumber 'k' in units of fm^-1
@@ -193,7 +203,7 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     if (eta < ZERO_LIMIT) {
         prefactor = 4.0 * M_PI * std::pow(gamma / M_PI, 1.5);
     } else {
-        prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * std::exp(gamma * eta * eta) / (gamma * eta);
+        prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * std::exp(gamma_eta_sq) / (gamma * eta);
     }
 
     return M_overlap * prefactor * integral_result;
@@ -288,48 +298,30 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
 
 // --- Charge Radius Operator r² ---
 // Computes <ψ_bra | r² | ψ_ket> for charge radius calculations
-// For PN pair: uses only the relative coordinate (first Jacobi coordinate)
 ld charge_radius_operator(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket,
                           const Jacobian& jac)
 {
     return apply_basis_expansion(psi_bra, psi_ket,
             [&](const Gaussian& g_b, const Gaussian& g_k, ld M_term, const rmat& R) -> ld {
 
-        // For PN pair, only the first Jacobi coordinate matters (relative coordinate)
-        // Higher coordinates are for pion degrees of freedom
         if (jac.dim < 1) return 0.0;  // Safety check
+        rvec c_rel = jac.get_c_internal(0);  // PN relative coordinate
 
-        ld r_squared = 0.0;
-        rvec c_rel = jac.get_c_internal(0);  // Only PN relative coordinate
+        // 1. Variance Term: 1.5 * B^-1
+        // (1.5 comes from 3 spatial dimensions: 3 * 1/2 = 1.5)
+        ld c_variance = dot_no_conj(c_rel, R * c_rel);
+        ld r_squared = 1.5 * c_variance;
 
-        // For Gaussians g(r) = exp(-r·A·r + s·r), compute <r²> analytically
-        // Key insight: r² = Σ_i r_i² where r_i is displacement in direction c_i
-
-        // Method: For each spatial direction (x,y,z), compute <coord²>
-        // In Jacobi space with correlation A, the spread in direction c is:
-        // <(c·r)²> ≈ (trace of A⁻¹ component in direction c) / (correlation strength)
-
-        rmat A_eff = g_b.A + g_k.A;  // Effective correlation from sum
-        rmat R_eff = A_eff.inverse();  // Inverse gives spatial extent
-
-        // Compute <r²> as sum of spatial variances
-        // For direction c: variance ∝ c^T A_eff^-1 c
-        ld c_variance = dot_no_conj(c_rel, R_eff * c_rel);
-
-        // The coefficient 1.0 (not 0.75 or other empirical factors)
-        // This directly gives <r²> contribution from this coordinate
-        r_squared = c_variance;
-
-        // Add shift contribution from displaced Gaussian centers
-        // <r_shift²> from mismatch in center positions
-        rvec shift_total = g_b.s[0] + g_k.s[0];  // Use only spatial part (first row)
-        ld shift_sq = dot_no_conj(c_rel, R_eff * shift_total);
-        shift_sq *= shift_sq;  // Square it
-
-        r_squared += shift_sq * 0.5;  // Reduced contribution from shifts
+        // 2. Shift Term: 1/4 * (R * v)^2 summed over x, y, and z
+        ld shift_sq = 0.0;
+        for (size_t c = 0; c < 3; ++c) { // Loop over spatial columns
+            rvec v_c = g_b.s[c] + g_k.s[c]; // Total shift vector for dimension c
+            ld v_c_0 = dot_no_conj(c_rel, R * v_c); // Extract the relative component
+            shift_sq += v_c_0 * v_c_0;
+        }
+        r_squared += 0.25 * shift_sq;
 
         return M_term * r_squared;
     });
 }
-
-} // namespace qm
+} // namspace qm

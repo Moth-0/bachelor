@@ -94,27 +94,29 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             rvec p0 = pack_wavefunction(backup_psi);
 
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
-                unpack_wavefunction(basis[k].psi, p_test);
-                
+                // CRITICAL: Create a test basis copy to avoid corrupting main basis during NM iterations
+                std::vector<BasisState> test_basis = basis;
+                unpack_wavefunction(test_basis[k].psi, p_test);
+
                 // --- THE PHYSICS BOUNCER ---
                 bool is_physical = true;
 
-                for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
+                for (size_t i = 0; i < test_basis[k].psi.A.size1(); ++i) {
                     // Mirrored from Deuteron: Prevent the pion from evaporating!
-                    if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
+                    if (test_basis[k].psi.A(i, i) <= 0.02) is_physical = false;
                 }
-                if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
+                if (test_basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
 
-                for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
+                for (size_t i = 0; i < test_basis[k].psi.s.size1(); ++i) {
                     for (size_t col = 0; col < 3; ++col) {
                         // Mirrored from Deuteron: Keep the pion close to the proton!
-                        if (std::abs(basis[k].psi.s(i, col)) > 5.0) is_physical = false;
+                        if (std::abs(test_basis[k].psi.s(i, col)) > 5.0) is_physical = false;
                     }
                 }
 
                 if (!is_physical) return 999999.0;
 
-                return evaluate_basis_energy(basis, b, S, relativistic);
+                return evaluate_basis_energy(test_basis, b, S, relativistic);
             };
 
             rvec p_best = nelder_mead(p0, objective_func);
@@ -191,9 +193,10 @@ ld run_proton_svm(bool relativistic) {
             }
 
             basis.push_back(best_candidate);
-            sweep_optimize_basis(basis, b_form, S, relativistic);
-            
-            std::cout << "\r" << "Added state " << basis.size() << " (Channel " << t << ") -> Energy: " 
+            // DISABLED: sweep_optimize_basis is too aggressive, finds unphysical minima
+            // sweep_optimize_basis(basis, b_form, S, relativistic);
+
+            std::cout << "\r" << "Added state " << basis.size() << " (Channel " << t << ") -> Energy: "
                       << evaluate_basis_energy(basis, b_form, S, relativistic) << " MeV    " << std::flush;
         }
     }

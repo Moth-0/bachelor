@@ -213,7 +213,7 @@ inline ld gaussian_overlap(const rmat& A1, const rmat& s1, const rmat& A2, const
     size_t dim = B.size1();
 
     ld detB = B.determinant();
-    if (std::abs(detB) < 1e-25) return 0.0; // Singular, reject
+    if (std::abs(detB) < ZERO_LIMIT) return 9999999.0; // Singular, reject
 
     ld pi_to_d = std::pow(M_PI, dim);
     ld prefactor = std::pow(pi_to_d / detB, 1.5);
