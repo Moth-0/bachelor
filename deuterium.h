@@ -198,8 +198,8 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
     return std::tuple<cmat, cmat> {H, N};
 }
 
-// Build the r² (charge radius) matrix for all basis states
-cmat build_r2_matrix(const std::vector<BasisState>& basis, const Jacobian& jac_bare)
+// Build the r² (charge radius) matrix for ALL diagonal basis states
+cmat build_r2_matrix(const std::vector<BasisState>& basis)
 {
     size_t size = basis.size();
     cmat R2 = zeros<cld>(size, size);
@@ -207,18 +207,16 @@ cmat build_r2_matrix(const std::vector<BasisState>& basis, const Jacobian& jac_b
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
-            // Charge radius operator only couples PN states (bare states)
-            // For pion-dressed states, the pion coordinate doesn't contribute to nuclear radius
-            if (basis[i].type == Channel::PN && basis[j].type == Channel::PN) {
-                ld r2_val = charge_radius_operator(basis[i].psi, basis[j].psi, jac_bare);
+            // Radius operator preserves particle number and channel!
+            // We MUST evaluate it for both bare (PN) and dressed (PN+pion) states.
+            if (basis[i].type == basis[j].type) {
+                ld r2_val = charge_radius_operator(basis[i].psi, basis[j].psi, basis[i].jac);
                 R2(i, j) = cld(r2_val, 0.0);
                 if (i != j) {
                     R2(j, i) = cld(r2_val, 0.0);
                 }
             }
-            // Off-diagonal or non-PN states: zero contribution to nuclear radius
         }
     }
-
     return R2;
 }

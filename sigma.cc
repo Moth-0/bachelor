@@ -84,22 +84,24 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             rvec p0 = pack_wavefunction(backup_psi);
 
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
-                unpack_wavefunction(basis[k].psi, p_test);
-                
-                bool is_physical = true;
-                for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                    if (basis[k].psi.A(i, i) <= 0.02) is_physical = false;
-                }
-                if (basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
+                // Create temporary copy to avoid corrupting basis during Nelder-Mead
+                std::vector<BasisState> test_basis = basis;
+                unpack_wavefunction(test_basis[k].psi, p_test);
 
-                for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
+                bool is_physical = true;
+                for (size_t i = 0; i < test_basis[k].psi.A.size1(); ++i) {
+                    if (test_basis[k].psi.A(i, i) <= 0.02) is_physical = false;
+                }
+                if (test_basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
+
+                for (size_t i = 0; i < test_basis[k].psi.s.size1(); ++i) {
                     for (size_t col = 0; col < 3; ++col) {
-                        if (std::abs(basis[k].psi.s(i, col)) > 6.0) is_physical = false;
+                        if (std::abs(test_basis[k].psi.s(i, col)) > 6.0) is_physical = false;
                     }
                 }
 
                 if (!is_physical) return 999999.0;
-                return evaluate_basis_energy(basis, b, S, relativistic);
+                return evaluate_basis_energy(test_basis, b, S, relativistic);
             };
 
             rvec p_best = nelder_mead(p0, objective_func);

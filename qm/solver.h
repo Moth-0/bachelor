@@ -215,8 +215,8 @@ template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    const ld tolerance = 1e-4; // Relaxed convergence: was 1e-5
-    const int max_no_improve = 10; // Stop if no improvement for this many iterations
+    const ld tolerance = 1e-3; // Relaxed convergence: was 1e-5
+    const int max_no_improve = 20; // Stop if no improvement for this many iterations
 
     // 1. Initialize the Simplex (n+1 vertices) as vector of vectors
     std::vector<rvec> simplex(n + 1, rvec(n));

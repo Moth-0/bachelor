@@ -49,7 +49,7 @@
 #define FOR_MAT(M)     for (size_t i = 0; i < (M).size2(); i++) \
                            for (size_t j = 0; j < (M).size1(); j++)
 #define SELF           (*this)
-#define ZERO_LIMIT     1e-10
+#define ZERO_LIMIT     1e-6
 
 namespace qm {
 

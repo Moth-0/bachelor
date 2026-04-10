@@ -287,47 +287,35 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
 }
 
 // --- Charge Radius Operator r² ---
-// Computes <ψ_bra | r² | ψ_ket> for charge radius calculations
-// For PN pair: uses only the relative coordinate (first Jacobi coordinate)
 ld charge_radius_operator(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket,
                           const Jacobian& jac)
 {
     return apply_basis_expansion(psi_bra, psi_ket,
             [&](const Gaussian& g_b, const Gaussian& g_k, ld M_term, const rmat& R) -> ld {
 
-        // For PN pair, only the first Jacobi coordinate matters (relative coordinate)
-        // Higher coordinates are for pion degrees of freedom
-        if (jac.dim < 1) return 0.0;  // Safety check
+        if (jac.dim < 1) return 0.0; 
 
-        ld r_squared = 0.0;
-        rvec c_rel = jac.get_c_internal(0);  // Only PN relative coordinate
+        // Get proton coordinate relative to the Center of Mass.
+        rvec w_proton = jac.transform_w(0);
+        rvec c_charge(jac.dim);
+        for (size_t k = 0; k < jac.dim; ++k) {
+            c_charge[k] = w_proton[k];
+        }
 
-        // For Gaussians g(r) = exp(-r·A·r + s·r), compute <r²> analytically
-        // Key insight: r² = Σ_i r_i² where r_i is displacement in direction c_i
+        // 1. Variance term: 3.0 * c^T * R * c (Corrected for e^(-1/2 A x^2) form)
+        ld r_squared = 3.0 * dot_no_conj(c_charge, R * c_charge);
 
-        // Method: For each spatial direction (x,y,z), compute <coord²>
-        // In Jacobi space with correlation A, the spread in direction c is:
-        // <(c·r)²> ≈ (trace of A⁻¹ component in direction c) / (correlation strength)
+        // 2. Shift term: sum over x, y, z dimensions
+        ld shift_contribution = 0.0;
+        for (size_t col = 0; col < 3; ++col) {
+            rvec v = g_b.s[col] + g_k.s[col];
+            rvec x_0 = R * v;  // Corrected shift center
+            
+            ld proj = dot_no_conj(c_charge, x_0);
+            shift_contribution += proj * proj;
+        }
 
-        rmat A_eff = g_b.A + g_k.A;  // Effective correlation from sum
-        rmat R_eff = A_eff.inverse();  // Inverse gives spatial extent
-
-        // Compute <r²> as sum of spatial variances
-        // For direction c: variance ∝ c^T A_eff^-1 c
-        ld c_variance = dot_no_conj(c_rel, R_eff * c_rel);
-
-        // The coefficient 1.0 (not 0.75 or other empirical factors)
-        // This directly gives <r²> contribution from this coordinate
-        r_squared = c_variance;
-
-        // Add shift contribution from displaced Gaussian centers
-        // <r_shift²> from mismatch in center positions
-        rvec shift_total = g_b.s[0] + g_k.s[0];  // Use only spatial part (first row)
-        ld shift_sq = dot_no_conj(c_rel, R_eff * shift_total);
-        shift_sq *= shift_sq;  // Square it
-
-        r_squared += shift_sq * 0.5;  // Reduced contribution from shifts
-
+        r_squared += shift_contribution;
         return M_term * r_squared;
     });
 }

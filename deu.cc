@@ -105,8 +105,33 @@
 using namespace qm;
 
 // Evaluate energy: build H,N and solve GEVP
-ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, bool relativistic) {
+// Added an optional 'debug' flag to track linear dependence rejections
+ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, bool relativistic, bool debug = true) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
+    
+    cmat L = N.cholesky();
+    
+    // 1. Total Failure Check: The matrix is explicitly not Positive-Definite
+    if (L.size1() == 0) { 
+        if (debug) {
+            std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite (Cholesky failed). "
+                      << "Basis size: " << basis.size() << ".\n"
+                      << "  -> Cause: Basis functions are linearly dependent (numerical collapse).\n";
+        }
+        return 999999.0; 
+    }
+    
+    // 2. Near-Singularity Check: The diagonal of L approaches 0
+    for (size_t i = 0; i < L.size1(); ++i) {
+        if (std::abs(L(i, i)) < ZERO_LIMIT) { 
+            if (debug) {
+                std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n"
+                          << "  -> L(" << i << "," << i << ") = " << std::abs(L(i, i)) << " < threshold (1e-4).\n";
+            }
+            return 999999.0;
+        }
+    }
+
     return solve_ground_state_energy(H, N);
 }
 
@@ -116,15 +141,21 @@ struct GroundStateResult {
     ld charge_radius;
 };
 
+// Calculate charge radius from ground state
 GroundStateResult evaluate_with_radius(const std::vector<BasisState>& basis, ld b, ld S,
-                                       bool relativistic, const Jacobian& jac_bare) {
+                                       bool relativistic) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
+    cld detN = N.determinant();
+    if (std::abs(detN) < ZERO_LIMIT) { 
+        return {999999.0, 99999.0}; 
+    }
+
     auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
 
-    // Build r² matrix
-    cmat R2 = build_r2_matrix(basis, jac_bare);
+    // Build r² matrix using the internal state jacobians
+    cmat R2 = build_r2_matrix(basis);
 
-    // Calculate <ψ₀|r²|ψ₀> = Σ_ij c_i* c_j <i|r²|j>
+    // Calculate <ψ₀|r²_point|ψ₀>
     cld r2_expectation = 0.0;
     for (size_t i = 0; i < basis.size(); ++i) {
         for (size_t j = 0; j < basis.size(); ++j) {
@@ -132,12 +163,97 @@ GroundStateResult evaluate_with_radius(const std::vector<BasisState>& basis, ld 
         }
     }
 
-    // Calculate charge radius: r_ch = sqrt(<r²>)
-    ld r2_val = std::real(r2_expectation);
-    ld charge_radius = (r2_val > 0.0) ? std::sqrt(r2_val) : 0.0;
+    ld r2_point = std::real(r2_expectation);
+    
+    // Finite Nucleon Size Correction
+    ld r_p_sq = 0.8414 * 0.8414;  
+    ld r_n_sq = -0.1161;          
+
+    ld r2_total_charge = r2_point + r_p_sq + r_n_sq;
+    ld charge_radius = (r2_total_charge > 0.0) ? std::sqrt(r2_total_charge) : 0.0;
 
     return {E0, charge_radius};
 }
+
+// Physics constraint checker - validates Gaussian state is physical
+// Adjust min_width, max_width here to change limits everywhere
+// Set debug=true to see why states are rejected
+bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
+    // Width bounds (in fm⁻²) - use 1/r² form
+    // min_width = 1/(r_max)² allows diffuse states up to r_max
+    // max_width = 1/(r_min)² prevents states tighter than r_min
+    const ld min_width = 1.0 / (50.0 * 50.0); 
+    const ld max_width = 1.0 / (0.1 * 0.1); 
+
+    // Check diagonal widths and shifts
+    for (size_t i = 0; i < psi.A.size1(); ++i) {
+        ld width = psi.A(i, i);
+
+        if (width < min_width) {
+            if (debug) std::cerr << "  [REJECT] Width[" << i << "]=" << width << " < min=" << min_width << "\n";
+            return false;
+        }
+        if (width > max_width) {
+            if (debug) std::cerr << "  [REJECT] Width[" << i << "]=" << width << " > max=" << max_width << "\n";
+            return false;
+        }
+
+        // Shift constraint: |s_i| ≤ 2.0 * width * r_max (keep Gaussian localized)
+        for (size_t col = 0; col < 3; ++col) {
+            ld shift = std::abs(psi.s(i, col));
+            ld limit = 2.0 * width * 4.0;
+            if (shift > limit) {
+                if (debug) std::cerr << "  [REJECT] |s[" << i << "," << col << "]|=" << shift
+                                     << " > limit=" << limit << " (width=" << width << ")\n";
+                return false;
+            }
+        }
+    }
+
+    // Positive definiteness check
+    ld det = psi.A.determinant();
+    if (det <= ZERO_LIMIT) {
+        if (debug) std::cerr << "  [REJECT] det(A)=" << det << " <= " << ZERO_LIMIT << "\n";
+        return false;
+    }
+
+    if (debug) std::cerr << "  [ACCEPT] State passes all constraints\n";
+    return true;
+}
+
+// Debug helper: Print final basis state parameters with constraint validation
+void print_basis_details(const std::vector<BasisState>& basis, const std::string& label) {
+    std::cerr << "\n" << label << "\n";
+    std::cerr << "Basis Size: " << basis.size() << "\n";
+    std::cerr << std::string(120, '=') << "\n";
+
+    for (size_t k = 0; k < basis.size(); ++k) {
+        std::cerr << "State " << k << " (Type " << (int)basis[k].type << "):\n";
+
+        // Per-Gaussian details
+        for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
+            ld width = basis[k].psi.A(i, i);
+            std::cerr << "  Gaussian[" << i << "] width=" << width << " fm⁻² (r≈"
+                      << (1.0/std::sqrt(width)) << " fm) | ";
+
+            // Calculate the total 3D magnitude of the shift vector for this Gaussian
+            ld shift_sq = 0.0;
+            for (size_t col = 0; col < 3; ++col) {
+                shift_sq += basis[k].psi.s(i, col) * basis[k].psi.s(i, col);
+            }
+            ld total_shift = std::sqrt(shift_sq);
+            
+            // Calculate the physical radial displacement from the origin
+            ld total_position = total_shift / (2.0 * width); 
+
+            std::cerr << "Total Shift: " << total_shift << " fm⁻¹ (" << total_position << " fm) | ";
+            
+            std::cerr << "| det(A)=" << basis[k].psi.A.determinant() << "\n";
+        }
+    }
+    std::cerr << std::string(120, '=') << "\n";
+}
+
 
 // Refine a single basis state by trying random parameter replacements
 // Returns: true if state was improved, false otherwise
@@ -163,6 +279,9 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
             g.randomize(local_basis[k].jac, b_range);
             local_basis[k].psi.set_from_gaussian(g);
 
+            // Check if state satisfies physics constraints
+            if (!is_physical_gaussian(local_basis[k].psi)) continue;
+
             ld E = evaluate_basis_energy(local_basis, b_form, S, relativistic);
             if (E < local_best_E) {
                 local_best_E = E;
@@ -182,7 +301,6 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
 
     // Keep best candidate found (improved or original)
     basis[k].psi = best_psi;
-    convergence_energies.push_back(best_E);
     
     return (best_E < original_E);
 }
@@ -191,9 +309,9 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
 // Optimize basis parameters via Nelder-Mead sweeping with early exit
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic, rvec& convergence_energies) {
     int max_sweeps = 50;
-    int nm_max_iter = 150;  // Increased from 100: allows longer exploration per parameter
+    int nm_max_iter = 200;  // Increased from 100: allows longer exploration per parameter
     ld improvement_threshold = 1e-3;  // Exit if improvement < this for patience consecutive sweeps
-    int patience = 2;  // Exit after 2 sweeps with negligible improvement
+    int patience = 3;  // Exit after 2 sweeps with negligible improvement
 
     ld previous_E = 999999.0;
     int no_improve_count = 0;
@@ -204,49 +322,29 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
             SpatialWavefunction backup_psi = basis[k].psi;
             rvec p0 = pack_wavefunction(backup_psi);
 
+            // Energy before optimization
+            ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
+
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
-                unpack_wavefunction(basis[k].psi, p_test);
+                // Create temporary copy to avoid corrupting basis during Nelder-Mead
+                std::vector<BasisState> test_basis = basis;
+                unpack_wavefunction(test_basis[k].psi, p_test);
 
-                ld penalty = 0.0;
-                ld penalty_weight = 10000.0; // Strong penalty multiplier
+                // Check if state satisfies physics constraints
+                if (!is_physical_gaussian(test_basis[k].psi)) return 999999.0;
 
-                // 1. Width constraints (Parabolic Soft Wall)
-                for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
-                    ld width = basis[k].psi.A(i, i);
-                    if (width < 0.02) {
-                        penalty += penalty_weight * (0.02 - width) * (0.02 - width);
-                    } else if (width > 10.0) {
-                        penalty += penalty_weight * (width - 10.0) * (width - 10.0);
-                    }
-                }
-
-                // 2. Shift constraints (Parabolic Soft Wall)
-                for (size_t i = 0; i < basis[k].psi.s.size1(); ++i) {
-                    for (size_t col = 0; col < 3; ++col) {
-                        ld shift_mag = std::abs(basis[k].psi.s(i, col));
-                        if (shift_mag > 5.0) {
-                            penalty += penalty_weight * (shift_mag - 5.0) * (shift_mag - 5.0);
-                        }
-                    }
-                }
-
-                // 3. Positive Definite constraint (CRITICAL)
-                // If the determinant is <= 0, the matrix is invalid and the Cholesky GEVP solver WILL crash.
-                ld det = basis[k].psi.A.determinant();
-                if (det <= ZERO_LIMIT) {
-                    // Bypass the GEVP solver to prevent the crash, but provide a gradient!
-                    // The further negative the determinant goes, the steeper the penalty.
-                    return 99999.0 + penalty_weight * std::abs(det - ZERO_LIMIT) + penalty;
-                }
-
-                // 4. Evaluate true energy and ADD the penalty
-                ld E = evaluate_basis_energy(basis, b, S, relativistic);
-                
-                return E + penalty;
+                return evaluate_basis_energy(test_basis, b, S, relativistic);
             };
 
             rvec p_best = nelder_mead(p0, objective_func, nm_max_iter);
             unpack_wavefunction(basis[k].psi, p_best);
+
+            // Check if optimization actually improved
+            ld E_after = evaluate_basis_energy(basis, b, S, relativistic);
+            if (E_after > E_before) {
+                // Worse! Restore backup
+                basis[k].psi = backup_psi;
+            }
         }
 
         ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
@@ -319,7 +417,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     
     // The Anchor: 4 deterministic PN states with random shifts
     // Geometric widths anchor the A matrices, shifts allow W operator coupling
-    std::vector<ld> deterministic_widths = {0.01, 0.3, 1.2, 2.0};
+    std::vector<ld> deterministic_widths = {0.05, 0.3, 1.2, 2.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * width;
 
@@ -347,8 +445,8 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     }
     
     std::cout << "Skeleton Size: " << basis.size() << " states.\n";
-    ld skeleton_E = evaluate_basis_energy(basis, b_form, S, relativistic);
     sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
+    ld skeleton_E = evaluate_basis_energy(basis, b_form, S, relativistic);
     convergence_energies.push_back(skeleton_E);
     std::cout << "\nSkeleton Energy: " << skeleton_E << " MeV\n\n";
 
@@ -428,7 +526,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
         // === DYNAMIC SVM REFINEMENT UNTIL CONVERGENCE ===
         std::cout << "\n=== Refinement Cycle " << cycle+1 << " ===\n";
         
-        int max_refine_passes = 5;       // Safety limit to prevent infinite loops
+        int max_refine_passes = 2;       // Safety limit to prevent infinite loops
         ld refine_tolerance = 1e-3;       // Convergence threshold (0.0001 MeV)
         ld previous_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
 
@@ -461,14 +559,27 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
             }
 
             previous_pass_E = current_pass_E;
+            convergence_energies.push_back(previous_pass_E);
+
         }
 
         // Polish again after refinement
         std::cout << " - Final sweep after refinement cycle " << cycle+1 << " -\n";
+        ld E_before_sweep = evaluate_basis_energy(basis, b_form, S, relativistic);
         sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
+        ld E_after_sweep = evaluate_basis_energy(basis, b_form, S, relativistic);
+
+        if (E_after_sweep > E_before_sweep) {
+            std::cout << "  WARNING: Sweep made energy WORSE! (" << E_before_sweep << " -> " << E_after_sweep << " MeV, ΔE=" << (E_after_sweep - E_before_sweep) << ")\n";
+        } else {
+            std::cout << "  Sweep improved: " << E_before_sweep << " -> " << E_after_sweep << " MeV (ΔE=" << (E_after_sweep - E_before_sweep) << ")\n";
+        }
+
         std::cout << "\n";
     }
 
+    // Final basis state details after all optimization
+    print_basis_details(basis, " === FINAL BASIS STATE (ALL CYCLES COMPLETE) ===");
 
     // Save convergence data
     {
@@ -482,15 +593,15 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     }
 
     std::cout << "\n";
-    auto result = evaluate_with_radius(basis, b_form, S, relativistic, jac_bare);
+    auto result = evaluate_with_radius(basis, b_form, S, relativistic);
     return {result.energy, result.charge_radius};
 }
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 1.4;
+    ld b_range = 3.6;
     ld b_form = 1.4;
-    ld S = 100.0;
+    ld S = 50.0;
 
     // Parse command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -528,7 +639,11 @@ int main(int argc, char* argv[]) {
     // Run with both kinetic energy models
     std::cout << ">>> RUNNING CLASSIC KINETIC ENERGY\n";
     auto [E_classic, R_classic] = run_deuteron_svm(false, b_range, b_form, S);
-    //return 0;
+    
+    // Run only classic comment out this line 
+    std::cout << "Energy (MeV): " << E_classic << " - Radius (fm): " << R_classic << "\n"; return 0;
+    
+    
     std::cout << "\n>>> RUNNING RELATIVISTIC KINETIC ENERGY\n";
     auto [E_relativistic, R_relativistic] = run_deuteron_svm(true, b_range, b_form, S);
 
