@@ -130,8 +130,8 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
                     for (size_t i = 0; i < n; ++i) {
                         cld vip = V(i, p);
                         cld viq = V(i, q);
-                        V(i, p) = cos_t * vip - sin_t * std::conj(phase) * viq;
-                        V(i, q) = sin_t * phase * vip + cos_t * viq;
+                        V(i, p) = cos_t * vip - sin_t * phase * viq;
+                        V(i, q) = sin_t * std::conj(phase) * vip + cos_t * viq;
                     }
                 }
             }

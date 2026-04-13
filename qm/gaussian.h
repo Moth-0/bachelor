@@ -202,7 +202,7 @@ struct SpatialWavefunction {
         ld g_plus  = std::exp(-rAr + sr);
         ld g_minus = std::exp(-rAr - sr);
 
-        return g_plus + parity_sign * g_minus;
+        return 1/sqrt(2.0L) * (g_plus + parity_sign * g_minus);
     }
 };
 

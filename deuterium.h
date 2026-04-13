@@ -31,7 +31,7 @@
 ║     • flip:             SpinChannel (which nucleon(s) flip)                    ║
 ║     • isospin_factor:   Iso-coupling weight                                    ║
 ║     • jac:              Jacobian (reduced masses, transformations)             ║
-║     • pion_mass:        Rest mass energy offset (if dressed)                   ║
+║     • pion_mass:        Rest mass energy offset (if dressed)                    ║
 ║                                                                                ║
 ║   Example: PN bare state (ground channel)                                      ║
 ║     BasisState {psi, Channel::PN, NO_FLIP, 1.0, jac_bare(m_p,m_n), 0.0}        ║
@@ -83,9 +83,9 @@
 using namespace qm;
 
 // Enum to easily track what physics apply to what state
-enum class Channel { PN, 
-                     PI_0c_0f, PI_0c_1f, PI_0c_2f, 
-                     PI_pc_0f, PI_pc_1f, PI_pc_2f, 
+enum class Channel { PN,
+                     PI_0c_0f, PI_0c_1f, PI_0c_2f,
+                     PI_pc_0f, PI_pc_1f, PI_pc_2f,
                      PI_mc_0f, PI_mc_1f, PI_mc_2f };
 
 // A wrapper that holds the state and its physical properties
@@ -98,50 +98,50 @@ struct BasisState {
     ld pion_mass;
 };
 
-std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, bool relativistic) 
+std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, const std::vector<bool>& relativistic)
 {
     size_t size = basis.size();
     cmat H = zeros<cld>(size, size);
     cmat N = zeros<cld>(size, size);
-    
+
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
-            
+
             cld h_val = 0.0;
             cld n_val = 0.0;
-            
+
             const auto& state_i = basis[i];
             const auto& state_j = basis[j];
 
             // 1. OVERLAP MATRIX (N)
             if (state_i.type == state_j.type) {
-                n_val = static_cast<ld>(spactial_overlap(state_i.psi, state_j.psi)); 
+                n_val = static_cast<ld>(spactial_overlap(state_i.psi, state_j.psi));
             }
 
             // 2. HAMILTONIAN MATRIX (H)
             if (state_i.type == state_j.type && state_i.type == Channel::PN) {
-                
-                // --- BARE KINETIC ENERGY --
-                ld T_pn = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {false});
-                h_val += cld(T_pn, 0.0);
-                
-            } 
 
-            else if (state_i.type == state_j.type && state_i.type != Channel::PN) {
-                
-                // --- DRESSED KINETIC ENERGY ---
-                ld T_total = 0.0;
-                T_total += total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {false, relativistic});
-                
-                ld rest_mass_term = state_i.pion_mass * std::real(n_val); 
-                h_val += cld(T_total + rest_mass_term, 0.0);
-                
+                // --- BARE KINETIC ENERGY --
+                ld T_pn = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {relativistic[0]});
+                h_val += cld(T_pn, 0.0);
+
             }
 
-            else if ((state_i.type == Channel::PN && state_j.type != Channel::PN) || 
+            else if (state_i.type == state_j.type && state_i.type != Channel::PN) {
+
+                // --- DRESSED KINETIC ENERGY ---
+                ld T_total = 0.0;
+                T_total += total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, relativistic);
+
+                ld rest_mass_term = state_i.pion_mass * std::real(n_val);
+                h_val += cld(T_total + rest_mass_term, 0.0);
+
+            }
+
+            else if ((state_i.type == Channel::PN && state_j.type != Channel::PN) ||
                      (state_i.type != Channel::PN && state_j.type == Channel::PN)) {
-                
+
                 // --- W OPERATOR ---
                 // Identify which index holds the Bare state and which holds the Dressed state
                 bool i_is_bare = (state_i.type == Channel::PN);
@@ -151,29 +151,29 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
                 // Extract the exact Jacobi coordinate vectors
                 rvec c_pi_1 = state_dress.jac.get_internal_distance_vector(2, 0); // Pion to N1
                 rvec c_pi_2 = state_dress.jac.get_internal_distance_vector(2, 1); // Pion to N2
-                
+
                 cld w_val = 0.0;
 
                 if (state_dress.flip == FLIP_PARTICLE_1) {
-                    w_val = total_w_coupling(state_bare.psi, state_dress.psi, 
+                    w_val = total_w_coupling(state_bare.psi, state_dress.psi,
                                              c_pi_1, b, S, state_dress.isospin_factor, state_dress.flip);
-                } 
+                }
                 else if (state_dress.flip == FLIP_PARTICLE_2) {
-                    w_val = total_w_coupling(state_bare.psi, state_dress.psi, 
+                    w_val = total_w_coupling(state_bare.psi, state_dress.psi,
                                              c_pi_2, b, S, state_dress.isospin_factor, state_dress.flip);
-                } 
+                }
                 else { // NO_FLIP
                     // Combine the emission from both Nucleon 1 and Nucleon 2!
-                    cld w_val_n1 = total_w_coupling(state_bare.psi, state_dress.psi, 
+                    cld w_val_n1 = total_w_coupling(state_bare.psi, state_dress.psi,
                                                     c_pi_1, b, S, state_dress.isospin_factor, state_dress.flip);
-                    
-                    cld w_val_n2 = total_w_coupling(state_bare.psi, state_dress.psi, 
+
+                    cld w_val_n2 = total_w_coupling(state_bare.psi, state_dress.psi,
                                                     c_pi_2, b, S, state_dress.isospin_factor, state_dress.flip);
-                    
+
                     // Isospin singlet dictates a relative minus sign between N1 and N2 emission
-                    w_val = w_val_n1 - w_val_n2; 
+                    w_val = w_val_n1 - w_val_n2;
                 }
-                
+
                 // Because we are building the upper triangle H(i, j):
                 // If 'i' is the bare state, H(i,j) = <Bare | W | Dressed>
                 // If 'i' is the dressed state, H(i,j) = <Dressed | W | Bare> = conj(<Bare | W | Dressed>)
@@ -184,10 +184,10 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
                 }
             }
 
-            // 3. APPLY AND MIRROR 
+            // 3. APPLY AND MIRROR
             H(i, j) = h_val;
             N(i, j) = n_val;
-            
+
             if (i != j) {
                 H(j, i) = std::conj(h_val);
                 N(j, i) = std::conj(n_val);
@@ -201,7 +201,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
 // Helper to map Channel enum to physical Z_i charges
 rvec get_channel_charges(Channel type) {
     switch (type) {
-        case Channel::PN: 
+        case Channel::PN:
             return {1.0, 0.0}; // Proton, Neutron
         case Channel::PI_0c_0f: case Channel::PI_0c_1f: case Channel::PI_0c_2f:
             return {1.0, 0.0, 0.0}; // Proton, Neutron, pi0
@@ -226,9 +226,9 @@ cmat build_r2_matrix(const std::vector<BasisState>& basis)
             if (basis[i].type == basis[j].type) {
                 // Fetch the correct charge distribution for this specific channel
                 rvec charges = get_channel_charges(basis[i].type);
-                
+
                 ld r2_val = charge_radius_operator(basis[i].psi, basis[j].psi, basis[i].jac, charges);
-                
+
                 R2(i, j) = cld(r2_val, 0.0);
                 if (i != j) {
                     R2(j, i) = cld(r2_val, 0.0);
