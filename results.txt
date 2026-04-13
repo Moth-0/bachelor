@@ -1,40 +1,16 @@
 ========================================
-  DEUTERON SYSTEM (FAST COMPETITIVE SVM)
-========================================
-
->>> RUNNING CLASSIC KINETIC ENERGY
---- 1. Planting Geometric PN Grid & Pion Seeds ---
-Skeleton Size: 14 states.
-Optimized Energy (Sweep 6) = 0.800926 MeV
-Skeleton Energy: 0.800926 MeV
-
---- 2. Competitive SVM Growth ---
-Added State 24 (Cycle 1, Ch 9) -> E = 0.79278 MeV
- - Sweeping Cycle 1 basis -
-Added State 34 (Cycle 2, Ch 9) -> E = -1.05810 MeV
- - Sweeping Cycle 2 basis -
-Added State 44 (Cycle 3, Ch 9) -> E = -2.06550 MeV
- - Sweeping Cycle 3 basis -
-Optimized Energy (Sweep 18) = -2.17308 MeV
-
->>> RUNNING RELATIVISTIC KINETIC ENERGY
---- 1. Planting Geometric PN Grid & Pion Seeds ---
-Skeleton Size: 14 states.
-Optimized Energy (Sweep 3) = -0.19563 MeV
-Skeleton Energy: -0.19563 MeV
-
---- 2. Competitive SVM Growth ---
-Added State 24 (Cycle 1, Ch 9) -> E = -0.22526 MeV
- - Sweeping Cycle 1 basis -
-Added State 34 (Cycle 2, Ch 9) -> E = -6.03252 MeV
- - Sweeping Cycle 2 basis -
-Added State 44 (Cycle 3, Ch 9) -> E = -8.49439 MeV
- - Sweeping Cycle 3 basis -
-Optimized Energy (Sweep 18) = -8.75485 MeV
-========================================
   FINAL RESULTS
 ========================================
-Classic Energy:      -2.17308 MeV
-Relativistic Energy  -8.75485 MeV
-Difference           -6.58177 Mev
+
+--- GROUND STATE ENERGY ---
+Classic Energy:          -2.13726 MeV
+Relativistic Energy:     -6.29759 MeV
+Difference (rel-cl):     -4.16033 MeV
+Experimental Target:     -2.22400 MeV
+
+--- CHARGE RADIUS ---
+Classic Radius:          11.44822 fm
+Relativistic Radius:     9.63057 fm
+Difference (rel-cl):     -1.81765 fm
+Experimental Value:      2.12800 fm
 ========================================

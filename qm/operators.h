@@ -288,35 +288,47 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
 
 // --- Charge Radius Operator r² ---
 ld charge_radius_operator(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket,
-                          const Jacobian& jac)
+                          const Jacobian& jac, rvec& charges)
 {
     return apply_basis_expansion(psi_bra, psi_ket,
             [&](const Gaussian& g_b, const Gaussian& g_k, ld M_term, const rmat& R) -> ld {
 
         if (jac.dim < 1) return 0.0; 
 
-        // Get proton coordinate relative to the Center of Mass.
-        rvec w_proton = jac.transform_w(0);
-        rvec c_charge(jac.dim);
-        for (size_t k = 0; k < jac.dim; ++k) {
-            c_charge[k] = w_proton[k];
-        }
+        ld total_r_squared = 0.0;
 
-        // 1. Variance term: 3.0 * c^T * R * c (Corrected for e^(-1/2 A x^2) form)
-        ld r_squared = 3.0 * dot_no_conj(c_charge, R * c_charge);
+        // Sum over all particles in the system
+        for (size_t p = 0; p < jac.N; ++p) {
+            // Skip particles with zero charge to save computation
+            if (std::abs(charges[p]) < ZERO_LIMIT) continue;
 
-        // 2. Shift term: sum over x, y, z dimensions
-        ld shift_contribution = 0.0;
-        for (size_t col = 0; col < 3; ++col) {
-            rvec v = g_b.s[col] + g_k.s[col];
-            rvec x_0 = R * v;  // Corrected shift center
+            // Get coordinate of particle p relative to Center of Mass
+            rvec w_p = jac.transform_w(p);
+            rvec c_charge(jac.dim);
+            for (size_t k = 0; k < jac.dim; ++k) {
+                c_charge[k] = w_p[k];
+            }
+
+            // 1. Variance term: 1.5 * c^T * R * c 
+            ld r_squared = 1.5L * dot_no_conj(c_charge, R * c_charge);
+
+            // 2. Shift term
+            ld shift_contribution = 0.0;
+            for (size_t col = 0; col < 3; ++col) {
+                rvec v = g_b.s[col] + g_k.s[col];
+                rvec x_0 = R * v * 0.5L;  // Corrected shift center
+                
+                ld proj = dot_no_conj(c_charge, x_0);
+                shift_contribution += proj * proj;
+            }
+
+            r_squared += shift_contribution;
             
-            ld proj = dot_no_conj(c_charge, x_0);
-            shift_contribution += proj * proj;
+            // Weight by the particle's charge Z_i
+            total_r_squared += charges[p] * r_squared;
         }
 
-        r_squared += shift_contribution;
-        return M_term * r_squared;
+        return M_term * total_r_squared;
     });
 }
 

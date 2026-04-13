@@ -178,7 +178,7 @@ GroundStateResult evaluate_with_radius(const std::vector<BasisState>& basis, ld 
 // Physics constraint checker - validates Gaussian state is physical
 // Adjust min_width, max_width here to change limits everywhere
 // Set debug=true to see why states are rejected
-bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
+bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = true) {
     // Width bounds (in fm⁻²) - use 1/r² form
     // min_width = 1/(r_max)² allows diffuse states up to r_max
     // max_width = 1/(r_min)² prevents states tighter than r_min
@@ -199,6 +199,8 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
         }
 
         // Shift constraint: |s_i| ≤ 2.0 * width * r_max (keep Gaussian localized)
+        // and |s_i| > 0
+        ld total_shift = 0;
         for (size_t col = 0; col < 3; ++col) {
             ld shift = std::abs(psi.s(i, col));
             ld limit = 2.0 * width * 4.0;
@@ -207,6 +209,12 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
                                      << " > limit=" << limit << " (width=" << width << ")\n";
                 return false;
             }
+
+            total_shift += shift * shift; 
+        }
+        if (psi.parity_sign == -1 && total_shift < 1e-6) {
+            if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
+            return false;
         }
     }
 
@@ -217,7 +225,7 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
         return false;
     }
 
-    if (debug) std::cerr << "  [ACCEPT] State passes all constraints\n";
+    //if (debug) std::cerr << "  [ACCEPT] State passes all constraints\n";
     return true;
 }
 
@@ -461,7 +469,7 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
     //      - Lock it permanently into the basis
     //   2. After all channels: sweep-optimize the expanded basis for polish
     
-    int num_cycles = 2;
+    int num_cycles = 4;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
@@ -512,7 +520,6 @@ std::pair<ld, ld> run_deuteron_svm(bool relativistic, ld b_range, ld b_form, ld 
             basis.push_back(best_candidate);
 
             ld current_E = evaluate_basis_energy(basis, b_form, S, relativistic);
-            convergence_energies.push_back(current_E);
 
             std::cout << "\rAdded State " << basis.size() << " (Cycle " << cycle+1 << ", Ch " << t << ") -> E = "
                       << std::fixed << std::setprecision(5) << current_E << " MeV    " << std::flush;
@@ -601,7 +608,7 @@ int main(int argc, char* argv[]) {
     // Default values
     ld b_range = 3.6;
     ld b_form = 1.4;
-    ld S = 50.0;
+    ld S = 30.0;
 
     // Parse command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -641,7 +648,7 @@ int main(int argc, char* argv[]) {
     auto [E_classic, R_classic] = run_deuteron_svm(false, b_range, b_form, S);
     
     // Run only classic comment out this line 
-    std::cout << "Energy (MeV): " << E_classic << " - Radius (fm): " << R_classic << "\n"; return 0;
+    //std::cout << "Energy (MeV): " << E_classic << " - Radius (fm): " << R_classic << "\n"; return 0;
     
     
     std::cout << "\n>>> RUNNING RELATIVISTIC KINETIC ENERGY\n";

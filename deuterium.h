@@ -198,6 +198,22 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
     return std::tuple<cmat, cmat> {H, N};
 }
 
+// Helper to map Channel enum to physical Z_i charges
+rvec get_channel_charges(Channel type) {
+    switch (type) {
+        case Channel::PN: 
+            return {1.0, 0.0}; // Proton, Neutron
+        case Channel::PI_0c_0f: case Channel::PI_0c_1f: case Channel::PI_0c_2f:
+            return {1.0, 0.0, 0.0}; // Proton, Neutron, pi0
+        case Channel::PI_pc_0f: case Channel::PI_pc_1f: case Channel::PI_pc_2f:
+            return {0.0, 0.0, 1.0}; // Neutron, Neutron, pi+ (Proton emitted pi+)
+        case Channel::PI_mc_0f: case Channel::PI_mc_1f: case Channel::PI_mc_2f:
+            return {1.0, 1.0, -1.0}; // Proton, Proton, pi- (Neutron emitted pi-)
+        default:
+            return {1.0, 0.0};
+    }
+}
+
 // Build the r² (charge radius) matrix for ALL diagonal basis states
 cmat build_r2_matrix(const std::vector<BasisState>& basis)
 {
@@ -207,10 +223,12 @@ cmat build_r2_matrix(const std::vector<BasisState>& basis)
     #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
-            // Radius operator preserves particle number and channel!
-            // We MUST evaluate it for both bare (PN) and dressed (PN+pion) states.
             if (basis[i].type == basis[j].type) {
-                ld r2_val = charge_radius_operator(basis[i].psi, basis[j].psi, basis[i].jac);
+                // Fetch the correct charge distribution for this specific channel
+                rvec charges = get_channel_charges(basis[i].type);
+                
+                ld r2_val = charge_radius_operator(basis[i].psi, basis[j].psi, basis[i].jac, charges);
+                
                 R2(i, j) = cld(r2_val, 0.0);
                 if (i != j) {
                     R2(j, i) = cld(r2_val, 0.0);
