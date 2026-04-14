@@ -75,7 +75,7 @@ def main():
     print("=========================================================")
 
     # Scan b_form from 1.0 fm to 2.2 fm in steps of 0.2
-    b_form_values = [0.6, 0.8, 1.1, 1.0, 1.2, 1.4]
+    b_form_values = [0.6, 0.8, 1.0, 1.2, 1.4]
     
     results = []
 

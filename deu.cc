@@ -86,11 +86,11 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
         
         // 1. Competitive Search 
-        competitive_search(basis, channel_templates, 1000, b_range, b_form, S, relativistic, cycle);
+        competitive_search(basis, channel_templates, 500, b_range, b_form, S, relativistic, cycle);
 
         // 2. Refinement Cycle
         std::cout << "\n=== Refinement Cycle ===\n";
-        refinement(basis, 20, 1e-3, b_range, b_form, S, relativistic, convergence_energies);
+        refinement(basis, 2, 1e-3, b_range, b_form, S, relativistic, convergence_energies);
 
         std::cout << "\n";
     }
