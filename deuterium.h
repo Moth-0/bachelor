@@ -98,7 +98,8 @@ struct BasisState {
     ld pion_mass;
 };
 
-std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, const std::vector<bool>& relativistic)
+std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, 
+                                      const std::vector<bool>& relativistic, Integrator method=Integrator::GAUSS_LEGENDRE)
 {
     size_t size = basis.size();
     cmat H = zeros<cld>(size, size);
@@ -123,7 +124,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
             if (state_i.type == state_j.type && state_i.type == Channel::PN) {
 
                 // --- BARE KINETIC ENERGY --
-                ld T_pn = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {relativistic[0]});
+                ld T_pn = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, {relativistic[0]}, method);
                 h_val += cld(T_pn, 0.0);
 
             }
@@ -132,7 +133,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
 
                 // --- DRESSED KINETIC ENERGY ---
                 ld T_total = 0.0;
-                T_total += total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, relativistic);
+                T_total += total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, relativistic, method);
 
                 ld rest_mass_term = state_i.pion_mass * std::real(n_val);
                 h_val += cld(T_total + rest_mass_term, 0.0);
@@ -237,4 +238,31 @@ cmat build_r2_matrix(const std::vector<BasisState>& basis)
         }
     }
     return R2;
+}
+
+// Build the T (Kinetic Energy) matrix for ALL diagonal basis states
+inline cmat build_T_matrix(const std::vector<BasisState>& basis, const std::vector<bool>& relativistic, 
+                           Integrator method=Integrator::GAUSS_LEGENDRE)
+{
+    size_t size = basis.size();
+    cmat T_mat = zeros<cld>(size, size);
+
+    #pragma omp parallel for schedule(dynamic)
+    for (size_t i = 0; i < size; ++i) {
+        for (size_t j = i; j < size; ++j) {
+            if (basis[i].type == basis[j].type) {
+                ld t_val = 0.0;
+                if (basis[i].type == Channel::PN) {
+                    t_val = total_kinetic_energy(basis[i].psi, basis[j].psi, basis[i].jac, {relativistic[0]}, method);
+                } else {
+                    t_val = total_kinetic_energy(basis[i].psi, basis[j].psi, basis[i].jac, relativistic, method);
+                }
+                T_mat(i, j) = cld(t_val, 0.0);
+                if (i != j) {
+                    T_mat(j, i) = cld(t_val, 0.0);
+                }
+            }
+        }
+    }
+    return T_mat;
 }

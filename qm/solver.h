@@ -81,7 +81,7 @@
 
 #include "matrix.h"
 
-using namespace qm;
+namespace qm {
 
 // Helper function to find lowest eigenvalue and eigenvector using Jacobi diagonalization
 // Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
@@ -328,4 +328,5 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
 
     //size_t absolute_best_idx = indices[0]; 
     return simplex[best_idx];
+}
 }

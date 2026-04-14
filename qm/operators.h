@@ -63,10 +63,17 @@
 
 namespace qm {
 
+// Enum to switch integration methods
+enum class Integrator { 
+    GAUSS_LEGENDRE, 
+    SIMPSON, 
+    ADAPTIVE_RECURSIVE 
+};
+
 // 32-point Gauss-Legendre Quadrature
 // Computes roots dynamically at startup for perfect machine precision!
-inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upper_bound) {
-    constexpr int N = 32;
+inline ld integrate_gauss(const std::function<ld(ld)>& func, ld lower_bound, ld upper_bound) {
+    constexpr int N = 64;
     
     // This lambda runs exactly ONCE, caches the math, and never runs again.
     static const auto [nodes, weights] = []() {
@@ -116,6 +123,60 @@ inline ld integrate_1d(const std::function<ld(ld)>& func, ld lower_bound, ld upp
     return sum * half_width;
 }
 
+// 2000-point Simpson's 1/3 Rule (Safe for highly oscillatory sine waves)
+inline ld integrate_simpson(const std::function<ld(ld)>& func, ld lower_bound, ld upper_bound, int N = 4000) {
+    if (N % 2 != 0) N++; // N must be even for Simpson's 1/3 rule
+    ld h = (upper_bound - lower_bound) / N;
+    ld sum = func(lower_bound) + func(upper_bound);
+
+    for (int i = 1; i < N; i += 2) {
+        sum += 4.0 * func(lower_bound + i * h);
+    }
+    for (int i = 2; i < N - 1; i += 2) {
+        sum += 2.0 * func(lower_bound + i * h);
+    }
+
+    return sum * h / 3.0;
+}
+
+// NEW: 3. Adaptive Recursive Simpson's Rule (Slow but perfectly accurate)
+inline ld integrate_adaptive_simpson(const std::function<ld(ld)>& func, ld a, ld b, 
+                                     ld fa, ld fm, ld fb, ld whole_area, 
+                                     ld eps, int depth, int max_depth) {
+    ld c = (a + b) / 2.0;
+    ld h = (b - a) / 2.0;
+    ld d = (a + c) / 2.0;
+    ld e = (c + b) / 2.0;
+    
+    ld fd = func(d);
+    ld fe = func(e);
+    
+    // Evaluate the left and right halves
+    ld left_area = (h / 6.0) * (fa + 4.0 * fd + fm);
+    ld right_area = (h / 6.0) * (fm + 4.0 * fe + fb);
+    
+    // Base Case: If error is within tolerance (using Richardson extrapolation bound) or max depth hit
+    if (depth >= max_depth || std::abs(left_area + right_area - whole_area) <= 15.0 * eps) {
+        return left_area + right_area + (left_area + right_area - whole_area) / 15.0;
+    }
+    
+    // Recursive Step: Drill down deeper into both halves
+    return integrate_adaptive_simpson(func, a, c, fa, fd, fm, left_area, eps / 2.0, depth + 1, max_depth) +
+           integrate_adaptive_simpson(func, c, b, fm, fe, fb, right_area, eps / 2.0, depth + 1, max_depth);
+}
+
+// Wrapper for the recursive adaptive integrator
+inline ld integrate_adaptive(const std::function<ld(ld)>& func, ld a, ld b, ld eps = 1e-8) {
+    ld c = (a + b) / 2.0;
+    ld fa = func(a);
+    ld fb = func(b);
+    ld fm = func(c);
+    ld whole_area = ((b - a) / 6.0) * (fa + 4.0 * fm + fb);
+    
+    // Max depth of 50 prevents stack overflow on extremely wild functions
+    return integrate_adaptive_simpson(func, a, b, fa, fm, fb, whole_area, eps, 0, 50);
+}
+
 // Define the global physical constant for hbar * c (in MeV * fm)
 constexpr ld HBARC = 197.3269804;
 
@@ -147,7 +208,8 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
 
 // --- Relativistic Kinetic Energy ---
 ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket, 
-                                ld M_overlap, const rmat& R, const rvec& c, ld mass) 
+                                ld M_overlap, const rmat& R, const rvec& c, ld mass, 
+                                Integrator method=Integrator::GAUSS_LEGENDRE) 
 {
     // Calculate gamma (Units: fm^2)
     rvec A_ket_c = g_ket.A * c;
@@ -185,8 +247,21 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     };
 
     // Perform numerical integration 
-    ld x_max = std::sqrt(20.0 / gamma); 
-    ld integral_result = integrate_1d(integrand, 0.0, x_max);
+    ld x_max = std::sqrt(40.0 / gamma); 
+    ld integral_result = 0.0;
+
+    // Switch between the three integrators
+    switch (method) {
+        case Integrator::GAUSS_LEGENDRE:
+            integral_result = integrate_gauss(integrand, 0.0, x_max);
+            break;
+        case Integrator::SIMPSON:
+            integral_result = integrate_simpson(integrand, 0.0, x_max, 2000);
+            break;
+        case Integrator::ADAPTIVE_RECURSIVE:
+            integral_result = integrate_adaptive(integrand, 0.0, x_max, 1e-8); // 1e-8 tolerance
+            break;
+    }
 
     // Apply the prefactors
     ld prefactor;
@@ -200,7 +275,8 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
 }
 
 ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket, 
-                        const Jacobian& jac, const std::vector<bool>& relativistic) 
+                        const Jacobian& jac, const std::vector<bool>& relativistic, 
+                        Integrator method=Integrator::GAUSS_LEGENDRE) 
 {
     // Ensure the relativistic flags match the internal dimensions!
     if (relativistic.size() != jac.dim) {
@@ -219,7 +295,7 @@ ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefun
             ld mu_i  = jac.reduced_masses[i];
 
             if (relativistic[i]) {
-                K_term += relativistic_kinetic_energy(g_b, g_k, M_term, R, c_i, mu_i);
+                K_term += relativistic_kinetic_energy(g_b, g_k, M_term, R, c_i, mu_i, method);
             } else {
                 K_term += classic_kinetic_energy(g_b, g_k, M_term, R, c_i, mu_i);
             }
