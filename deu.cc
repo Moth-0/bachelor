@@ -99,7 +99,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {b_form, 2.0*b_form};
+    std::vector<ld> deterministic_widths = {b_form, 2.0*b_form, 3.0*b_form};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -107,7 +107,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     }
 
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 3;
+    int num_cycles = 4;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
@@ -138,9 +138,9 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 3.6;
+    ld b_range = 200;
     ld b_form = 1.4;
-    ld S = 30.0;
+    ld S = 0.0;
 
     std::string file_name = "convergence.data";
 

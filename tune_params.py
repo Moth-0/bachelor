@@ -17,7 +17,7 @@ S_MAX_INIT = 100.0
 
 def run_svm(b_form, S):
     """Runs the C++ deu executable and extracts E and R."""
-    cmd = ["./deu", "-b_range", "200", "-b_form", str(b_form), "-S", str(S)]
+    cmd = ["./deu", "-b_range", "200.0", "-b_form", str(b_form), "-S", str(S)]
     
     # Run the command and capture the output
     result = subprocess.run(cmd, capture_output=True, text=True)
