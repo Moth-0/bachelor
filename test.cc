@@ -1,248 +1,214 @@
-// =============================================================================
-//  test.cc — FOCUSED PHYSICS VALIDATION 
-//
-//  Tests:
-//  1. W-operator norm_factor (Proving the analytical volume integral)
-//  2. Rest mass term scaling (Proving GEVP requires overlap scaling)
-//  3. NO_FLIP coupling logic (Center-of-Mass '+' vs True Dipole '-')
-//  4. Adjoint Matrix placement 
-// =============================================================================
+/*
+ * test_suite.cc - MASTER ANALYTICAL VERIFICATION SUITE
+ * Contains deterministic, by-hand verified tests for 2-body and 3-body 
+ * quantum mechanical operators using Stochastic Variational Gaussians.
+ */
 
 #include <iostream>
 #include <iomanip>
-#include <cmath>
-#include <string>
 #include <vector>
-#include <functional>
+#include <cmath>
 
 #include "qm/matrix.h"
 #include "qm/gaussian.h"
 #include "qm/operators.h"
-#include "qm/solver.h"
-#include "deuterium.h"
+#include "qm/jacobi.h"
 
 using namespace qm;
 
-void print_sep(char c = '=', int width = 80) {
-    for (int i = 0; i < width; ++i) std::cout << c;
-    std::cout << "\n";
+// ========================================================================
+// TEST 1: 2-PARTICLE SYSTEM (Unshifted, S-Wave)
+// ========================================================================
+bool test_2_particle_system() {
+    std::cout << "----------------------------------------------------\n";
+    std::cout << " RUNNING TEST 1: 2-Particle System (Unshifted)\n";
+    std::cout << "----------------------------------------------------\n";
+
+    ld m_p = 939.0, m_n = 939.0;
+    ld mu = (m_p * m_n) / (m_p + m_n);
+    ld hbarc_sq_over_2mu = (HBARC * HBARC) / (2.0 * mu);
+
+    Jacobian jac({m_p, m_n});
+
+    ld A_val = 0.5;
+    rmat A = eye<ld>(1) * A_val;
+    rmat s = zeros<ld>(1, 3);
+    SpatialWavefunction psi(A, s, 1); // Positive parity (+1)
+
+    // 1. Overlap
+    ld N_overlap = spactial_overlap(psi, psi);
+    ld expected_overlap = std::pow(M_PI, 1.5) * 2.0;
+
+    // 2. Kinetic Energy
+    std::vector<bool> rel_flags = {false}; 
+    ld T_matrix_element = total_kinetic_energy(psi, psi, jac, rel_flags);
+    ld calculated_T_exp = T_matrix_element / N_overlap;
+    ld expected_T_exp = hbarc_sq_over_2mu * 3.0 * A_val;
+
+    // 3. Charge Radius
+    rvec charges = {1.0, 0.0}; 
+    ld R2_matrix_element = charge_radius_operator(psi, psi, jac, charges);
+    ld calculated_R2_exp = R2_matrix_element / N_overlap;
+    ld expected_R2_exp = 0.375;
+
+    // Print Results
+    std::cout << std::fixed << std::setprecision(6);
+    std::cout << " Overlap <N>:    Exp = " << expected_overlap << " | Calc = " << N_overlap << "\n";
+    std::cout << " Kinetic <T>:    Exp = " << expected_T_exp << " | Calc = " << calculated_T_exp << " MeV\n";
+    std::cout << " Radius <R^2>:   Exp = " << expected_R2_exp << " | Calc = " << calculated_R2_exp << " fm^2\n";
+
+    bool success = (std::abs(calculated_T_exp - expected_T_exp) < 1e-4) && 
+                   (std::abs(calculated_R2_exp - expected_R2_exp) < 1e-4);
+    
+    if (success) std::cout << " -> [PASS] \n\n";
+    else std::cout << " -> [FAIL] 2-Particle Math mismatch!\n\n";
+
+    return success;
 }
 
-void print_matrix(const std::string& name, const cmat& M) {
-    std::cout << "\n" << name << " (" << M.size1() << "x" << M.size2() << "):\n";
-    print_sep('-', 60);
-    for (size_t i = 0; i < M.size1(); ++i) {
-        for (size_t j = 0; j < M.size2(); ++j) {
-            cld val = M(i, j);
-            std::cout << std::setw(14) << std::fixed << std::setprecision(6);
-            if (std::abs(val.imag()) < 1e-12L) {
-                std::cout << val.real();
-            } else {
-                std::cout << "(" << val.real() << ", " << val.imag() << ")";
-            }
-            if (j < M.size2() - 1) std::cout << "  ";
-        }
-        std::cout << "\n";
-    }
+// ========================================================================
+// TEST 2: 3-PARTICLE SYSTEM (Shifted, Parity Interference)
+// ========================================================================
+bool test_3_particle_shifted_system() {
+    std::cout << "----------------------------------------------------\n";
+    std::cout << " RUNNING TEST 2: 3-Particle System (Shifted)\n";
+    std::cout << "----------------------------------------------------\n";
+
+    ld m_p = 900.0, m_n = 900.0, m_pi = 200.0;
+    ld mu_1 = 450.0;
+    ld mu_2 = 180.0;
+
+    ld C1 = (HBARC * HBARC) / (2.0 * mu_1);
+    ld C2 = (HBARC * HBARC) / (2.0 * mu_2);
+
+    Jacobian jac({m_p, m_n, m_pi});
+
+    ld A_val = 0.5;
+    rmat A = zeros<ld>(2, 2);
+    A(0, 0) = A_val;
+    A(1, 1) = A_val;
+    
+    rmat s = zeros<ld>(2, 3);
+    s(0, 2) = 1.0; // Shift coordinate 1 by 1.0 fm in Z
+
+    SpatialWavefunction psi(A, s, 1); // Positive parity (+1)
+    ld e1 = std::exp(1.0); 
+
+    // 1. Overlap
+    ld N_overlap = spactial_overlap(psi, psi);
+    ld expected_overlap = std::pow(M_PI, 3.0) * (e1 + 1.0);
+
+    // 2. Kinetic Energy
+    std::vector<bool> rel_flags = {false, false}; 
+    ld T_matrix_element = total_kinetic_energy(psi, psi, jac, rel_flags);
+    ld calculated_T_exp = T_matrix_element / N_overlap;
+    
+    ld T1_exp = C1 * (1.5 - (4.0 / (e1 + 1.0)));
+    ld T2_exp = C2 * 1.5; 
+    ld expected_T_exp = T1_exp + T2_exp;
+
+    // 3. Charge Radius
+    rvec charges = {1.0, 0.0, 1.0}; 
+    ld R2_matrix_element = charge_radius_operator(psi, psi, jac, charges);
+    ld calculated_R2_exp = R2_matrix_element / N_overlap;
+    
+    ld shift_inflation = 0.25 * (e1 / (e1 + 1.0));
+    ld expected_R2_exp = 1.605 + shift_inflation; 
+
+    // Print Results
+    std::cout << std::fixed << std::setprecision(6);
+    std::cout << " Overlap <N>:    Exp = " << expected_overlap << " | Calc = " << N_overlap << "\n";
+    std::cout << " Kinetic <T>:    Exp = " << expected_T_exp << " | Calc = " << calculated_T_exp << " MeV\n";
+    std::cout << " Radius <R^2>:   Exp = " << expected_R2_exp << " | Calc = " << calculated_R2_exp << " fm^2\n";
+
+    bool success = (std::abs(calculated_T_exp - expected_T_exp) < 1e-4) && 
+                   (std::abs(calculated_R2_exp - expected_R2_exp) < 1e-4);
+    
+    if (success) std::cout << " -> [PASS] \n\n";
+    else std::cout << " -> [FAIL] 3-Particle Math mismatch!\n\n";
+
+    return success;
 }
 
-// =============================================================================
-//  TEST 1: W-OPERATOR NORM_FACTOR (ANALYTICAL VOLUME)
-// =============================================================================
-void test_w_operator_norm_factor() {
-    print_sep();
-    std::cout << "TEST 1: W-OPERATOR NORM_FACTOR (ANALYTICAL VOLUME)\n";
-    print_sep();
+// ========================================================================
+// TEST 3: OFF-DIAGONAL HAMILTONIAN (Pion Coupling Operator W)
+// ========================================================================
+bool test_w_coupling() {
+    std::cout << "----------------------------------------------------\n";
+    std::cout << " RUNNING TEST 3: Hamiltonian Cross-Term (W Operator)\n";
+    std::cout << "----------------------------------------------------\n";
 
-    const ld m_p = 938.272L, m_n = 939.565L, m_pi = 134.97L;
-    const ld b_form = 1.4L;
-    const ld S = 590.0L;
+    // 1. Setup Parameters
+    ld b_form = 1.0; 
+    ld S_strength = 10.0;
+    ld iso_factor = std::sqrt(2.0L); // e.g., PN -> PN + pi^+
 
-    Jacobian jac_bare({m_p, m_n});
-    Jacobian jac_pion({m_p, m_n, m_pi});
+    // Transition coordinate vector (Selects the pion Jacobi coordinate)
+    rvec c_transition = {0.0, 1.0}; 
 
-    // PN state (bare)
-    rmat A_pn(1, 1); A_pn(0, 0) = 1.0L;
-    rmat s_pn = zeros<ld>(1, 3);
-    SpatialWavefunction psi_pn(A_pn, s_pn, 1);
+    // 2. Setup the Bare State (1D)
+    rmat A_bare = eye<ld>(1) * 0.5L;
+    rmat s_bare = zeros<ld>(1, 3);
+    SpatialWavefunction psi_bare(A_bare, s_bare, 1); // P = +1
 
-    // π⁰ state
-    rmat A_pi(2, 2);
-    A_pi(0, 0) = 1.0L; A_pi(0, 1) = 0.0L;
-    A_pi(1, 0) = 0.0L; A_pi(1, 1) = 1.0L;
-    rmat s_pi(2, 3);
-    s_pi(1, 2) = 0.6L;
-    SpatialWavefunction psi_pi(A_pi, s_pi, -1);
+    // 3. Setup the Dressed State (2D)
+    // Matches the bare core (0.5) and matches the form factor width (1.0 / b^2 = 1.0)
+    rmat A_dressed = zeros<ld>(2, 2);
+    A_dressed(0, 0) = 0.5;
+    A_dressed(1, 1) = 1.0; 
+    
+    // Shift the pion by 1.0 fm in the Z direction
+    rmat s_dressed = zeros<ld>(2, 3);
+    s_dressed(1, 2) = 1.0; 
 
-    std::cout << "\nComputing True Form Factor Normalization:\n";
+    SpatialWavefunction psi_dressed(A_dressed, s_dressed, -1); // P = -1
 
-    ld b_pow_5 = std::pow(b_form, 5.0);
-    ld two_pow_11_halves = std::pow(2.0, 5.5);
-    ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
-    ld norm_factor = 1.0 / std::sqrt(norm_sq);
+    // 4. Calculate W using the engine
+    // We test NO_FLIP, which strictly evaluates the Z-coordinate projection
+    cld W_calc_cld = total_w_coupling(psi_bare, psi_dressed, c_transition, 
+                                      b_form, S_strength, iso_factor, NO_FLIP);
+    ld W_calculated = std::real(W_calc_cld); // Imaginary part should be 0
 
-    std::cout << "  b = " << b_form << " fm\n";
-    std::cout << "  Volume Integral (norm_sq) = " << norm_sq << "\n";
-    std::cout << "  norm_factor = 1/√norm_sq = " << norm_factor << "\n";
+    // 5. Analytical Hand-Calculation
+    ld M_term = (std::pow(M_PI, 3.0) / (2.0 * std::sqrt(2.0))) * std::exp(0.125);
+    ld W_spatial = M_term * 0.5; // Includes the parity normalization!
+    
+    ld norm_sq = (3.0 * std::pow(M_PI, 1.5)) / (8.0 * std::sqrt(2.0));
+    ld W_expected = W_spatial * S_strength * iso_factor * (1.0 / std::sqrt(norm_sq));
 
-    rvec c_pi_1 = jac_pion.get_internal_distance_vector(2, 0);
+    // Print Results
+    std::cout << std::fixed << std::setprecision(6);
+    std::cout << " Transition Matrix Element <PN | W | PN pi>\n";
+    std::cout << " Expected:   " << W_expected << " MeV\n";
+    std::cout << " Calculated: " << W_calculated << " MeV\n\n";
 
-    cld w_val_1 = total_w_coupling(psi_pn, psi_pi, c_pi_1, b_form, S, 1.0L, NO_FLIP);
-    ld w_restored_1 = w_val_1.real() / norm_factor;
+    bool success = (std::abs(W_calculated - W_expected) < 1e-4);
+    
+    if (success) std::cout << " -> [PASS] \n\n";
+    else std::cout << " -> [FAIL] W Operator mismatch!\n\n";
 
-    std::cout << "\nComparison:\n";
-    std::cout << "  Unnormalized Raw Integral : " << w_restored_1 << " MeV*fm^3 (Physically meaningless units)\n";
-    std::cout << "  Normalized True Energy    : " << w_val_1.real() << " MeV (Correct!)\n";
-    std::cout << "  ✓ The norm factor ensures S parameter dictates energy magnitude.\n";
+    return success;
 }
 
-// =============================================================================
-//  TEST 2: REST MASS TERM SCALING (GEVP PROOF)
-// =============================================================================
-void test_rest_mass_scaling() {
-    print_sep();
-    std::cout << "TEST 2: REST MASS TERM SCALING (GEVP PROOF)\n";
-    print_sep();
-
-    const ld m_p = 938.272L, m_n = 939.565L, m_pi = 134.97L;
-
-    Jacobian jac_bare({m_p, m_n});
-    Jacobian jac_pion({m_p, m_n, m_pi});
-
-    std::vector<BasisState> basis;
-
-    {
-        rmat A(1, 1); A(0, 0) = 1.0L;
-        rmat s = zeros<ld>(1, 3);
-        SpatialWavefunction psi(A, s, 1);
-        basis.push_back({psi, Channel::PN, NO_FLIP, 1.0L, jac_bare, 0.0L});
-    }
-
-    {
-        rmat A(2, 2);
-        A(0, 0) = 1.0L; A(0, 1) = 0.0L;
-        A(1, 0) = 0.0L; A(1, 1) = 1.0L;
-        rmat s(2, 3);
-        s(1, 2) = 0.6L;
-        SpatialWavefunction psi(A, s, -1);
-        basis.push_back({psi, Channel::PI_0c_0f, NO_FLIP, 1.0L, jac_pion, m_pi});
-    }
-
-    // Compute pion state overlap
-    ld N11 = spactial_overlap(basis[1].psi, basis[1].psi);
-    ld T_pi = total_kinetic_energy(basis[1].psi, basis[1].psi, basis[1].jac, {false, false});
-
-    std::cout << "\nPion state diagonal (i=j=1):\n";
-    std::cout << "  N(1,1) = <π|π> = " << N11 << " (NOTE: Basis is non-orthogonal, N != 1.0)\n";
-    std::cout << "  T_π = " << T_pi << " MeV\n";
-    std::cout << "  m_π = " << m_pi << " MeV\n\n";
-
-    std::cout << "TRUE MATH (H_11 = T_11 + m_π * N_11):\n";
-    ld rest_mass_WITH_overlap = m_pi * N11;
-    ld H11_WITH_overlap = T_pi + rest_mass_WITH_overlap;
-    std::cout << "  H(1,1) = " << T_pi << " + (" << m_pi << " × " << N11 << ") = " << H11_WITH_overlap << " MeV\n";
-    std::cout << "  ✓ Correct. Evaluates full expectation value <ψ | H | ψ>\n\n";
-
-    std::cout << "BROKEN PHYSICS (Claude's Suggestion: H_11 = T_11 + m_π):\n";
-    ld rest_mass_NO_overlap = m_pi;
-    ld H11_NO_overlap = T_pi + rest_mass_NO_overlap;
-    std::cout << "  H(1,1) = " << T_pi << " + " << m_pi << " = " << H11_NO_overlap << " MeV\n";
-    std::cout << "  ⚠️ INCORRECT! Assumes <ψ|ψ> = 1.0. Will mathematically break GEVP!\n";
-}
-
-// =============================================================================
-//  TEST 3: NO_FLIP COUPLING LOGIC (+ vs -)
-// =============================================================================
-void test_no_flip_coupling() {
-    print_sep();
-    std::cout << "TEST 3: NO_FLIP W-COUPLING LOGIC (C.O.M. vs TRUE DIPOLE)\n";
-    print_sep();
-
-    const ld m_p = 938.272L, m_n = 939.565L, m_pi = 134.97L;
-    const ld b_form = 1.4L;
-    const ld S = 590.0L;
-
-    Jacobian jac_bare({m_p, m_n});
-    Jacobian jac_pion({m_p, m_n, m_pi});
-
-    // PN state
-    rmat A_pn(1, 1); A_pn(0, 0) = 1.0L;
-    rmat s_pn = zeros<ld>(1, 3);
-    SpatialWavefunction psi_pn(A_pn, s_pn, 1);
-
-    // π⁰ state
-    rmat A_pi(2, 2);
-    A_pi(0, 0) = 1.0L; A_pi(0, 1) = 0.0L;
-    A_pi(1, 0) = 0.0L; A_pi(1, 1) = 1.0L;
-    rmat s_pi(2, 3);
-    s_pi(1, 2) = 0.6L;
-    SpatialWavefunction psi_pi(A_pi, s_pi, -1);
-
-    rvec c_pi_1 = jac_pion.get_internal_distance_vector(2, 0); // Pion to N1
-    rvec c_pi_2 = jac_pion.get_internal_distance_vector(2, 1); // Pion to N2
-
-    cld w_val_n1 = total_w_coupling(psi_pn, psi_pi, c_pi_1, b_form, S, 1.0L, NO_FLIP);
-    cld w_val_n2 = total_w_coupling(psi_pn, psi_pi, c_pi_2, b_form, S, 1.0L, NO_FLIP);
-
-    std::cout << "\nIndividual Nucleon Couplings:\n";
-    std::cout << "  W(c_pi_1) = " << w_val_n1.real() << " MeV\n";
-    std::cout << "  W(c_pi_2) = " << w_val_n2.real() << " MeV\n\n";
-
-    std::cout << "BUGGY 'PLUS' SIGN (w_n1 + w_n2):\n";
-    cld w_val_add = w_val_n1 + w_val_n2;
-    std::cout << "  SUM = " << w_val_add.real() << " MeV\n";
-    std::cout << "  Math Result: Destructive Interference.\n";
-    std::cout << "  Physics: Nucleon coordinates cancel out (r1 + r2 = 0 in COM).\n";
-    std::cout << "  Calculates distance from COM to pion. Artificially weak.\n\n";
-
-    std::cout << "TRUE ISOSPIN 'MINUS' SIGN (w_n1 - w_n2):\n";
-    cld w_val_sub = w_val_n1 - w_val_n2;
-    std::cout << "  SUBTRACT = " << w_val_sub.real() << " MeV\n";
-    std::cout << "  Math Result: Constructive Interference.\n";
-    std::cout << "  Physics: Pion coordinate cancels (rpi - rpi = 0). Leaves r2 - r1.\n";
-    std::cout << "  Calculates true P-Wave relative distance. Vastly stronger coupling!\n";
-}
-
-// =============================================================================
-//  TEST 4: FULL HAMILTONIAN WITH ADJOINT FIX
-// =============================================================================
-void test_full_hamiltonian_adjoint() {
-    print_sep();
-    std::cout << "TEST 4: FULL HAMILTONIAN WITH ADJOINT FIX\n";
-    print_sep();
-
-    // NOTE: Requires building build_matrices with `h_val += std::conj(w_val);` for i_is_bare
-    std::cout << "\nVerify your deuterium.h has the Adjoint fixed!\n";
-    std::cout << "If i_is_bare is true, we are building the Upper-Right block.\n";
-    std::cout << "Upper-Right block must be W^dagger (std::conj).\n";
-    std::cout << "Lower-Left block must be W (no conj).\n";
-}
-
-// =============================================================================
-//  MAIN
-// =============================================================================
+// ========================================================================
+// MAIN EXECUTION
+// ========================================================================
 int main() {
-    std::cout << std::fixed << std::setprecision(8);
-    print_sep('=', 80);
-    std::cout << "PHYSICS DEBUGGING: PROVING THE MATHEMATICAL FRAMEWORK\n";
-    print_sep('=', 80);
+    std::cout << "====================================================\n";
+    std::cout << "        STARTING SVM OPERATOR TEST SUITE\n";
+    std::cout << "====================================================\n\n";
 
-    try {
-        test_w_operator_norm_factor();
-        test_rest_mass_scaling();
-        test_no_flip_coupling();
-        test_full_hamiltonian_adjoint();
-    } catch (const std::exception& e) {
-        std::cout << "\n[ERROR] Exception: " << e.what() << "\n";
-        return 1;
+    bool t1 = test_2_particle_system();
+    bool t2 = test_3_particle_shifted_system();
+    bool t3 = test_w_coupling();
+
+    std::cout << "====================================================\n";
+    if (t1 && t2 && t3) {
+        std::cout << " [ALL TESTS PASSED] \n";
+    } else {
+        std::cout << " [WARNING] One or more tests failed. \n";
     }
-
-    print_sep('=', 80);
-    std::cout << "DIAGNOSIS SUMMARY:\n";
-    std::cout << "  1. The Norm Factor and Rest Mass algorithms are 100% correct.\n";
-    std::cout << "  2. Changing NO_FLIP to '+' breaks the physics but stops collapse.\n";
-    std::cout << "  3. Keeping NO_FLIP as '-' requires bounding A(i,i) < 50.0 to stop collapse.\n";
-    print_sep('=', 80);
+    std::cout << "====================================================\n";
 
     return 0;
 }

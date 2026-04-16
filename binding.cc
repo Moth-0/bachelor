@@ -26,6 +26,86 @@
 
 using namespace qm;
 
+// The GEVP Solver - Extracts the lowest TWO energies (for continuum threshold testing)
+inline std::pair<ld, ld> solve_lowest_two_energies(const cmat& H, const cmat& N) {
+    cmat L = N.cholesky();
+    
+    // Need at least 2 basis states to find an excited state!
+    if (L.size1() < 2) {
+        return {999999.0, 999999.0};
+    }
+
+    cmat L_inv = L.inverse_lower();
+    if (L_inv.size1() == 0) {
+        return {999999.0, 999999.0};
+    }
+
+    cmat H_prime = L_inv * H * L_inv.adjoint();
+
+    size_t n = H_prime.size1();
+    ld tolerance = ZERO_LIMIT;
+    int max_sweeps = 50;
+
+    // Fast Jacobi diagonalization (Energy only, skips eigenvector tracking)
+    for (int sweep = 0; sweep < max_sweeps; ++sweep) {
+        ld max_off_diag = 0.0;
+        for (size_t p = 0; p < n - 1; ++p) {
+            for (size_t q = p + 1; q < n; ++q) {
+                ld off_diag_mag = std::abs(H_prime(p, q));
+                if (off_diag_mag > max_off_diag) max_off_diag = off_diag_mag;
+
+                if (off_diag_mag > tolerance) {
+                    // 1. Calculate angles
+                    ld app = std::real(H_prime(p, p));
+                    ld aqq = std::real(H_prime(q, q));
+                    cld apq = H_prime(p, q);
+
+                    ld theta = 0.5 * std::atan2(2.0 * off_diag_mag, aqq - app);
+                    ld cos_t = std::cos(theta);
+                    ld sin_t = std::sin(theta);
+                    cld phase = std::conj(apq) / off_diag_mag;
+
+                    // 2. Explicitly update the 4 intersection points FIRST
+                    H_prime(p, p) = cos_t * cos_t * app + sin_t * sin_t * aqq - 2.0 * cos_t * sin_t * off_diag_mag;
+                    H_prime(q, q) = sin_t * sin_t * app + cos_t * cos_t * aqq + 2.0 * cos_t * sin_t * off_diag_mag;
+                    H_prime(p, q) = 0.0; 
+                    H_prime(q, p) = 0.0;
+
+                    // 3. Rotate the rest of the rows and columns
+                    for (size_t i = 0; i < n; ++i) {
+                        if (i == p || i == q) continue; // CRITICAL: Protect the intersections!
+
+                        cld ip = H_prime(i, p);
+                        cld iq = H_prime(i, q);
+                        
+                        // Update columns
+                        H_prime(i, p) = cos_t * ip - sin_t * phase * iq;
+                        H_prime(i, q) = sin_t * std::conj(phase) * ip + cos_t * iq;
+                        
+                        // Force perfect Hermitian symmetry natively (saves a whole loop!)
+                        H_prime(p, i) = std::conj(H_prime(i, p));
+                        H_prime(q, i) = std::conj(H_prime(i, q));
+                    }
+
+                    // 4. (If you are in jacobi_with_eigenvector, update V here)
+                    // (This V loop is totally fine because it only updates columns!)
+                }
+            }
+        }
+        if (max_off_diag < tolerance) break;
+    }
+
+    // Extract all eigenvalues from the diagonal and sort them
+    std::vector<ld> energies(n);
+    for (size_t i = 0; i < n; ++i) {
+        energies[i] = std::real(H_prime(i, i));
+    }
+    std::sort(energies.begin(), energies.end());
+
+    // Return the ground state (0) and first excited state (1)
+    return {energies[0], energies[1]};
+}
+
 // Performs iterative stochastic refinement on the existing basis until convergence
 inline void refinement(std::vector<BasisState>& basis, int max_passes, ld tolerance, 
                        ld b_range, ld b_form, ld S, 
@@ -99,42 +179,68 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {b_form, 2.0*b_form};
+    std::vector<ld> deterministic_widths = {2.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
-        basis.push_back({SpatialWavefunction(A_fixed, s_fixed, +1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
+        basis.push_back({SpatialWavefunction(A_fixed, s_fixed, 1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
     }
 
+    // for (size_t t = 1; t < channel_templates.size(); ++t) {
+    //     BasisState seed = channel_templates[t];
+    //     Gaussian g;
+    //     g.randomize(seed.jac, b_range, b_form);
+    //     seed.psi.set_from_gaussian(g);
+    //     basis.push_back(seed);
+    // }
+    
+    // std::cout << "Skeleton Size: " << basis.size() << " states.\n";
+    // ld skeleton_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+    // convergence_energies.push_back(skeleton_E);
+    // std::cout << "\nSkeleton Energy: " << skeleton_E << " MeV\n\n";
+
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 3;
+    int num_cycles = 2;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 0; cycle < num_cycles; ++cycle) {
-        std::cout << " - Cycle " << cycle + 1 << " - \n";
+        std::cout << " - Cycle " << cycle << " - \n";
 
         // 1. Competitive Search 
-        competitive_search(basis, channel_templates, 10000, b_range, b_form, S, relativistic);
-        ld E_now = evaluate_basis_energy(basis, b_form, S, relativistic);
-        convergence_energies.push_back(E_now);
+        competitive_search(basis, channel_templates, 5000, b_range, b_form, S, relativistic);
 
         // // 2. Refinement Cycle
         // std::cout << "\n=== Refinement ===\n";
         // refinement(basis, 3, 1e-4, b_range, b_form, S, relativistic, convergence_energies);
-            
+
         std::cout << "\n-------------------------------------------------------\n";
     }
 
+    
     sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
+    
+    print_basis_details(basis, " === FINAL BASIS STATE (ALL CYCLES COMPLETE) ===");
+    std::cout << "\n";
+
+    // =================================================================
+    // NEW: ASYMPTOTIC CONTINUUM CHECK (First Excited State / Threshold)
+    // =================================================================
+    auto [H_final, N_final] = build_matrices(basis, b_form, S, relativistic);
+    auto [E0, E1] = solve_lowest_two_energies(H_final, N_final);
+    
+    std::cout << "--- ASYMPTOTIC CONTINUUM CHECK ---\n";
+    std::cout << " Ground State (E0):        " << std::fixed << std::setprecision(5) << E0 << " MeV\n";
+    std::cout << " Continuum Threshold (E1): " << E1 << " MeV\n";
+    std::cout << " Absolute Binding Energy:  " << std::abs(E0 - E1) << " MeV\n";
+    std::cout << "----------------------------------\n\n";
+    // =================================================================
 
     SvmResult result = evaluate_observables(basis, b_form, S, relativistic);
     result.convergence_history = convergence_energies;
-
-    print_basis_details(basis, result.coefficients);
-    std::cout << "\n";  
     
     return result;
 }
+
 
 int main(int argc, char* argv[]) {
     // Default values
@@ -169,7 +275,7 @@ int main(int argc, char* argv[]) {
 
     // Enable nested parallelism
     omp_set_nested(0);
-    //omp_set_max_active_levels(2);
+    omp_set_max_active_levels(2);
 
     std::cout << "========================================\n";
     std::cout << "  DEUTERON SYSTEM (FAST COMPETITIVE SVM)\n";
@@ -185,14 +291,6 @@ int main(int argc, char* argv[]) {
         {"PN_{Cla} Pi_{Cla}", {false, false}},
     };
 
-    // std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-    //     {"PN_{Cla} Pi_{Cla}", {false, false}},
-    //     {"PN_{Rel} Pi_{Cla}", {true,  false}},
-    //     {"PN_{Cla} Pi_{Rel}", {false, true}},
-    //     {"PN_{Rel} Pi_{Rel}", {true,  true}}
-    // };
-
-    std::ofstream outfile(file_name);
     std::vector<SvmResult> all_results;
 
     // Run the configurations loop
@@ -204,16 +302,8 @@ int main(int argc, char* argv[]) {
         
         SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
         all_results.push_back(res);
-
-        std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
-
-        outfile << "\"Iteration\"\t\"" << label << "\"\n";
-        for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
-            outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
-        }
-        outfile << "\n\n"; 
+    
     }
-    outfile.close();
 
     // Print final summary comparison table
     std::cout << "\n========================================================================================\n";

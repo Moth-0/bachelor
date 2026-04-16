@@ -63,7 +63,7 @@ struct BasisState {
     SpatialWavefunction psi;       // Gaussian basis function (A, s, parity)
     Channel type;                  // Which physics channel (PN or PN_SIGMA)
     Jacobian jac;                  // Reduced mass / coordinate transformations
-    ld meson_mass;                 // Rest mass of sigma meson (~500 MeV)
+    ld meson_mass = 500.0;                 // Rest mass of sigma meson (~500 MeV)
 };
 
 // --- PURE SCALAR COUPLING ---

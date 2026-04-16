@@ -39,6 +39,7 @@
 #include <cmath>
 #include <vector>
 #include <random>
+#include <atomic>
 #include "matrix.h"
 #include "jacobi.h"
 
@@ -98,15 +99,21 @@ struct Gaussian {
     //   - jac: Jacobian object with N particles, dimension N-1
     //   - b_range: Search space for widths (fm); larger → explores wider spatial scales
     
-    void randomize(const Jacobian& jac, ld b_range) {
+    void randomize(const Jacobian& jac, ld b_range, ld b_form) {
         size_t N = jac.N;           // Number of physical particles
         size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
 
         rmat A_new(dim, dim);
 
-        thread_local size_t vdc_counter = 1;
+        static std::atomic<size_t> global_vdc_counter{1};
 
-        // 1. Loop over pairs (i < j)
+        // 1. Pull ONE ticket for this entire Gaussian state
+        size_t current_n = global_vdc_counter.fetch_add(1, std::memory_order_relaxed);
+
+        // 2. Array of prime numbers for the Halton sequence bases
+        const size_t primes[] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29};
+        size_t pair_idx = 0; // Tracks which pair we are on
+
         for (size_t i = 0; i < N; ++i) {
             for (size_t j = i + 1; j < N; ++j) {
 
@@ -115,39 +122,55 @@ struct Gaussian {
                 rvec w_j = jac.transform_w(j);
                 rvec w_ij_full = w_i - w_j;
 
-                // 2. Truncate the Center of Mass coordinate 
+                // Truncate the Center of Mass coordinate 
                 rvec w_ij(dim);
                 for (size_t k = 0; k < dim; ++k) {
                     w_ij[k] = w_ij_full[k];
                 }
 
-                // The outer product is now safely (N-1) x (N-1)
                 rmat outer = outer_no_conj(w_ij, w_ij);
 
-                // 3. Stochastically pick b_ij using the Van der Corput sequence
-                ld u = van_der_corput(vdc_counter++, 2);
+                // -------------------------------------------------------------
+                // 3. THE HALTON GENERATOR
+                // Use a different prime base for each physical pair!
+                size_t base = primes[pair_idx % 10]; 
+                ld u = van_der_corput(current_n, base);
+                pair_idx++;
+                // -------------------------------------------------------------
 
-                // Safety bound just in case to prevent log(0)
+                // Prevent u from hitting pure 0 or 1 boundaries
                 if (u < ZERO_LIMIT) u = ZERO_LIMIT;
+                if (u > 1.0 - ZERO_LIMIT) u = 1.0 - ZERO_LIMIT;
 
                 ld b_ij = -std::log(u) * b_range;
+                ld b2 = b_ij * b_ij;
 
-                A_new += outer / (b_ij * b_ij);
+                // Safety constraints
+                if (b2 < 0.01) b2 = 0.01;
+                if (b2 > (b_range * b_range)) b2 = (b_range * b_range);
+
+                A_new += outer / b2;
             }
         }
 
         SELF.A = A_new;
 
         rmat r0(dim, 3);
-        // 4. Randomize the shift vector
-        // Small shifts can remain standard pseudo-random, as they just jitter the spatial center.
-        ld range = 0.2 * b_range;
-        FOR_MAT(r0) r0(j, i) = random_ld(-range, range);
-
+        ld range = b_form;
+        FOR_MAT(r0) {
+            // The pion gets a random physical shift
+            r0(j, i) = random_ld(-range, range);
+        }
+        
+        // 1. Matrix multiply (this will mix the coordinates!)
         SELF.s = A_new * r0 * 2.0L;
+
+        // 2. THE LOCK: Mathematically sever the NN shift from the pion shift
+        for (size_t col = 0; col < 3; ++col) {
+            SELF.s(0, col) = 0.0; 
+        }
     }
 };
-
 
 struct SpatialWavefunction {
     rmat A;
@@ -229,25 +252,8 @@ inline ld gaussian_overlap(const rmat& A1, const rmat& s1, const rmat& A2, const
     return prefactor * std::exp(0.25 * vBv);
 }
 
-// 2. Full Spatial Overlap incorporating Parity
-inline ld spactial_overlap(const SpatialWavefunction& g1, const SpatialWavefunction& g2) {
-    // A SpatialWavefunction is |+s> + p |-s>. 
-    // Expanding <g1 | g2> gives 4 terms:
-    
-    // <+s1 | +s2>
-    ld term1 = gaussian_overlap(g1.A, g1.s, g2.A, g2.s);
-    
-    // p2 * <+s1 | -s2>
-    ld term2 = g2.parity_sign * gaussian_overlap(g1.A, g1.s, g2.A, -1.0L * g2.s);
-    
-    // p1 * <-s1 | +s2>
-    ld term3 = g1.parity_sign * gaussian_overlap(g1.A, -1.0L * g1.s, g2.A, g2.s);
-    
-    // p1 * p2 * <-s1 | -s2>
-    ld term4 = (g1.parity_sign * g2.parity_sign) * gaussian_overlap(g1.A, -1.0L * g1.s, g2.A, -1.0L * g2.s);
 
-    return term1 + term2 + term3 + term4;
-}
+
 
 template <typename Func>
 auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunction& ket, Func operation) {
@@ -282,7 +288,19 @@ auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunc
             }
         }
     }
-    return total_value;
+
+    // THE FIX: Apply the 1/sqrt(2) normalization factors!
+    ld norm_factor = 1.0L / std::sqrt(static_cast<ld>(num_bra_terms * num_ket_terms));
+
+    return norm_factor * total_value;
+}
+
+// 2. Full Spatial Overlap incorporating Parity
+inline ld spactial_overlap(const SpatialWavefunction& g1, const SpatialWavefunction& g2) {
+    return apply_basis_expansion(g1, g2, [](const Gaussian& g_b, const Gaussian& g_k, ld M_term, const rmat& R) {
+        // The operation for a pure overlap is literally just returning the M_term!
+        return M_term; 
+    });
 }
 
 // Promotes a bare state (e.g., pn) to the dressed dimension (pn + pion)
@@ -314,7 +332,7 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 }
 
 // Flattens a wavefunction into a 1D rvec for Nelder-Mead
-rvec pack_wavefunction(const SpatialWavefunction& psi) {
+rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
     rvec p;
     // 1. Pack upper triangle of A
     for (size_t i = 0; i < psi.A.size1(); ++i) {
@@ -322,19 +340,22 @@ rvec pack_wavefunction(const SpatialWavefunction& psi) {
             p.push_back(psi.A(i, j));
         }
     }
-    // 2. Pack the entire s matrix
-    for (size_t i = 0; i < psi.s.size1(); ++i) {
-        for (size_t j = 0; j < psi.s.size2(); ++j) {
-            p.push_back(psi.s(i, j));
+    // 2. Pack the entire s matrix ONLY if allowed
+    if (optimize_shift) {
+        for (size_t i = 0; i < psi.s.size1(); ++i) {
+            for (size_t j = 0; j < psi.s.size2(); ++j) {
+                if (i == 0) continue;
+                p.push_back(psi.s(i, j));
+            }
         }
     }
     return p;
 }
 
 // Rebuilds the wavefunction from the 1D rvec
-void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p) {
+void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_shift) {
     size_t idx = 0;
-    // 1. Unpack A (Enforcing symmetry: A(i,j) == A(j,i))
+    // 1. Unpack A
     for (size_t i = 0; i < psi.A.size1(); ++i) {
         for (size_t j = i; j < psi.A.size2(); ++j) {
             psi.A(i, j) = p[idx];
@@ -342,11 +363,15 @@ void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p) {
             idx++;
         }
     }
-    // 2. Unpack s
+    // 2. Unpack s (or force to zero)
     for (size_t i = 0; i < psi.s.size1(); ++i) {
         for (size_t j = 0; j < psi.s.size2(); ++j) {
-            psi.s(i, j) = p[idx];
-            idx++;
+            if (i == 0) psi.s(i, j) = 0.0; 
+            else {
+                psi.s(i, j) = p[idx];
+                idx++;
+            }
         }
     }
+    
 }

@@ -16,6 +16,7 @@ namespace qm {
 
 struct SvmResult {
     ld energy;
+    rvec coefficients;
     ld charge_radius;
     ld avg_kinetic_energy;
     ld prob_bare;
@@ -41,7 +42,7 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
     
     // 2. Near-Singularity Check: The diagonal of L approaches 0
     for (size_t i = 0; i < L.size1(); ++i) {
-        if (std::abs(L(i, i)) < ZERO_LIMIT) { 
+        if (std::abs(L(i, i)) < 0.05) { 
             if (debug) {
                 std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n"
                           << "  -> L(" << i << "," << i << ") = " << std::abs(L(i, i)) << " < threshold.\n";
@@ -58,10 +59,15 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     auto [H, N] = build_matrices(basis, b, S, relativistic);
     cld detN = N.determinant();
     if (std::abs(detN) < ZERO_LIMIT) { 
-        return {999999.0, 99999.0, 0.0, {}}; 
+        return {999999.0, {}, 99999.0, 0.0, {}}; 
     }
 
     auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
+    
+    rvec coeff(eigvec.size());
+    for (size_t i = 0; i < coeff.size(); ++i) {
+        coeff[i] = abs(eigvec[i]);
+    }
 
     // Build observable matrices
     cmat R2 = build_r2_matrix(basis);
@@ -95,12 +101,12 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     ld r2_total_charge = r2_point + r_p_sq + r_n_sq;
     ld charge_radius = (r2_total_charge > 0.0) ? std::sqrt(r2_total_charge) : 0.0;
 
-    return {E0, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
+    return {E0, coeff, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
 }
 
 // Physics constraint checker - validates Gaussian state is physical
 bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
-    const ld min_width = 1.0 / (50.0 * 50.0); 
+    const ld min_width = 1.0 / (200.0 * 200.0); 
     const ld max_width = 1.0 / (0.1 * 0.1); 
 
     // Check diagonal widths and shifts
@@ -120,7 +126,7 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
         ld total_shift = 0;
         for (size_t col = 0; col < 3; ++col) {
             ld shift = std::abs(psi.s(i, col));
-            ld limit = 2.0 * width * 3.0;
+            ld limit = 2.0 * width * 5.0;
             if (shift > limit) {
                 if (debug) std::cerr << "  [REJECT] |s[" << i << "," << col << "]|=" << shift
                                      << " > limit=" << limit << " (width=" << width << ")\n";
@@ -129,7 +135,7 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
 
             total_shift += shift * shift; 
         }
-        if (psi.parity_sign == -1 && total_shift < 1e-6) {
+        if (psi.parity_sign == -1 && total_shift < ZERO_LIMIT) {
             if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
             return false;
         }
@@ -146,18 +152,19 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
 }
 
 // Debug helper: Print final basis state parameters with constraint validation
-void print_basis_details(const std::vector<BasisState>& basis, const std::string& label) {
-    std::cerr << "\n" << label << "\n";
+void print_basis_details(const std::vector<BasisState>& basis, const rvec& coeff) {
+    std::cerr << "\n === FINAL BASIS STATE (ALL CYCLES COMPLETE) === \n";
     std::cerr << "Basis Size: " << basis.size() << "\n";
     std::cerr << std::string(120, '=') << "\n";
 
     for (size_t k = 0; k < basis.size(); ++k) {
-        std::cerr << "State " << k << " (Type " << (int)basis[k].type << "):\n";
+        std::cerr << "\nState " << k << " (Type " << (int)basis[k].type  
+                  << ") c_i: " << coeff[k] << ":\n";
 
         for (size_t i = 0; i < basis[k].psi.A.size1(); ++i) {
             ld width = basis[k].psi.A(i, i);
-            std::cerr << "  Gaussian[" << i << "] width=" << width << " fm⁻² (r≈"
-                      << (1.0/std::sqrt(width)) << " fm) | ";
+            std::cerr << "  Gaussian[" << i << "] width r≈ "
+                      << (1.0/std::sqrt(width)) << " fm | ";
 
             ld shift_sq = 0.0;
             for (size_t col = 0; col < 3; ++col) {
@@ -166,8 +173,7 @@ void print_basis_details(const std::vector<BasisState>& basis, const std::string
             ld total_shift = std::sqrt(shift_sq);
             ld total_position = total_shift / (2.0 * width); 
 
-            std::cerr << "Total Shift: " << total_shift << " fm⁻¹ (" << total_position << " fm) | ";
-            std::cerr << "| det(A)=" << basis[k].psi.A.determinant() << "\n";
+            std::cerr << "Total Shift: " << total_position << " fm | \n";
         }
     }
     std::cerr << std::string(120, '=') << "\n";
@@ -178,7 +184,7 @@ void print_basis_details(const std::vector<BasisState>& basis, const std::string
 bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld b_form, ld S, const std::vector<bool>& relativistic) {
     SpatialWavefunction original_psi = basis[k].psi;
     ld original_E = evaluate_basis_energy(basis, b_form, S, relativistic);
-    int cands = 500;
+    int cands = 50;
 
     ld best_E = original_E;
     SpatialWavefunction best_psi = original_psi;
@@ -192,10 +198,8 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
         #pragma omp for
         for (int c = 0; c < cands; ++c) {
             Gaussian g;
-            g.randomize(local_basis[k].jac, b_range);
+            g.randomize(local_basis[k].jac, b_range, b_form);
             local_basis[k].psi.set_from_gaussian(g);
-
-            if (!is_physical_gaussian(local_basis[k].psi)) continue;
 
             ld E = evaluate_basis_energy(local_basis, b_form, S, relativistic);
             if (E < local_best_E) {
@@ -221,9 +225,9 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
 inline void competitive_search(std::vector<BasisState>& basis, 
                                const std::vector<BasisState>& channel_templates,
                                int num_candidates, ld b_range, ld b_form, ld S, 
-                               const std::vector<bool>& relativistic, int cycle) 
+                               const std::vector<bool>& relativistic) 
 {
-    for (size_t t = 0; t < channel_templates.size(); ++t) {
+    for (size_t t = 1; t < channel_templates.size(); ++t) {
         BasisState best_candidate = channel_templates[t];
         ld best_E = 999999.0;
 
@@ -237,7 +241,7 @@ inline void competitive_search(std::vector<BasisState>& basis,
             for (int c = 0; c < num_candidates; ++c) {
                 BasisState test_candidate = channel_templates[t];
                 Gaussian g;
-                g.randomize(test_candidate.jac, b_range);
+                g.randomize(test_candidate.jac, b_range, b_form);
                 test_candidate.psi.set_from_gaussian(g);
 
                 local_basis.push_back(test_candidate);
@@ -264,68 +268,35 @@ inline void competitive_search(std::vector<BasisState>& basis,
         basis.push_back(best_candidate);
         ld current_E = evaluate_basis_energy(basis, b_form, S, relativistic);
 
-        std::cout << "\rAdded State " << basis.size() << " (Cycle " << cycle+1 << ", Ch " << t << ") -> E = "
+        std::cout << "\rAdded State " << basis.size() << " (Ch " << t << ") -> E = "
                   << std::fixed << std::setprecision(5) << current_E << " MeV    " << std::flush;
     }
 }
 
-// Performs iterative stochastic refinement on the existing basis until convergence
-inline void refinement(std::vector<BasisState>& basis, int max_passes, ld tolerance, 
-                       ld b_range, ld b_form, ld S, const std::vector<bool>& relativistic, 
-                       rvec& convergence_energies) 
-{
-    ld previous_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
-
-    for (int pass = 0; pass < max_passes; ++pass) {
-        int num_improved_this_pass = 0;
-        
-        for (size_t k = 0; k < basis.size(); ++k) {
-            bool improved = refine_basis_state(basis, k, b_range, b_form, S, relativistic);
-            if (improved) {
-                num_improved_this_pass++;
-            }
-            std::cout << "\rPass " << pass+1 << "/" << max_passes 
-                      << " | Refined state " << k+1 << "/" << basis.size()
-                      << " (" << num_improved_this_pass << " improved)    " << std::flush;
-        }
-
-        ld current_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
-        ld delta_E = previous_pass_E - current_pass_E;
-
-        std::cout << "\n -> End of Pass " << pass+1 << ": E = " 
-                  << std::fixed << std::setprecision(6) << current_pass_E 
-                  << " MeV (ΔE = " << delta_E << " MeV)\n";
-
-        if (delta_E < tolerance) {
-            std::cout << " -> Refinement Converged: Total improvement below " << tolerance << " MeV.\n";
-            break; 
-        }
-
-        previous_pass_E = current_pass_E;
-        convergence_energies.push_back(previous_pass_E);
-    }
-}
 
 // Optimize basis parameters via Nelder-Mead sweeping with early exit
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) {
-    int max_sweeps = 100;
-    int nm_max_iter = 200; 
-    ld improvement_threshold = 1e-3; 
-    int patience = 3; 
+    int max_sweeps = 200;
+    int nm_max_iter = 1000; 
+    ld improvement_threshold = 1e-4; 
+    int patience = 5; 
 
     ld previous_E = 999999.0;
     int no_improve_count = 0;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         for (size_t k = 0; k < basis.size(); ++k) {
+            // Optimize shifts for pions, but NOT for the bare PN state.
+            bool opt_shift = true; //(basis[k].type != Channel::PN);
+
             SpatialWavefunction backup_psi = basis[k].psi;
-            rvec p0 = pack_wavefunction(backup_psi);
+            rvec p0 = pack_wavefunction(backup_psi, opt_shift);
 
             ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
 
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
                 std::vector<BasisState> test_basis = basis;
-                unpack_wavefunction(test_basis[k].psi, p_test);
+                unpack_wavefunction(test_basis[k].psi, p_test, opt_shift);
 
                 if (!is_physical_gaussian(test_basis[k].psi, false)) return 999999.0;
 
@@ -333,7 +304,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
             };
 
             rvec p_best = nelder_mead(p0, objective_func, nm_max_iter);
-            unpack_wavefunction(basis[k].psi, p_best);
+            unpack_wavefunction(basis[k].psi, p_best, opt_shift);
 
             ld E_after = evaluate_basis_energy(basis, b, S, relativistic);
             if (E_after > E_before) {

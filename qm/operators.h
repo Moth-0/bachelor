@@ -192,7 +192,7 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
-        eta_vec[col] = dot_no_conj(c, diff);
+        eta_vec[col] = 2.0L * dot_no_conj(c, diff);
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
 
@@ -203,7 +203,7 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     // Convert fm^-2 to MeV^2 using (hbar*c)^2, then divide by 2*mass (MeV)
     // Result is in MeV
     ld hbarc_sq = HBARC * HBARC;
-    return M_overlap * hbarc_sq * (1.5 * inv_gamma - eta_sq) / (2.0 * mass);
+    return M_overlap * hbarc_sq * (1.5L * inv_gamma - eta_sq) / (2.0 * mass);
 }
 
 // --- Relativistic Kinetic Energy ---
@@ -221,12 +221,8 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     // Calculate the shift magnitude eta (Units: fm^-1)
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
-        rvec Rs_ket = R * g_ket.s[col];
-        rvec Rs_bra = R * g_bra.s[col];
-        rvec ARs_ket = g_bra.A * Rs_ket;
-        rvec ARs_bra = g_ket.A * Rs_bra;
-        rvec diff = ARs_ket - ARs_bra;
-        eta_vec[col] = dot_no_conj(c, diff);
+        rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
+        eta_vec[col] = 2.0L * dot_no_conj(c, diff);
     }
     ld eta = std::sqrt(dot_no_conj(eta_vec, eta_vec)); 
 

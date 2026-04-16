@@ -56,62 +56,10 @@
 #include "qm/operators.h"
 #include "qm/solver.h"
 #include "sigma.h"
+#include "SVM.h"
+
 
 using namespace qm;
-
-/// Evaluates the ground state energy for a given basis configuration.
-/// Constructs H and N matrices, solves GEVP, returns lowest eigenvalue.
-ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, bool relativistic) {
-    auto [H, N] = build_matrices(basis, b, S, relativistic);
-    return solve_ground_state_energy(H, N);
-}
-
-/// Optimizes all basis state parameters via Nelder-Mead sweeping.
-/// Runs until convergence (energy change < tolerance) or max_sweeps reached.
-/// See deu.cc for detailed SVM sweeping explanation.
-void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relativistic) {
-    ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
-    ld previous_E = 999999.0;
-    ld sweep_tolerance = 1e-4; 
-    int max_sweeps = 50;
-    int sweep = 0;
-
-    while (sweep < max_sweeps && std::abs(previous_E - current_E) > sweep_tolerance) {
-        previous_E = current_E;
-        
-        for (size_t k = 0; k < basis.size(); ++k) {
-            SpatialWavefunction backup_psi = basis[k].psi;
-            rvec p0 = pack_wavefunction(backup_psi);
-
-            auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
-                // Create temporary copy to avoid corrupting basis during Nelder-Mead
-                std::vector<BasisState> test_basis = basis;
-                unpack_wavefunction(test_basis[k].psi, p_test);
-
-                bool is_physical = true;
-                for (size_t i = 0; i < test_basis[k].psi.A.size1(); ++i) {
-                    if (test_basis[k].psi.A(i, i) <= 0.02) is_physical = false;
-                }
-                if (test_basis[k].psi.A.determinant() <= ZERO_LIMIT) is_physical = false;
-
-                for (size_t i = 0; i < test_basis[k].psi.s.size1(); ++i) {
-                    for (size_t col = 0; col < 3; ++col) {
-                        if (std::abs(test_basis[k].psi.s(i, col)) > 6.0) is_physical = false;
-                    }
-                }
-
-                if (!is_physical) return 999999.0;
-                return evaluate_basis_energy(test_basis, b, S, relativistic);
-            };
-
-            rvec p_best = nelder_mead(p0, objective_func);
-            unpack_wavefunction(basis[k].psi, p_best);
-            current_E = evaluate_basis_energy(basis, b, S, relativistic);
-        }
-        sweep++;
-    }
-}
-
 
 /// Main SVM algorithm for sigma-meson deuteron model.
 /// Two-phase approach: geometric PN basis → competitive sigma growth.
@@ -122,7 +70,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, bool relat
 ///   • Add 25 sigma-dressed states competitively (simpler than 9 pion channels)
 ///   • No spin flips or isospin factors (scalar W-operator)
 ///   • Different S parameter (~20.35 from Fedorov fit)
-ld run_sigma_svm(bool relativistic) {
+ld run_sigma_svm(bool rel) {
     // Physical Constants from Fedorov (2020)
     ld m_n = 939.0, m_p = 939.0;    // 
     ld m_sigma = 500.0;             // [cite: 156, 157]
@@ -132,6 +80,7 @@ ld run_sigma_svm(bool relativistic) {
     Jacobian jac_dressed({m_p, m_n, m_sigma});
 
     std::vector<BasisState> basis;
+    std::vector<bool> relativistic = {rel};
 
     // 1. PLANT THE GEOMETRIC BARE CORE (10 states as recommended) [cite: 159]
     std::cout << "--- 1. Planting PN Bare Core ---\n";
@@ -166,7 +115,7 @@ ld run_sigma_svm(bool relativistic) {
             for (int c = 0; c < num_candidates_per_step; ++c) {
                 BasisState test_candidate = dressed_template;
                 Gaussian g;
-                g.randomize(test_candidate.jac, b_range);
+                g.randomize(test_candidate.jac, b_range, b_range);
                 test_candidate.psi.set_from_gaussian(g);
 
                 local_basis.push_back(test_candidate);
@@ -189,17 +138,15 @@ ld run_sigma_svm(bool relativistic) {
         }
 
         basis.push_back(best_candidate);
-        
-        // Sweep every 5 states to keep it fast
-        if (i % 5 == 0 || i == num_dressed - 1) {
-            sweep_optimize_basis(basis, b_range, S, relativistic);
-        }
+    
         
         std::cout << "\r" << "Added Dressed State " << i+1 << "/" << num_dressed << " -> Energy: " 
                   << std::fixed << std::setprecision(5) << evaluate_basis_energy(basis, b_range, S, relativistic) << " MeV    " << std::flush;
     }
     
     std::cout << "\n";
+    sweep_optimize_basis(basis, b_range, S, relativistic);
+
     return evaluate_basis_energy(basis, b_range, S, relativistic);
 }
 

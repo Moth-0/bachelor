@@ -2,7 +2,7 @@
 set terminal pngcairo size 800,600 enhanced font "Arial,11" ;\
 set output "convergence.png" ;\
 set title "Convergence of SVM under Different Kinematics" ;\
-set xlabel "Optimization Iterations" ;\
+set xlabel "SVM Iterations" ;\
 set ylabel "Ground State Energy (MeV)" ;\
 set grid ;\
 set key top right box ;\

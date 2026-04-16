@@ -385,7 +385,7 @@ struct matrix {
                     s += L(i,k) * scalar_conj(L(j,k));
                 if (i == j) {
                     auto diag_val = std::real(SELF(i,i) - s);
-                    if (diag_val < ZERO_LIMIT * ZERO_LIMIT) {
+                    if (diag_val < ZERO_LIMIT) {
                         return matrix(0,0);  // not positive-definite or too ill-conditioned
                     }
                     L(i,i) = T{std::sqrt(diag_val)};
