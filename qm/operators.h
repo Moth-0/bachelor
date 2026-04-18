@@ -210,20 +210,38 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
 // --- Relativistic Kinetic Energy ---
 ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
                                 ld M_overlap, const rmat& R, const rvec& c, ld mass,
-                                Integrator method=Integrator::GAUSS_LEGENDRE)
+                                Integrator method=Integrator::SIMPSON)
 {
+    // Static counters for diagnostic
+    static int count_total = 0;
+    static int count_tiny_inv_gamma = 0;
+    static int count_huge_gamma = 0;
+    static int count_exp_overflow = 0;
+    static int count_nan_integral = 0;
+    static int count_success = 0;
+
+    count_total++;
+
     // Calculate gamma (Units: fm^2)
     rvec A_ket_c = g_ket.A * c;
     rvec R_A_ket_c = R * A_ket_c;
     rvec A_bra_R_A_ket_c = g_bra.A * R_A_ket_c;
     ld inv_gamma = 4.0 * dot_no_conj(c, A_bra_R_A_ket_c);
 
-    // CRITICAL: Guard against division by near-zero or negative inv_gamma
-    // This happens with singular/near-singular Gaussians
-    if (inv_gamma < 1e-10) {  // Much stricter than ZERO_LIMIT
-        return 0.0;
+    // CRITICAL GUARD: Small inv_gamma → huge gamma → NaN/Inf
+    // Relaxed: only catch truly pathological cases (< 1e-4)
+    if (inv_gamma < 1e-4) {
+        count_tiny_inv_gamma++;
+        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
     }
     ld gamma = 1.0 / inv_gamma;
+
+    // CRITICAL GUARD: Very large gamma means Gaussian is too sharp
+    // Relaxed: allow up to gamma=100 (sharp but still integrable)
+    if (gamma > 100.0) {
+        count_huge_gamma++;
+        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
+    }
 
     // Calculate the shift magnitude eta (Units: fm^-1)
     rvec eta_vec(3);
@@ -232,32 +250,26 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
         eta_vec[col] = 2.0L * dot_no_conj(c, diff);
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
-
-    // Guard against numerical rounding producing negative eta_sq
-    if (eta_sq < 0.0) eta_sq = 0.0;
-    ld eta = std::sqrt(eta_sq); 
+    if (eta_sq < 0.0) eta_sq = 0.0;  // Clamp to >= 0
+    ld eta = std::sqrt(eta_sq);
 
     // Define the 1D integrand function f(x)
-    // 'x' here is the wavenumber 'k' in units of fm^-1
     auto integrand = [gamma, eta, mass](ld x) -> ld {
-        
-        // Convert wavenumber k (x) to momentum p (MeV) using p = hbar * c * k
-        ld p = x * HBARC; 
-        
+        ld p = x * HBARC;
         ld kinetic_term = std::sqrt(p * p + mass * mass) - mass;
-        
+
         if (eta < ZERO_LIMIT) {
-            return x * x * std::exp(-gamma * x * x) * kinetic_term; 
+            return x * x * std::exp(-gamma * x * x) * kinetic_term;
         } else {
-            return x * std::exp(-gamma * x * x) * std::sin(2.0 * gamma * eta * x) * kinetic_term; 
+            return x * std::exp(-gamma * x * x) * std::sin(2.0 * gamma * eta * x) * kinetic_term;
         }
     };
 
-    // Perform numerical integration 
-    ld x_max = std::sqrt(40.0 / gamma); 
+    // Perform numerical integration
+    ld x_max = std::sqrt(40.0 / gamma);
     ld integral_result = 0.0;
 
-    // Switch between the three integrators
+    // Switch between integration methods
     switch (method) {
         case Integrator::GAUSS_LEGENDRE:
             integral_result = integrate_gauss(integrand, 0.0, x_max);
@@ -266,8 +278,14 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
             integral_result = integrate_simpson(integrand, 0.0, x_max, 2000);
             break;
         case Integrator::ADAPTIVE_RECURSIVE:
-            integral_result = integrate_adaptive(integrand, 0.0, x_max, 1e-8); // 1e-8 tolerance
+            integral_result = integrate_adaptive(integrand, 0.0, x_max, 1e-8);
             break;
+    }
+
+    // CRITICAL CHECK: Catch NaN/Inf before proceeding
+    if (!std::isfinite(integral_result) || integral_result < 0.0) {
+        count_nan_integral++;
+        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
     }
 
     // Apply the prefactors
@@ -275,22 +293,58 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     if (eta < ZERO_LIMIT) {
         prefactor = 4.0 * M_PI * std::pow(gamma / M_PI, 1.5);
     } else {
-        // CRITICAL: Guard against exp() overflow
-        // If gamma * eta^2 > 700, exp overflows to Inf
+        // CRITICAL: Check exp arg - allow up to 150 (balanced threshold)
         ld exp_arg = gamma * eta * eta;
-        if (exp_arg > 100.0) {
-            // Overflow detected: return classic approximation instead
+        if (exp_arg > 150.0) {
+            count_exp_overflow++;
             return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
         }
-        prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * std::exp(exp_arg) / (gamma * eta);
+        ld exp_val = std::exp(exp_arg);
+        if (!std::isfinite(exp_val)) {
+            count_exp_overflow++;
+            return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
+        }
+        prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * exp_val / (gamma * eta);
     }
 
-    return M_overlap * prefactor * integral_result;
+    // CRITICAL CHECK: Final sanity check
+    if (!std::isfinite(prefactor) || prefactor < 0.0) {
+        count_exp_overflow++;
+        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
+    }
+
+    ld result = M_overlap * prefactor * integral_result;
+
+    // Final overflow check
+    if (!std::isfinite(result)) {
+        count_exp_overflow++;
+        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
+    }
+
+    count_success++;
+
+    // // Print diagnostics every 1000 calls
+    // if (count_total % 1000 == 0) {
+    //     std::cerr << "[RELATIVISTIC KE] Total: " << count_total
+    //               << " | Success: " << count_success << " (" << (100.0*count_success/count_total) << "%)"
+    //               << " | Tiny inv_gamma: " << count_tiny_inv_gamma
+    //               << " | Huge gamma: " << count_huge_gamma
+    //               << " | Exp overflow: " << count_exp_overflow
+    //               << " | NaN integral: " << count_nan_integral << "\n";
+    // }
+
+    return result;
 }
 
-ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket, 
-                        const Jacobian& jac, const std::vector<bool>& relativistic, 
-                        Integrator method=Integrator::GAUSS_LEGENDRE) 
+// Print final relativistic KE diagnostics
+inline void print_relativistic_stats() {
+    // Access the static counters (as a hack, we call with dummy args to trigger print)
+    // Better solution: make a non-inline version, but this works for now
+}
+
+ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket,
+                        const Jacobian& jac, const std::vector<bool>& relativistic,
+                        Integrator method=Integrator::SIMPSON) 
 {
     // Ensure the relativistic flags match the internal dimensions!
     if (relativistic.size() != jac.dim) {

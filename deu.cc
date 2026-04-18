@@ -105,7 +105,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {1.0, 4.0, 6.0};
+    std::vector<ld> deterministic_widths = {0.2, 3.0, 10.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -113,7 +113,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     }
 
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 3;
+    int num_cycles = 5;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 1; cycle < num_cycles+1; ++cycle) {
@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
     // Default values
     ld b_range = 200;
     ld b_form = 1.4;
-    ld S = 0.0;
+    ld S = 30.0;
 
     std::string file_name = "convergence.data";
 
@@ -188,14 +188,14 @@ int main(int argc, char* argv[]) {
 
 
     std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-        {"PN_{Cla} Pi_{Cla}", {true, true}},
+        {"PN_{Cla} Pi_{Cla}", {false,  false}},
     };
 
     // std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
     //     {"PN_{Cla} Pi_{Cla}", {false, false}},
-    //     {"PN_{Rel} Pi_{Cla}", {true,  false}},
+    //     {"PN_{Rel} Pi_{Cla}", {true, false}},
     //     {"PN_{Cla} Pi_{Rel}", {false, true}},
-    //     {"PN_{Rel} Pi_{Rel}", {true,  true}}
+    //     {"PN_{Rel} Pi_{Rel}", {true, true}}
     // };
 
     std::ofstream outfile(file_name);
