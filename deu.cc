@@ -99,7 +99,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {b_form, 2.0*b_form, 3.0*b_form};
+    std::vector<ld> deterministic_widths = {3.0, 10.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -182,7 +182,7 @@ int main(int argc, char* argv[]) {
 
 
     std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-        {"PN_{Cla} Pi_{Cla}", {false, false}},
+        {"PN_{Cla} Pi_{Cla}", {true, true}},
     };
 
     // std::vector<std::pair<std::string, std::vector<bool>>> configurations = {

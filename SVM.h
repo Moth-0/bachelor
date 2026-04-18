@@ -107,7 +107,7 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
 // Physics constraint checker - validates Gaussian state is physical
 bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
     const ld min_width = 1.0 / (200.0 * 200.0); 
-    const ld max_width = 1.0 / (0.1 * 0.1); 
+    const ld max_width = 1.0 / (0.05 * 0.05); 
 
     // Check diagonal widths and shifts
     for (size_t i = 0; i < psi.A.size1(); ++i) {
@@ -179,32 +179,80 @@ void print_basis_details(const std::vector<BasisState>& basis, const rvec& coeff
     std::cerr << std::string(120, '=') << "\n";
 }
 
+// Helper to safely apply random noise to a Gaussian state
+SpatialWavefunction perturb_wavefunction(const SpatialWavefunction& original, ld noise_scale) {
+    SpatialWavefunction perturbed = original;
+    
+    // 1. Perturb the Widths (Multiplicative noise to stay positive)
+    for (size_t i = 0; i < perturbed.A.size1(); ++i) {
+        // Generate random factor between (1 - noise) and (1 + noise)
+        ld factor = 1.0 + ((static_cast<ld>(rand()) / RAND_MAX) * 2.0 - 1.0) * noise_scale;
+        perturbed.A(i, i) *= std::abs(factor); // Ensure strictly positive
+    }
+    
+    // 2. Perturb the Shifts (Additive noise in fm)
+    for (size_t i = 1; i < perturbed.s.size1(); ++i) {
+        for (size_t j = 0; j < 3; ++j) {
+            ld shift_bump = ((static_cast<ld>(rand()) / RAND_MAX) * 2.0 - 1.0) * noise_scale;
+            perturbed.s(i, j) += shift_bump;
+        }
+    }
+    return perturbed;
+}
 
-// Refine a single basis state by trying random parameter replacements
-bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld b_form, ld S, const std::vector<bool>& relativistic) {
-    SpatialWavefunction original_psi = basis[k].psi;
-    ld original_E = evaluate_basis_energy(basis, b_form, S, relativistic);
-    int cands = 50;
-
+// Refine a single basis state using fast Matrix Caching and Micro-Darts
+bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld noise_scale, 
+                        ld b_form, ld S, const std::vector<bool>& relativistic) 
+{
+    // CACHING: Build the full matrix once
+    auto [H_full, N_full] = build_matrices(basis, b_form, S, relativistic);
+    ld original_E = solve_ground_state_energy(H_full, N_full);
+    
+    int cands = 200; // Micro-dart cloud size
     ld best_E = original_E;
-    SpatialWavefunction best_psi = original_psi;
+    BasisState best_state = basis[k];
 
     #pragma omp parallel
     {
         ld local_best_E = original_E;
-        SpatialWavefunction local_best_psi = original_psi;
-        std::vector<BasisState> local_basis = basis; 
+        BasisState local_best_state = basis[k];
+        
+        // Thread-local matrix copies
+        cmat H_test = H_full;
+        cmat N_test = N_full;
 
         #pragma omp for
         for (int c = 0; c < cands; ++c) {
-            Gaussian g;
-            g.randomize(local_basis[k].jac, b_range, b_form);
-            local_basis[k].psi.set_from_gaussian(g);
+            BasisState test_candidate = basis[k];
+            
+            // Generate a micro-dart perturbation
+            test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale);
+            
+            // Check if the random kick made it unphysical
+            if (!is_physical_gaussian(test_candidate.psi, false)) continue;
 
-            ld E = evaluate_basis_energy(local_basis, b_form, S, relativistic);
-            if (E < local_best_E) {
-                local_best_E = E;
-                local_best_psi = local_basis[k].psi;
+            // FAST EVALUATION: Only update the k-th row and column
+            for (size_t i = 0; i < basis.size(); ++i) {
+                if (i == k) continue; // Skip self
+                
+                cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, S, relativistic);
+                cld n_ik = calc_N_elem(basis[i], test_candidate);
+                
+                H_test(i, k) = h_ik;
+                N_test(i, k) = n_ik;
+                H_test(k, i) = std::conj(h_ik);
+                N_test(k, i) = std::conj(n_ik);
+            }
+            
+            H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
+            N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
+
+            // Solve updated matrix
+            ld E_estimate = solve_ground_state_energy(H_test, N_test);
+
+            if (E_estimate < local_best_E - 1e-6) {
+                local_best_E = E_estimate;
+                local_best_state = test_candidate;
             }
         }
 
@@ -212,30 +260,51 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld b_range, ld
         {
             if (local_best_E < best_E) {
                 best_E = local_best_E;
-                best_psi = local_best_psi;
+                best_state = local_best_state;
             }
         }
     }
 
-    basis[k].psi = best_psi;
-    return (best_E < original_E);
+    // Apply the best micro-dart
+    if (best_E < original_E) {
+        basis[k] = best_state;
+        return true;
+    }
+    return false;
 }
 
-// Performs one full cycle of competitive basis growth across all channels
+// Performs one full cycle of competitive basis growth using ROBUST Matrix Caching
 inline void competitive_search(std::vector<BasisState>& basis, 
                                const std::vector<BasisState>& channel_templates,
                                int num_candidates, ld b_range, ld b_form, ld S, 
                                const std::vector<bool>& relativistic) 
 {
+    // 1. Get the current baseline energy. Darts MUST beat this!
+    ld E_core = evaluate_basis_energy(basis, b_form, S, relativistic);
+    size_t K = basis.size();
+    auto [H_core, N_core] = build_matrices(basis, b_form, S, relativistic);
+
     for (size_t t = 1; t < channel_templates.size(); ++t) {
         BasisState best_candidate = channel_templates[t];
-        ld best_E = 999999.0;
+        
+        // 2. Set the baseline to E_core
+        ld best_E = E_core; 
+        bool found_valid_dart = false;
 
         #pragma omp parallel
         {
             BasisState local_best_candidate = channel_templates[t];
-            ld local_best_E = 999999.0;
-            std::vector<BasisState> local_basis = basis; // Thread-local copy
+            ld local_best_E = E_core; 
+
+            cmat H_test = zeros<cld>(K + 1, K + 1);
+            cmat N_test = zeros<cld>(K + 1, K + 1);
+            
+            for (size_t i = 0; i < K; ++i) {
+                for (size_t j = 0; j < K; ++j) {
+                    H_test(i, j) = H_core(i, j);
+                    N_test(i, j) = N_core(i, j);
+                }
+            }
 
             #pragma omp for
             for (int c = 0; c < num_candidates; ++c) {
@@ -244,13 +313,42 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 g.randomize(test_candidate.jac, b_range, b_form);
                 test_candidate.psi.set_from_gaussian(g);
 
-                local_basis.push_back(test_candidate);
-                
-                ld E = evaluate_basis_energy(local_basis, b_form, S, relativistic, false);
-                local_basis.pop_back();
+                // Calculate the dart's isolated diagonal elements first
+                cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
+                cld N_xx = calc_N_elem(test_candidate, test_candidate);
 
-                if (E < local_best_E) {
-                    local_best_E = E;
+                // 1. FAST REJECTION GATE: Is this dart completely unphysical?
+                // Calculate the isolated energy of this single Gaussian
+                ld isolated_energy = std::real(H_xx) / std::real(N_xx);
+
+                // If the Gaussian itself costs more than +500 MeV, it's garbage. 
+                // Skip the matrix build and GEVP solver completely!
+                if (isolated_energy > 500.0 || std::real(N_xx) < 1e-10) {
+                    continue; 
+                }
+
+                for (size_t i = 0; i < K; ++i) {
+                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, S, relativistic);
+                    cld n_ik = calc_N_elem(basis[i], test_candidate);
+                    
+                    H_test(i, K) = h_ik;
+                    N_test(i, K) = n_ik;
+                    H_test(K, i) = std::conj(h_ik);
+                    N_test(K, i) = std::conj(n_ik);
+                }
+                
+                H_test(K, K) = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
+                N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
+
+                // SAFEGUARD 1: Reject linearly dependent darts immediately
+                if (std::abs(N_test.determinant()) < 1e-10) continue;
+
+                ld E_estimate = solve_ground_state_energy(H_test, N_test);
+
+                // SAFEGUARD 2: The Strict Improvement Gate
+                // It MUST be noticeably better than the current basis to be considered!
+                if (E_estimate < local_best_E - 1e-6) {
+                    local_best_E = E_estimate;
                     local_best_candidate = test_candidate;
                 }
             }
@@ -260,26 +358,36 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 if (local_best_E < best_E) {
                     best_E = local_best_E;
                     best_candidate = local_best_candidate;
+                    found_valid_dart = true;
                 }
             }
         }
 
-        // Lock the global winner into the actual basis
-        basis.push_back(best_candidate);
-        ld current_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+        // 3. LOCK AND VERIFY
+        if (found_valid_dart) {
+            basis.push_back(best_candidate);
+            
+            // CRITICAL: Update the core matrices so the next channel sees the new state!
+            K = basis.size();
+            std::tie(H_core, N_core) = build_matrices(basis, b_form, S, relativistic);
+            E_core = best_E;
 
-        std::cout << "\rAdded State " << basis.size() << " (Ch " << t << ") -> E = "
-                  << std::fixed << std::setprecision(5) << current_E << " MeV    " << std::flush;
+            std::cout << "\rAdded State " << basis.size() << " (Ch " << t << ") -> E = "
+                      << std::fixed << std::setprecision(5) << best_E << " MeV    " << std::flush;
+        } else {
+            // If no dart was good enough, skip the channel entirely instead of breaking the matrix!
+            std::cout << "\r[Skipped] Ch " << t << " yielded no improving darts.    " << std::flush;
+        }
     }
+    std::cout << "\n";
 }
-
 
 // Optimize basis parameters via Nelder-Mead sweeping with early exit
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) {
     int max_sweeps = 200;
-    int nm_max_iter = 1000; 
-    ld improvement_threshold = 1e-4; 
-    int patience = 5; 
+    int nm_max_iter = 5000; 
+    ld improvement_threshold = 1e-5; 
+    int patience = 3; 
 
     ld previous_E = 999999.0;
     int no_improve_count = 0;
@@ -297,13 +405,20 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
             auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
                 std::vector<BasisState> test_basis = basis;
                 unpack_wavefunction(test_basis[k].psi, p_test, opt_shift);
-
                 if (!is_physical_gaussian(test_basis[k].psi, false)) return 999999.0;
-
                 return evaluate_basis_energy(test_basis, b, S, relativistic, false);
             };
 
-            rvec p_best = nelder_mead(p0, objective_func, nm_max_iter);
+            // THE RESTART ENGINE: Force Nelder-Mead to blow up its simplex 3 times
+            rvec p_current = p0;
+            int num_restarts = 3; 
+            
+            for (int restart = 0; restart < num_restarts; ++restart) {
+                // nelder_mead now builds a huge simplex around p_current
+                p_current = nelder_mead(p_current, objective_func, nm_max_iter);
+            }
+            
+            rvec p_best = p_current;
             unpack_wavefunction(basis[k].psi, p_best, opt_shift);
 
             ld E_after = evaluate_basis_energy(basis, b, S, relativistic);
