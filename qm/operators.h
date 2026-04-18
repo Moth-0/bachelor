@@ -58,6 +58,7 @@
 #include <cmath>
 #include <functional>
 #include <array>
+#include <limits>
 #include "matrix.h"
 #include "gaussian.h"
 
@@ -207,15 +208,21 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
 }
 
 // --- Relativistic Kinetic Energy ---
-ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket, 
-                                ld M_overlap, const rmat& R, const rvec& c, ld mass, 
-                                Integrator method=Integrator::GAUSS_LEGENDRE) 
+ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
+                                ld M_overlap, const rmat& R, const rvec& c, ld mass,
+                                Integrator method=Integrator::GAUSS_LEGENDRE)
 {
     // Calculate gamma (Units: fm^2)
     rvec A_ket_c = g_ket.A * c;
     rvec R_A_ket_c = R * A_ket_c;
     rvec A_bra_R_A_ket_c = g_bra.A * R_A_ket_c;
     ld inv_gamma = 4.0 * dot_no_conj(c, A_bra_R_A_ket_c);
+
+    // CRITICAL: Guard against division by near-zero or negative inv_gamma
+    // This happens with singular/near-singular Gaussians
+    if (inv_gamma < 1e-10) {  // Much stricter than ZERO_LIMIT
+        return 0.0;
+    }
     ld gamma = 1.0 / inv_gamma;
 
     // Calculate the shift magnitude eta (Units: fm^-1)
@@ -224,7 +231,11 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
         eta_vec[col] = 2.0L * dot_no_conj(c, diff);
     }
-    ld eta = std::sqrt(dot_no_conj(eta_vec, eta_vec)); 
+    ld eta_sq = dot_no_conj(eta_vec, eta_vec);
+
+    // Guard against numerical rounding producing negative eta_sq
+    if (eta_sq < 0.0) eta_sq = 0.0;
+    ld eta = std::sqrt(eta_sq); 
 
     // Define the 1D integrand function f(x)
     // 'x' here is the wavenumber 'k' in units of fm^-1
@@ -264,7 +275,14 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     if (eta < ZERO_LIMIT) {
         prefactor = 4.0 * M_PI * std::pow(gamma / M_PI, 1.5);
     } else {
-        prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * std::exp(gamma * eta * eta) / (gamma * eta);
+        // CRITICAL: Guard against exp() overflow
+        // If gamma * eta^2 > 700, exp overflows to Inf
+        ld exp_arg = gamma * eta * eta;
+        if (exp_arg > 100.0) {
+            // Overflow detected: return classic approximation instead
+            return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
+        }
+        prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * std::exp(exp_arg) / (gamma * eta);
     }
 
     return M_overlap * prefactor * integral_result;
@@ -313,9 +331,18 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
 
     // Calculate the normalization scaling factor from Eq. 10
     ld b_pow_5 = std::pow(b, 5.0);
-    ld two_pow_11_halves = std::pow(2.0, 5.5); 
+    ld two_pow_11_halves = std::pow(2.0, 5.5);
     ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
-    ld norm_factor = 1.0 / std::sqrt(norm_sq);
+
+    // CRITICAL: Guard against division by underflowed norm_sq
+    // If norm_sq is very small, norm_factor becomes huge
+    ld norm_factor = 1.0;
+    if (norm_sq > 1e-10) {  // Much stricter threshold
+        ld sqrt_norm_sq = std::sqrt(norm_sq);
+        if (sqrt_norm_sq > 1e-10) {
+            norm_factor = 1.0 / sqrt_norm_sq;
+        }
+    }
 
     // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();

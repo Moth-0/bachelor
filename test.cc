@@ -190,6 +190,59 @@ bool test_w_coupling() {
     return success;
 }
 
+void test_relativistic_explosion() {
+    std::cout << "\n=== TESTING RELATIVISTIC KINETIC ENERGY EXPLOSION ===\n";
+
+    // 1. Setup a simple 1D-like environment
+    ld mass = 938.0; 
+    rmat A = eye<ld>(1) * 1.0L; // 1.0 fm width
+    
+    // Gaussian 1: Sitting perfectly at the origin
+    Gaussian g1;
+    g1.A = A;
+    g1.s = zeros<ld>(1, 3); 
+
+    // Gaussian 2: We will push this one further and further away
+    Gaussian g2;
+    g2.A = A;
+    g2.s = zeros<ld>(1, 3); 
+
+    rmat R = eye<ld>(1) * 0.5L; // Simple inverse matrix
+    rvec c = {1.0};            // Simple coordinate transform
+    ld M_overlap = 1.0;        // Assume normalized for the test
+
+    std::cout << std::left << std::setw(15) << "Shift (fm)" 
+              << std::setw(20) << "gamma * eta^2" 
+              << std::setw(25) << "Classic T (MeV)" 
+              << std::setw(25) << "Relativistic T (MeV)" << "\n";
+    std::cout << std::string(85, '-') << "\n";
+
+    // 2. Push the second Gaussian away from 0 fm to 20 fm
+    for (ld shift = 0.0; shift <= 20.0; shift += 2.0) {
+        g2.s(0, 0) = shift; // Shift it along the x-axis
+
+        // Calculate the exponent term manually to see it grow
+        rvec diff = (g1.A * (R * g2.s[0])) - (g2.A * (R * g1.s[0]));
+        ld eta = std::sqrt(dot_no_conj(diff, diff) * 4.0);
+        
+        rvec A_ket_c = g2.A * c;
+        ld inv_gamma = 4.0 * dot_no_conj(c, g1.A * (R * A_ket_c));
+        ld gamma = 1.0 / inv_gamma;
+        
+        ld exponent_term = gamma * eta * eta;
+
+        // Calculate both energies (without the safety fallback!)
+        ld t_class = classic_kinetic_energy(g1, g2, M_overlap, R, c, mass);
+        ld t_rel   = relativistic_kinetic_energy(g1, g2, M_overlap, R, c, mass);
+
+        std::cout << std::left << std::setw(15) << shift 
+                  << std::setw(20) << exponent_term 
+                  << std::setw(25) << t_class 
+                  << std::setw(25) << t_rel << "\n";
+    }
+    std::cout << "=====================================================\n";
+}
+
 // ========================================================================
 // MAIN EXECUTION
 // ========================================================================
@@ -201,6 +254,7 @@ int main() {
     bool t1 = test_2_particle_system();
     bool t2 = test_3_particle_shifted_system();
     bool t3 = test_w_coupling();
+    test_relativistic_explosion();
 
     std::cout << "====================================================\n";
     if (t1 && t2 && t3) {

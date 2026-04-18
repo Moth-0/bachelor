@@ -215,21 +215,29 @@ template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    const ld tolerance = 1e-3; // Relaxed convergence: was 1e-5
-    const int max_no_improve = 20; // Stop if no improvement for this many iterations
+    const ld tolerance = 1e-5; // Relaxed convergence: was 1e-5
+    const int max_no_improve = 100; // Stop if no improvement for this many iterations
 
-    // 1. Initialize the Simplex (n+1 vertices) as vector of vectors
+    // 1. Initialize the Simplex (n+1 vertices)
     std::vector<rvec> simplex(n + 1, rvec(n));
     rvec f_vals(n + 1);
 
     // First vertex is the initial point
     simplex[0] = p0;
 
-    // Create remaining vertices with proportional perturbations (step by 10% or 0.05)
+    // Create remaining vertices with MASSIVE, randomized perturbations
     for (size_t i = 1; i <= n; ++i) {
         simplex[i] = p0;
-        ld step_size = std::abs(p0[i - 1]) * 0.1 + 0.05;
-        simplex[i][i - 1] += step_size;
+        
+        // Generate a huge random step size between 1.0 and 2.0 units
+        ld step_size = 1.0 + static_cast<ld>(rand()) / RAND_MAX * 1.0;
+        
+        // Randomly kick it in the positive or negative direction
+        if (rand() % 2 == 0) {
+            simplex[i][i - 1] += step_size;
+        } else {
+            simplex[i][i - 1] -= step_size;
+        }
     }
 
     // Evaluate all vertices

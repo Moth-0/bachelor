@@ -26,45 +26,51 @@
 
 using namespace qm;
 
-// Performs iterative stochastic refinement on the existing basis until convergence
+// Performs iterative stochastic refinement using shrinking noise (Simulated Annealing)
 inline void refinement(std::vector<BasisState>& basis, int max_passes, ld tolerance, 
-                       ld b_range, ld b_form, ld S, 
-                       const std::vector<bool>& relativistic, rvec& convergence_energies) 
+                       ld b_form, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) 
 {
     ld previous_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
+    
+    // Start with 20% noise, shrink it down to 1% by the last pass
+    ld initial_noise = 0.20; 
+    ld final_noise = 0.01;
 
     for (int pass = 0; pass < max_passes; ++pass) {
         int num_improved_this_pass = 0;
         
-        for (size_t k = 0; k < basis.size(); ++k) {
-            if (basis[k].type == Channel::PN) continue;
+        // Calculate dynamic noise scale for this pass
+        ld noise_scale = initial_noise * std::pow(final_noise / initial_noise, static_cast<ld>(pass) / (max_passes - 1));
 
-            bool improved = refine_basis_state(basis, k, b_range, b_form, S, relativistic);
-            if (improved) {
-                num_improved_this_pass++;
-            }
+        for (size_t k = 0; k < basis.size(); ++k) {
+            
+            // Allow optimizing ALL states, including PN bare states!
+            bool improved = refine_basis_state(basis, k, noise_scale, b_form, S, relativistic);
+            
+            if (improved) num_improved_this_pass++;
+            
             std::cout << "\rPass " << pass+1 << "/" << max_passes 
-                      << " | Refined state " << k+1 << "/" << basis.size()
+                      << " [Noise: " << std::fixed << std::setprecision(2) << noise_scale * 100.0 << "%] "
+                      << "| Refined state " << k+1 << "/" << basis.size()
                       << " (" << num_improved_this_pass << " improved)    " << std::flush;
         }
 
         ld current_pass_E = evaluate_basis_energy(basis, b_form, S, relativistic);
         ld delta_E = previous_pass_E - current_pass_E;
 
-        std::cout << "\n -> End of Pass " << pass+1 << ": E = " 
+        std::cout << "\r -> End of Pass " << pass+1 << ": E = " 
                   << std::fixed << std::setprecision(6) << current_pass_E 
-                  << " MeV (ΔE = " << delta_E << " MeV)\n";
+                  << " MeV (ΔE = " << delta_E << " MeV)" << std::flush;
+
+        convergence_energies.push_back(current_pass_E);
 
         if (delta_E < tolerance) {
-            std::cout << " -> Refinement Converged: Total improvement below " << tolerance << " MeV.\n";
+            std::cout << "\n -> Refinement Converged: Total improvement below " << tolerance << " MeV.\n";
             break; 
         }
-
         previous_pass_E = current_pass_E;
-        convergence_energies.push_back(previous_pass_E);
     }
 }
-
 
 // Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
 SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S) {
@@ -99,7 +105,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {b_form, 2.0*b_form, 3.0*b_form};
+    std::vector<ld> deterministic_widths = {1.0, 4.0, 6.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -107,20 +113,20 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     }
 
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 4;
+    int num_cycles = 3;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
-    for (int cycle = 0; cycle < num_cycles; ++cycle) {
-        std::cout << " - Cycle " << cycle + 1 << " - \n";
+    for (int cycle = 1; cycle < num_cycles+1; ++cycle) {
+        std::cout << " - Cycle " << cycle << " - \n";
 
         // 1. Competitive Search 
-        competitive_search(basis, channel_templates, 10000, b_range, b_form, S, relativistic);
+        competitive_search(basis, channel_templates, 1000, b_range, b_form, S, relativistic);
         ld E_now = evaluate_basis_energy(basis, b_form, S, relativistic);
         convergence_energies.push_back(E_now);
-
-        // // 2. Refinement Cycle
-        // std::cout << "\n=== Refinement ===\n";
-        // refinement(basis, 3, 1e-4, b_range, b_form, S, relativistic, convergence_energies);
+        
+        // 2. Refinement Cycle
+        std::cout << "\n=== Refinement ===\n";
+        refinement(basis, 20, 1e-5, b_form, S, relativistic, convergence_energies);
             
         std::cout << "\n-------------------------------------------------------\n";
     }
@@ -182,7 +188,7 @@ int main(int argc, char* argv[]) {
 
 
     std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-        {"PN_{Cla} Pi_{Cla}", {false, false}},
+        {"PN_{Cla} Pi_{Cla}", {true, true}},
     };
 
     // std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
