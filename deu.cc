@@ -105,7 +105,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {0.2, 2.0, 10.0};
+    std::vector<ld> deterministic_widths = {0.2, 3.0, 10.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -113,28 +113,24 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     }
 
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 10;
+    int num_cycles = 3;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 1; cycle < num_cycles+1; ++cycle) {
         std::cout << " - Cycle " << cycle << " - \n";
 
-        // 1. Competitive Search 
-        competitive_search(basis, channel_templates, 1000, b_range, b_form, S, relativistic);
+        // 1. Competitive Search
+        competitive_search(basis, channel_templates, 100000, b_range, b_form, S, relativistic);
         ld E_now = evaluate_basis_energy(basis, b_form, S, relativistic);
         convergence_energies.push_back(E_now);
-        
-        // // 2. Refinement Cycle
-        // if (cycle % 2 == 0) {
-        //     std::cout << "\n=== Refinement ===\n";
-        //     refinement(basis, 5, 1e-4, b_form, S, relativistic, convergence_energies);
-        // } 
+
+        std::cout << "\nStarting Sweep optimize\n";
+        sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
         
         std::cout << "\n-------------------------------------------------------\n";
     }
 
-    std::cout << "\nStarting Sweep optimize\n";
-    sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
+    
 
     SvmResult result = evaluate_observables(basis, b_form, S, relativistic);
     result.convergence_history = convergence_energies;
@@ -150,6 +146,7 @@ int main(int argc, char* argv[]) {
     ld b_range = 200;
     ld b_form = 1.4;
     ld S = 30.0;
+    bool do_s_sweep = false;
 
     std::string file_name = "convergence.data";
 
@@ -162,6 +159,8 @@ int main(int argc, char* argv[]) {
             b_form = std::stold(argv[++i]);
         } else if ((arg == "-S") && i + 1 < argc) {
             S = std::stold(argv[++i]);
+        } else if ((arg == "-sweep") || (arg == "--s-sweep")) {
+            do_s_sweep = true;
         } else if ((arg == "-f" || arg == "--file") && i+1 < argc) {
             file_name = argv[++i];
         } else if (arg == "-h" || arg == "--help") {
@@ -170,6 +169,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  -b_range <value>    Search space for Gaussian width (default: 1.4 fm)\n";
             std::cout << "  -b_form <value>     Pion interaction range (default: 1.4 fm)\n";
             std::cout << "  -S <value>          Pion coupling strength (default: 100.0 MeV)\n";
+            std::cout << "  -sweep, --s-sweep   Run sweep over S values (50 to 500 MeV)\n";
             std::cout << "  -f, --file <string> Choose convergence data file location\n";
             std::cout << "  -h, --help          Show this help message\n";
             return 0;
@@ -186,62 +186,97 @@ int main(int argc, char* argv[]) {
     std::cout << "Parameters:\n";
     std::cout << "  b_range = " << b_range << " fm\n";
     std::cout << "  b_form  = " << b_form << " fm\n";
-    std::cout << "  S       = " << S << " MeV\n";
+    if (do_s_sweep) {
+        std::cout << "  MODE: S-parameter sweep (50 to 500 MeV)\n";
+    } else {
+        std::cout << "  S       = " << S << " MeV\n";
+    }
     std::cout << "========================================\n\n";
-
-
-    std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-        {"PN_{Cla} Pi_{Cla}", {false,  false}},
-    };
-
-    // std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-    //     {"PN_{Cla} Pi_{Cla}", {false, false}},
-    //     {"PN_{Rel} Pi_{Cla}", {true, false}},
-    //     {"PN_{Cla} Pi_{Rel}", {false, true}},
-    //     {"PN_{Rel} Pi_{Rel}", {true, true}}
-    // };
 
     std::ofstream outfile(file_name);
     std::vector<SvmResult> all_results;
 
-    // Run the configurations loop
-    for (const auto& config : configurations) {
-        std::string label = config.first;
-        std::vector<bool> flags = config.second;
+    if (do_s_sweep) {
+        // S-sweep mode
+        std::vector<ld> S_values = {30, 50, 75, 100, 125};
+        std::vector<bool> flags = {false, false}; // PN_Cla, Pi_Cla
 
-        std::cout << "\n>>>>>>>> RUNNING CONFIGURATION: " << label << " <<<<<<<<\n";
-        
-        SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
-        all_results.push_back(res);
+        outfile << "S_value\tEnergy\tRadius\tPN_percent\tPion_percent\n";
 
-        std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
+        std::cout << "\n========== S-PARAMETER SWEEP ==========\n";
+        std::cout << "Testing S values: ";
+        for (auto s : S_values) std::cout << s << " ";
+        std::cout << "\n\n";
 
-        outfile << "\"Iteration\"\t\"" << label << "\"\n";
-        for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
-            outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
+        for (ld S_test : S_values) {
+            std::cout << "\n>>> Running S = " << S_test << " MeV\n";
+
+            SvmResult res = run_deuteron_svm(flags, b_range, b_form, S_test);
+            all_results.push_back(res);
+
+            ld pion_pct = (100.0 - res.prob_bare * 100.0);
+            ld pn_pct = res.prob_bare * 100.0;
+
+            std::cout << "    E = " << std::fixed << std::setprecision(6) << res.energy
+                      << " MeV | R = " << res.charge_radius
+                      << " fm | PN = " << pn_pct
+                      << "% | Pions = " << pion_pct << "%\n";
+
+            outfile << S_test << "\t"
+                    << std::fixed << std::setprecision(6) << res.energy << "\t"
+                    << res.charge_radius << "\t"
+                    << pn_pct << "\t"
+                    << pion_pct << "\n";
         }
-        outfile << "\n\n"; 
+
+        std::cout << "\n========== SWEEP COMPLETE ==========\n";
+        std::cout << "Results saved to: " << file_name << "\n";
+
+    } else {
+        // Single S value mode
+        std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
+            {"PN_{Cla} Pi_{Cla}", {false,  false}},
+        };
+
+        // Run the configurations loop
+        for (const auto& config : configurations) {
+            std::string label = config.first;
+            std::vector<bool> flags = config.second;
+
+            std::cout << "\n>>>>>>>> RUNNING CONFIGURATION: " << label << " <<<<<<<<\n";
+
+            SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
+            all_results.push_back(res);
+
+            std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
+
+            outfile << "\"Iteration\"\t\"" << label << "\"\n";
+            for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
+                outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
+            }
+            outfile << "\n\n";
+        }
+
+        // Print final summary comparison table
+        std::cout << "\n========================================================================================\n";
+        std::cout << "                                  FINAL RESULTS SUMMARY                                 \n";
+        std::cout << "========================================================================================\n";
+        std::cout << std::fixed << std::setprecision(5);
+
+        for (size_t i = 0; i < configurations.size(); ++i) {
+            std::cout << std::setw(24) << std::left << configurations[i].first
+                      << " | E: "       << std::right << all_results[i].energy  << " MeV"
+                      << " | R: "       << all_results[i].charge_radius         << " fm"
+                      << " | <T>: "     << all_results[i].avg_kinetic_energy    << " MeV"
+                      << " | PN: "      << (all_results[i].prob_bare * 100.0)   << " %"
+                      << " | PN+pi: "   << (all_results[i].prob_dressed * 100.0)<< " %\n";
+        }
+
+        std::cout << "----------------------------------------------------------------------------------------\n";
+        std::cout << "Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm\n";
+        std::cout << "========================================================================================\n";
     }
+
     outfile.close();
-
-    // Print final summary comparison table
-    std::cout << "\n========================================================================================\n";
-    std::cout << "                                  FINAL RESULTS SUMMARY                                 \n";
-    std::cout << "========================================================================================\n";
-    std::cout << std::fixed << std::setprecision(5);
-    
-    for (size_t i = 0; i < configurations.size(); ++i) {
-        std::cout << std::setw(24) << std::left << configurations[i].first 
-                  << " | E: "       << std::right << all_results[i].energy  << " MeV"
-                  << " | R: "       << all_results[i].charge_radius         << " fm"
-                  << " | <T>: "     << all_results[i].avg_kinetic_energy    << " MeV"
-                  << " | PN: "      << (all_results[i].prob_bare * 100.0)   << " %"
-                  << " | PN+pi: "   << (all_results[i].prob_dressed * 100.0)<< " %\n";
-    }
-    
-    std::cout << "----------------------------------------------------------------------------------------\n";
-    std::cout << "Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm\n";
-    std::cout << "========================================================================================\n";
-
     return 0;
 }

@@ -215,8 +215,12 @@ template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    const ld tolerance = 1e-8;  // Stricter: keep going longer (was 1e-5)
-    const int max_no_improve = 500;  // Allow many iterations without improvement (was 100)
+
+    // Adaptive tolerance: for high-dimensional problems, need loose tolerance to allow exploration
+    // For 50+ params, use 1 MeV as convergence criterion (relative to typical energy scales of 10 MeV)
+    ld tolerance = (n > 40) ? 1.0 : 1e-5;
+
+    const int max_no_improve = 200;  // Reduced, we rely more on tolerance
 
     // 1. Initialize the Simplex (n+1 vertices)
     std::vector<rvec> simplex(n + 1, rvec(n));
@@ -229,9 +233,9 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     // Estimate typical scale of each parameter to avoid dominating one scale over another
     rvec scales(n);
     for (size_t i = 0; i < n; ++i) {
-        // 40% perturbation, min 0.1 (much larger to escape local minima)
-        ld scale = std::abs(p0[i]) * 0.40;
-        if (scale < 0.1) scales[i] = 0.1;
+        // For high-dimensional: use 50% perturbation, min 0.2 to force exploration
+        ld scale = std::abs(p0[i]) * 0.50;
+        if (scale < 0.2) scales[i] = 0.2;
         else scales[i] = scale;
     }
 

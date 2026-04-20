@@ -54,12 +54,62 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
     return solve_ground_state_energy(H, N);
 }
 
+// Prune basis states with negligible coefficients
+// Keeps only states with |c_i| >= threshold_fraction * max(|c_i|)
+size_t prune_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, ld threshold_fraction = 0.01) {
+    if (basis.empty()) return 0;
+
+    // Get the eigenvector
+    auto [H, N] = build_matrices(basis, b, S, relativistic);
+    cld detN = N.determinant();
+    if (std::abs(detN) < ZERO_LIMIT) return 0;
+
+    auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
+
+    // Find max coefficient magnitude
+    ld max_coeff = 0.0;
+    for (size_t i = 0; i < eigvec.size(); ++i) {
+        ld coeff_mag = std::abs(eigvec[i]);
+        if (coeff_mag > max_coeff) max_coeff = coeff_mag;
+    }
+
+    ld threshold = max_coeff * threshold_fraction;
+
+    // Identify states to keep
+    // ALWAYS keep PN states, remove weak pion states only
+    std::vector<size_t> keep_indices;
+    for (size_t i = 0; i < eigvec.size(); ++i) {
+        bool is_pn_state = (basis[i].type == Channel::PN);
+        bool above_threshold = (std::abs(eigvec[i]) >= threshold);
+
+        if (is_pn_state || above_threshold) {
+            keep_indices.push_back(i);
+        }
+    }
+
+    size_t num_removed = basis.size() - keep_indices.size();
+
+    if (num_removed > 0) {
+        // Rebuild basis with only kept states
+        std::vector<BasisState> pruned_basis;
+        for (size_t idx : keep_indices) {
+            pruned_basis.push_back(basis[idx]);
+        }
+        basis = pruned_basis;
+
+        std::cout << "  [PRUNE] Removed " << num_removed << "Basis: " << basis.size() << " -> "
+                  << keep_indices.size()-num_removed << " states.\n";
+    }
+
+    return num_removed;
+}
+
 SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
                                const std::vector<bool>& relativistic) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
     cld detN = N.determinant();
-    if (std::abs(detN) < ZERO_LIMIT) { 
-        return {999999.0, {}, 99999.0, 0.0, {}}; 
+    if (std::abs(detN) < ZERO_LIMIT) {
+        return {999999.0, {}, 99999.0, 0.0, {}};
     }
 
     auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
@@ -135,10 +185,10 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
 
             total_shift += shift * shift; 
         }
-        if (psi.parity_sign == -1 && total_shift < ZERO_LIMIT) {
-            if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
-            return false;
-        }
+        // if (psi.parity_sign == -1 && i > 0 && total_shift < ZERO_LIMIT) {
+        //     if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
+        //     return false;
+        // }
     }
 
     // Positive definiteness check
@@ -180,16 +230,20 @@ void print_basis_details(const std::vector<BasisState>& basis, const rvec& coeff
 }
 
 // Helper to safely apply random noise to a Gaussian state
-SpatialWavefunction perturb_wavefunction(const SpatialWavefunction& original, ld noise_scale) {
+// If lock_A00=true, skip perturbing the first width (for pion states to keep PN block locked)
+SpatialWavefunction perturb_wavefunction(const SpatialWavefunction& original, ld noise_scale, bool lock_A00 = false) {
     SpatialWavefunction perturbed = original;
-    
+
     // 1. Perturb the Widths (Multiplicative noise to stay positive)
     for (size_t i = 0; i < perturbed.A.size1(); ++i) {
+        // LOCK: Skip A[0,0] if this is a pion state (lock_A00=true)
+        if (lock_A00 && i == 0) continue;
+
         // Generate random factor between (1 - noise) and (1 + noise)
         ld factor = 1.0 + ((static_cast<ld>(rand()) / RAND_MAX) * 2.0 - 1.0) * noise_scale;
         perturbed.A(i, i) *= std::abs(factor); // Ensure strictly positive
     }
-    
+
     // 2. Perturb the Shifts (Additive noise in fm)
     for (size_t i = 1; i < perturbed.s.size1(); ++i) {
         for (size_t j = 0; j < 3; ++j) {
@@ -224,9 +278,10 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld noise_scale
         #pragma omp for
         for (int c = 0; c < cands; ++c) {
             BasisState test_candidate = basis[k];
-            
-            // Generate a micro-dart perturbation
-            test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale);
+
+            // LOCK: For pion states, don't perturb A[0,0] (PN block)
+            bool is_pion = (basis[k].type != Channel::PN);
+            test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, is_pion);
             
             // Check if the random kick made it unphysical
             if (!is_physical_gaussian(test_candidate.psi, false)) continue;
@@ -374,70 +429,121 @@ inline void competitive_search(std::vector<BasisState>& basis,
 
             std::cout << "\rAdded State " << basis.size() << " (Ch " << t << ") -> E = "
                       << std::fixed << std::setprecision(5) << best_E << " MeV    " << std::flush;
-        } else {
-            // If no dart was good enough, skip the channel entirely instead of breaking the matrix!
-            std::cout << "\r[Skipped] Ch " << t << " yielded no improving darts.    " << std::flush;
         }
     }
     std::cout << "\n";
 }
 
-// Optimize basis parameters via Nelder-Mead sweeping with early exit
+// Pack ALL basis states into a single vector for global Nelder-Mead optimization
+rvec pack_all_basis_states(const std::vector<BasisState>& basis, bool optimize_shift) {
+    rvec p;
+    for (const auto& state : basis) {
+        rvec state_params = pack_wavefunction(state.psi, optimize_shift);
+        // Manually concatenate (rvec is a custom type, no insert method)
+        for (size_t i = 0; i < state_params.size(); ++i) {
+            p.push_back(state_params[i]);
+        }
+    }
+    return p;
+}
+
+// Unpack a single vector back into all basis states
+void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool optimize_shift) {
+    size_t idx = 0;
+    for (size_t k = 0; k < basis.size(); ++k) {
+        auto& state = basis[k];
+        // Calculate size of parameters for this state
+        size_t state_size;
+        size_t dim = state.psi.A.size1();
+        if (optimize_shift) {
+            // L lower triangle (not upper!) + non-NN shifts
+            state_size = (dim * (dim + 1)) / 2;  // Lower triangle = dim*(dim+1)/2
+            state_size += dim * 3 - 3;  // Shifts (skip row 0, which has 3 cols)
+        } else {
+            state_size = (dim * (dim + 1)) / 2;  // Just L
+        }
+
+        // Bounds check
+        if (idx + state_size > p.size()) {
+            std::cerr << "[ERROR] unpack_all_basis_states: tried to unpack state " << k
+                      << " size " << state_size << " at idx " << idx << " but p.size()=" << p.size() << "\n";
+            return;
+        }
+
+        // Extract the portion of p for this state
+        rvec state_params;
+        for (size_t i = 0; i < state_size; ++i) {
+            state_params.push_back(p[idx + i]);
+        }
+
+        unpack_wavefunction(state.psi, state_params, optimize_shift);
+        idx += state_size;
+    }
+}
+
+
+// Optimize ALL basis parameters together via global Nelder-Mead
+// This couples all basis states so they optimize together (not independently)
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) {
     int max_sweeps = 100;
-    int nm_max_iter = 1000; 
-    ld improvement_threshold = 1e-5; 
-    int patience = 3; 
+    int nm_max_iter = 1000;
+    ld improvement_threshold = 1e-5;
+    int patience = 3;
 
     ld previous_E = 999999.0;
     int no_improve_count = 0;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
-        for (size_t k = 0; k < basis.size(); ++k) {
-            // Optimize shifts for pions, but NOT for the bare PN state.
-            bool opt_shift = true; //(basis[k].type != Channel::PN);
+        bool opt_shift = true;
 
-            SpatialWavefunction backup_psi = basis[k].psi;
-            rvec p0 = pack_wavefunction(backup_psi, opt_shift);
+        // Pack ALL basis states into one vector
+        rvec p0 = pack_all_basis_states(basis, opt_shift);
+        ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
 
-            ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
+        // Global objective function: optimize all basis parameters together
+        auto global_objective = [&](const qm::rvec& p_test) -> qm::ld {
+            std::vector<BasisState> test_basis = basis;
+            unpack_all_basis_states(test_basis, p_test, opt_shift);
 
-            auto objective_func = [&](const qm::rvec& p_test) -> qm::ld {
-                std::vector<BasisState> test_basis = basis;
-                unpack_wavefunction(test_basis[k].psi, p_test, opt_shift);
-                if (!is_physical_gaussian(test_basis[k].psi, false)) return 999999.0;
-                return evaluate_basis_energy(test_basis, b, S, relativistic, false);
-            };
-
-            // THE RESTART ENGINE: Allow multiple restarts to escape local minima
-            rvec p_current = p0;
-            int num_restarts = 3;  // 5 restarts to explore different regions
-
-            for (int restart = 0; restart < num_restarts; ++restart) {
-                // nelder_mead with aggressive exploration
-                p_current = nelder_mead(p_current, objective_func, nm_max_iter);
+            // Check physicality
+            for (const auto& state : test_basis) {
+                if (!is_physical_gaussian(state.psi, false)) {
+                    return 999999.0;
+                }
             }
-            
-            rvec p_best = p_current;
-            unpack_wavefunction(basis[k].psi, p_best, opt_shift);
+            return evaluate_basis_energy(test_basis, b, S, relativistic, false);
+        };
 
-            ld E_after = evaluate_basis_energy(basis, b, S, relativistic);
-            if (E_after > E_before) {
-                basis[k].psi = backup_psi;
-            }
+        // Run Nelder-Mead on ALL parameters at once
+        rvec p_current = p0;
+        int num_restarts = 1;
+
+        for (int restart = 0; restart < num_restarts; ++restart) {
+            p_current = nelder_mead(p_current, global_objective, nm_max_iter);
         }
 
-        ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
+        // Unpack optimized parameters back to basis
+        rvec p_best = p_current;
+        unpack_all_basis_states(basis, p_best, opt_shift);
+
+        ld E_after = evaluate_basis_energy(basis, b, S, relativistic);
+        if (E_after > E_before) {
+            // Revert if it got worse
+            unpack_all_basis_states(basis, p0, opt_shift);
+            E_after = E_before;
+        }
+
+        ld current_E = E_after;
         convergence_energies.push_back(current_E);
 
-        ld improvement = previous_E - current_E; 
+        ld improvement = previous_E - current_E;
         if (improvement < improvement_threshold) {
             no_improve_count++;
         } else {
-            no_improve_count = 0; 
+            no_improve_count = 0;
         }
 
-        std::cout << "\r" << "Sweep " << sweep << " (Basis=" << basis.size() << "): E=" << current_E
+        std::cout << "\rSweep " << sweep << " (Basis=" << basis.size() << "): E=" << current_E
                   << " MeV  (ΔE=" << improvement << ")     " << std::flush;
 
         if (no_improve_count >= patience) {

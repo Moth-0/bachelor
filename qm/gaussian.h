@@ -43,7 +43,7 @@
 #include "matrix.h"
 #include "jacobi.h"
 
-using namespace qm; 
+namespace qm {
 
 inline ld random_ld(long double lo, long double hi) {
     thread_local std::mt19937_64 rng(std::random_device{}());
@@ -332,19 +332,49 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 }
 
 // Flattens a wavefunction into a 1D rvec for Nelder-Mead
+// Packs lower-triangular Cholesky factor L where A = L * L^T
 rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
     rvec p;
-    // 1. Pack upper triangle of A
-    for (size_t i = 0; i < psi.A.size1(); ++i) {
-        for (size_t j = i; j < psi.A.size2(); ++j) {
-            p.push_back(psi.A(i, j));
+    size_t dim = psi.A.size1();
+
+    // 1. Compute Cholesky decomposition: A = L * L^T (L is lower triangular)
+    // Standard algorithm
+    rmat L = zeros<ld>(dim, dim);
+    for (size_t i = 0; i < dim; ++i) {
+        for (size_t j = 0; j <= i; ++j) {
+            ld sum = 0.0;
+            for (size_t k = 0; k < j; ++k) {
+                sum += L(i, k) * L(j, k);
+            }
+            if (i == j) {
+                ld diag_val = psi.A(i, i) - sum;
+                if (diag_val <= 0.0) {
+                    // Matrix not PD - should not happen for valid states, but safeguard
+                    L(i, i) = 1e-10;
+                } else {
+                    L(i, i) = std::sqrt(diag_val);
+                }
+            } else {
+                if (L(j, j) < 1e-15) {
+                    L(i, j) = 0.0;
+                } else {
+                    L(i, j) = (psi.A(i, j) - sum) / L(j, j);
+                }
+            }
         }
     }
-    // 2. Pack the entire s matrix ONLY if allowed
+
+    // 2. Pack lower triangle of L (including diagonal)
+    for (size_t i = 0; i < dim; ++i) {
+        for (size_t j = 0; j <= i; ++j) {
+            p.push_back(L(i, j));
+        }
+    }
+
+    // 3. Pack the non-NN shifts only
     if (optimize_shift) {
-        for (size_t i = 0; i < psi.s.size1(); ++i) {
+        for (size_t i = 1; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
-                if (i == 0) continue;
                 p.push_back(psi.s(i, j));
             }
         }
@@ -352,28 +382,48 @@ rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
     return p;
 }
 
+// Pack ALL basis states into a single vector for global Nelder-Mead optimization
+// NOTE: This is defined in SVM.h since it needs BasisState
+
+// Unpack a single vector back into all basis states
+// NOTE: This is defined in SVM.h since it needs BasisState
+
+
+
 // Rebuilds the wavefunction from the 1D rvec
+// Reconstructs A from lower-triangular Cholesky factor: A = L * L^T (guaranteed PD!)
 void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_shift) {
     size_t idx = 0;
-    // 1. Unpack A
-    for (size_t i = 0; i < psi.A.size1(); ++i) {
-        for (size_t j = i; j < psi.A.size2(); ++j) {
-            psi.A(i, j) = p[idx];
-            psi.A(j, i) = p[idx];
-            idx++;
+    size_t dim = psi.A.size1();
+
+    // 1. Unpack lower triangle to reconstruct L
+    rmat L = zeros<ld>(dim, dim);
+    for (size_t i = 0; i < dim; ++i) {
+        for (size_t j = 0; j <= i; ++j) {
+            L(i, j) = p[idx++];
         }
     }
-    // 2. Unpack s (or force to zero)
+
+    // 2. Reconstruct A = L * L^T (guaranteed positive-definite!)
+    psi.A = L * L.transpose();
+
+    // 3. Unpack shifts (or force to zero)
     if (optimize_shift) {
-        for (size_t i = 1; i < psi.s.size1(); ++i) {  // Start from row 1, skip row 0
+        for (size_t i = 1; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
-                psi.s(i, j) = p[idx];
-                idx++;
+                psi.s(i, j) = p[idx++];
             }
         }
     }
-    // Always zero out the first row (NN shift locked to zero)
-    for (size_t j = 0; j < psi.s.size2(); ++j) {
-        psi.s(0, j) = 0.0;
+
+    // Always zero out the first row (NN shift locked to zero) for PN states only
+    // For pion states (3 Jacobi coords), row 0 is not NN - keep it!
+    // Only lock if this is a 1D state (PN)
+    if (dim == 1) {
+        for (size_t j = 0; j < psi.s.size2(); ++j) {
+            psi.s(0, j) = 0.0;
+        }
     }
 }
+
+} // namespace qm
