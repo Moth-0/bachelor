@@ -359,19 +359,21 @@ void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_
     for (size_t i = 0; i < psi.A.size1(); ++i) {
         for (size_t j = i; j < psi.A.size2(); ++j) {
             psi.A(i, j) = p[idx];
-            psi.A(j, i) = p[idx]; 
+            psi.A(j, i) = p[idx];
             idx++;
         }
     }
     // 2. Unpack s (or force to zero)
-    for (size_t i = 0; i < psi.s.size1(); ++i) {
-        for (size_t j = 0; j < psi.s.size2(); ++j) {
-            if (i == 0) psi.s(i, j) = 0.0; 
-            else {
+    if (optimize_shift) {
+        for (size_t i = 1; i < psi.s.size1(); ++i) {  // Start from row 1, skip row 0
+            for (size_t j = 0; j < psi.s.size2(); ++j) {
                 psi.s(i, j) = p[idx];
                 idx++;
             }
         }
     }
-    
+    // Always zero out the first row (NN shift locked to zero)
+    for (size_t j = 0; j < psi.s.size2(); ++j) {
+        psi.s(0, j) = 0.0;
+    }
 }

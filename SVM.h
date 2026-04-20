@@ -384,8 +384,8 @@ inline void competitive_search(std::vector<BasisState>& basis,
 
 // Optimize basis parameters via Nelder-Mead sweeping with early exit
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) {
-    int max_sweeps = 200;
-    int nm_max_iter = 5000; 
+    int max_sweeps = 100;
+    int nm_max_iter = 1000; 
     ld improvement_threshold = 1e-5; 
     int patience = 3; 
 
@@ -396,7 +396,6 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
         for (size_t k = 0; k < basis.size(); ++k) {
             // Optimize shifts for pions, but NOT for the bare PN state.
             bool opt_shift = true; //(basis[k].type != Channel::PN);
-            if (basis[k].type == Channel::PN) continue;
 
             SpatialWavefunction backup_psi = basis[k].psi;
             rvec p0 = pack_wavefunction(backup_psi, opt_shift);
@@ -410,12 +409,12 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
                 return evaluate_basis_energy(test_basis, b, S, relativistic, false);
             };
 
-            // THE RESTART ENGINE: Force Nelder-Mead to blow up its simplex 3 times
+            // THE RESTART ENGINE: Allow multiple restarts to escape local minima
             rvec p_current = p0;
-            int num_restarts = 3; 
-            
+            int num_restarts = 3;  // 5 restarts to explore different regions
+
             for (int restart = 0; restart < num_restarts; ++restart) {
-                // nelder_mead now builds a huge simplex around p_current
+                // nelder_mead with aggressive exploration
                 p_current = nelder_mead(p_current, objective_func, nm_max_iter);
             }
             

@@ -215,8 +215,8 @@ template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
-    const ld tolerance = 1e-5; // Relaxed convergence: was 1e-5
-    const int max_no_improve = 100; // Stop if no improvement for this many iterations
+    const ld tolerance = 1e-8;  // Stricter: keep going longer (was 1e-5)
+    const int max_no_improve = 500;  // Allow many iterations without improvement (was 100)
 
     // 1. Initialize the Simplex (n+1 vertices)
     std::vector<rvec> simplex(n + 1, rvec(n));
@@ -225,19 +225,23 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
     // First vertex is the initial point
     simplex[0] = p0;
 
-    // Create remaining vertices with MASSIVE, randomized perturbations
+    // SCALE-AWARE SIMPLEX INITIALIZATION WITH AGGRESSIVE EXPLORATION
+    // Estimate typical scale of each parameter to avoid dominating one scale over another
+    rvec scales(n);
+    for (size_t i = 0; i < n; ++i) {
+        // 40% perturbation, min 0.1 (much larger to escape local minima)
+        ld scale = std::abs(p0[i]) * 0.40;
+        if (scale < 0.1) scales[i] = 0.1;
+        else scales[i] = scale;
+    }
+
+    // Create remaining vertices with scale-aware perturbations
     for (size_t i = 1; i <= n; ++i) {
         simplex[i] = p0;
-        
-        // Generate a huge random step size between 1.0 and 2.0 units
-        ld step_size = 1.0 + static_cast<ld>(rand()) / RAND_MAX * 1.0;
-        
-        // Randomly kick it in the positive or negative direction
-        if (rand() % 2 == 0) {
-            simplex[i][i - 1] += step_size;
-        } else {
-            simplex[i][i - 1] -= step_size;
-        }
+
+        // Generate random factor between -1 and +1, then scale by the parameter's typical scale
+        ld factor = (static_cast<ld>(rand()) / RAND_MAX) * 2.0 - 1.0;  // Range: [-1, +1]
+        simplex[i][i - 1] += factor * scales[i - 1];
     }
 
     // Evaluate all vertices

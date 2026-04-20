@@ -89,7 +89,7 @@ int main() {
             #pragma omp for
             for (int c = 0; c < candidates; ++c) {
                 BasisState test_cand = channel_templates[t];
-                Gaussian g; g.randomize(test_cand.jac, b_range);
+                Gaussian g; g.randomize(test_cand.jac, b_range, b_form);
                 test_cand.psi.set_from_gaussian(g);
                 
                 local_basis.push_back(test_cand);

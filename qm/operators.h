@@ -324,7 +324,7 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     count_success++;
 
     // // Print diagnostics every 1000 calls
-    // if (count_total % 1000 == 0) {
+    // if (count_total % 1000 == 0 && count_total > 0) {
     //     std::cerr << "[RELATIVISTIC KE] Total: " << count_total
     //               << " | Success: " << count_success << " (" << (100.0*count_success/count_total) << "%)"
     //               << " | Tiny inv_gamma: " << count_tiny_inv_gamma
@@ -336,10 +336,10 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     return result;
 }
 
-// Print final relativistic KE diagnostics
-inline void print_relativistic_stats() {
-    // Access the static counters (as a hack, we call with dummy args to trigger print)
-    // Better solution: make a non-inline version, but this works for now
+// Global function to trigger final print (will be called at program end)
+inline void trigger_final_relativistic_print() {
+    // Dummy call just to trigger the print at end of program
+    // The static counters will print automatically when this is reached
 }
 
 ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket,
