@@ -212,13 +212,13 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
 
 
 template <typename ObjectiveFunc>
-rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
+rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 1000) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
 
     // Adaptive tolerance: for high-dimensional problems, need loose tolerance to allow exploration
     // For 50+ params, use 1 MeV as convergence criterion (relative to typical energy scales of 10 MeV)
-    ld tolerance = (n > 40) ? 1.0 : 1e-5;
+    ld tolerance = 1e-5;
 
     const int max_no_improve = 200;  // Reduced, we rely more on tolerance
 
@@ -301,7 +301,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             continue;
         }
 
-        // 5. Expansion: expanded = centroid + gamma * (reflected - centroid)
+        // 5. Expansion
         if (f_ref < f_vals[best]) {
             rvec expanded = centroid + (reflected - centroid) * gamma;
             ld f_exp = objective(expanded);
@@ -315,16 +315,31 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {
             continue;
         }
 
-        // 6. Contraction: contracted = centroid + rho * (worst - centroid)
-        rvec contracted = centroid - direction * rho;
-        ld f_con = objective(contracted);
-        if (f_con < f_vals[worst]) {
-            simplex[worst] = contracted;
-            f_vals[worst] = f_con;
-            continue;
+        // 6. Contraction (FIXED: Added Outside vs Inside logic)
+        bool contracted_successfully = false;
+        if (f_ref < f_vals[worst]) {
+            // Outside Contraction (reflection was better than worst)
+            rvec contracted = centroid + (reflected - centroid) * rho;
+            ld f_con = objective(contracted);
+            if (f_con <= f_ref) {
+                simplex[worst] = contracted;
+                f_vals[worst] = f_con;
+                contracted_successfully = true;
+            }
+        } else {
+            // Inside Contraction (reflection was worse than worst)
+            rvec contracted = centroid - direction * rho; 
+            ld f_con = objective(contracted);
+            if (f_con < f_vals[worst]) {
+                simplex[worst] = contracted;
+                f_vals[worst] = f_con;
+                contracted_successfully = true;
+            }
         }
 
-        // 7. Shrink (If all else fails, pull all vertices toward the best)
+        if (contracted_successfully) continue;
+
+        // 7. Shrink (Only if both reflection and contraction totally failed)
         for (size_t i = 1; i <= n; ++i) {
             size_t idx = indices[i];
             simplex[idx] = simplex[best] + (simplex[idx] - simplex[best]) * sigma;

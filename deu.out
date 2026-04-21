@@ -2,9 +2,9 @@
   DEUTERON SYSTEM (FAST COMPETITIVE SVM)
 ========================================
 Parameters:
-  b_range = 200 fm
-  b_form  = 0.8 fm
-  S       = 60 MeV
+  b_range = 10 fm
+  b_form  = 1.2 fm
+  S       = 46 MeV
 ========================================
 
 
@@ -12,30 +12,31 @@ Parameters:
 --- 1. Planting Geometric PN Grid & Pion Seeds ---
 --- 2. Competitive SVM Growth ---
  - Cycle 1 - 
-Added State 2 (Ch 1) -> E = 9.46549 MeV    Added State 3 (Ch 2) -> E = 9.26297 MeV    Added State 4 (Ch 3) -> E = 9.03972 MeV    Added State 5 (Ch 4) -> E = 8.65768 MeV    Added State 6 (Ch 5) -> E = 8.29846 MeV    Added State 7 (Ch 6) -> E = 7.79947 MeV    Added State 8 (Ch 7) -> E = 7.48781 MeV    Added State 9 (Ch 8) -> E = 7.03735 MeV    Added State 10 (Ch 9) -> E = 6.51932 MeV    
+Added State 4 (Ch 1) -> E = 0.55136 MeV    Added State 5 (Ch 2) -> E = 0.54760 MeV    Added State 6 (Ch 3) -> E = 0.54343 MeV    Added State 7 (Ch 4) -> E = 0.54256 MeV    Added State 8 (Ch 5) -> E = 0.53175 MeV    Added State 9 (Ch 6) -> E = 0.52040 MeV    Added State 10 (Ch 7) -> E = 0.51914 MeV    Added State 11 (Ch 8) -> E = 0.50226 MeV    Added State 12 (Ch 9) -> E = 0.48140 MeV    
 
 Starting Sweep optimize
-Sweep 0 (Basis=10): E=6.51932 MeV  (ΔE=999992.48068)     Sweep 1 (Basis=10): E=6.51932 MeV  (ΔE=0.00000)     Sweep 2 (Basis=10): E=6.51932 MeV  (ΔE=0.00000)     Sweep 3 (Basis=10): E=6.51932 MeV  (ΔE=0.00000)     
-  - Converged: improvement < 0.00001 MeV for 3 sweeps
+Sweep 0 (Basis=12): E=0.48140 MeV  (ΔE=999998.51860)     Sweep 1 (Basis=12): E=0.48140 MeV  (ΔE=-0.00000)     Sweep 2 (Basis=12): E=0.48140 MeV  (ΔE=0.00000)     Sweep 3 (Basis=12): E=0.48140 MeV  (ΔE=0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
 
 
 -------------------------------------------------------
  - Cycle 2 - 
-Added State 11 (Ch 1) -> E = 6.38768 MeV    Added State 12 (Ch 2) -> E = 6.20996 MeV    Added State 13 (Ch 3) -> E = 5.97642 MeV    Added State 14 (Ch 4) -> E = 5.62769 MeV    Added State 15 (Ch 5) -> E = 5.22938 MeV    Added State 16 (Ch 6) -> E = 4.77923 MeV    Added State 17 (Ch 7) -> E = 4.54307 MeV    Added State 18 (Ch 8) -> E = 4.12422 MeV    Added State 19 (Ch 9) -> E = 3.84231 MeV    
+Added State 13 (Ch 1) -> E = 0.47998 MeV    Added State 14 (Ch 2) -> E = 0.46686 MeV    Added State 15 (Ch 3) -> E = 0.45244 MeV    Added State 16 (Ch 4) -> E = 0.44876 MeV    Added State 17 (Ch 5) -> E = 0.40487 MeV    Added State 18 (Ch 6) -> E = 0.33783 MeV    Added State 19 (Ch 7) -> E = 0.33050 MeV    Added State 20 (Ch 8) -> E = 0.19619 MeV    Added State 21 (Ch 9) -> E = -0.11258 MeV    
 
 Starting Sweep optimize
-Sweep 0 (Basis=19): E=3.84231 MeV  (ΔE=999995.15769)     Sweep 1 (Basis=19): E=3.84231 MeV  (ΔE=0.00000)     Sweep 2 (Basis=19): E=3.84231 MeV  (ΔE=0.00000)     Sweep 3 (Basis=19): E=3.84231 MeV  (ΔE=0.00000)     
-  - Converged: improvement < 0.00001 MeV for 3 sweeps
+Sweep 0 (Basis=21): E=-0.11258 MeV  (ΔE=999999.11258)     Sweep 1 (Basis=21): E=-0.11258 MeV  (ΔE=0.00000)     Sweep 2 (Basis=21): E=-0.11258 MeV  (ΔE=0.00000)     Sweep 3 (Basis=21): E=-0.11258 MeV  (ΔE=0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
 
 
 -------------------------------------------------------
+ - Cycle 3 - 
+Added State 22 (Ch 1) -> E = -0.12236 MeV    Added State 23 (Ch 2) -> E = -0.19928 MeV    Added State 24 (Ch 3) -> E = -0.29721 MeV    Added State 25 (Ch 4) -> E = -0.36646 MeV    Added State 26 (Ch 5) -> E = -0.61945 MeV    Added State 27 (Ch 6) -> E = -0.90966 MeV    Added State 28 (Ch 7) -> E = -0.97203 MeV    Added State 29 (Ch 8) -> E = -1.16181 MeV    Added State 30 (Ch 9) -> E = -1.43077 MeV    
 
---> FINAL PN_{Cla} Pi_{Cla} | E: 3.84231 MeV, R: 1.74777 fm
+Starting Sweep optimize
+Sweep 0 (Basis=30): E=-1.43077 MeV  (ΔE=1000000.43077)     Sweep 1 (Basis=30): E=-1.43077 MeV  (ΔE=0.00000)     Sweep 2 (Basis=30): E=-1.43077 MeV  (ΔE=0.00000)     Sweep 3 (Basis=30): E=-1.43077 MeV  (ΔE=0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
 
-========================================================================================
-                                  FINAL RESULTS SUMMARY                                 
-========================================================================================
-PN_{Cla} Pi_{Cla}        | E: 3.84231 MeV | R: 1.74777 fm | <T>: 13.31501 MeV | PN: 98.64024 % | PN+pi: 1.35976 %
-----------------------------------------------------------------------------------------
-Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm
-========================================================================================
+
+-------------------------------------------------------
+ - Cycle 4 - 
+Added State 31 (Ch 1) -> E = -1.46582 MeV    Added State 32 (Ch 2) -> E = -1.65162 MeV    Added State 33 (Ch 3) -> E = -1.83143 MeV    Added State 34 (Ch 4) -> E = -1.91529 MeV    Added State 35 (Ch 5) -> E = -2.88161 MeV    Added State 36 (Ch 6) -> E = -3.30802 MeV    Added State 37 (Ch 7) -> E = -3.41546 MeV    Added State 38 (Ch 8) -> E = -3.70912 MeV    

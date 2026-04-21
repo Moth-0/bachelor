@@ -25,27 +25,49 @@ struct SvmResult {
 };
 
 // Evaluate energy: build H,N and solve GEVP
-ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
+ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = true) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
+    
+    // 2. Tikhonov Regularization (Noise Floor)
+    // Adds a tiny shift to the diagonal to mathematically guarantee N is Positive-Definite
+    for (size_t i = 0; i < N.size1(); ++i) {
+        N(i, i) += cld(1e-8, 0.0); 
+    }
+
+    // 1. Explicit Overlap Filter (from the thesis Eq. 2.32)
+    // Prevent Variational Collapse by rejecting nearly-identical Gaussians
+    // During optimization, high overlaps (0.9999+) are normal and expected!
+    // Only reject if they're essentially duplicates (>0.999999)
+    for (size_t i = 0; i < N.size1(); ++i) {
+        for (size_t j = i + 1; j < N.size2(); ++j) {
+            // Normalized overlap: |N_ij| / sqrt(|N_ii| * |N_jj|)
+            ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
+
+            if (overlap > 1-ZERO_LIMIT) {
+                if (debug) {
+                    std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > 0.999999).\n";
+                }
+                return 999999.0;
+            }
+        }
+    }
     
     cmat L = N.cholesky();
     
-    // 1. Total Failure Check: The matrix is explicitly not Positive-Definite
+    // 3. Total Failure Check: The matrix is explicitly not Positive-Definite
     if (L.size1() == 0) { 
         if (debug) {
             std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite (Cholesky failed). "
-                      << "Basis size: " << basis.size() << ".\n"
-                      << "  -> Cause: Basis functions are linearly dependent (numerical collapse).\n";
+                      << "Basis size: " << basis.size() << ".\n";
         }
         return 999999.0; 
     }
     
-    // 2. Near-Singularity Check: The diagonal of L approaches 0
+    // 4. Near-Singularity Check (Safety net)
     for (size_t i = 0; i < L.size1(); ++i) {
-        if (std::abs(L(i, i)) < 0.05) { 
+        if (std::abs(L(i, i)) < ZERO_LIMIT) { 
             if (debug) {
-                std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n"
-                          << "  -> L(" << i << "," << i << ") = " << std::abs(L(i, i)) << " < threshold.\n";
+                std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n";
             }
             return 999999.0;
         }
@@ -376,9 +398,9 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 // Calculate the isolated energy of this single Gaussian
                 ld isolated_energy = std::real(H_xx) / std::real(N_xx);
 
-                // If the Gaussian itself costs more than +500 MeV, it's garbage. 
+                // If the Gaussian itself costs more than +5000 MeV, it's garbage. 
                 // Skip the matrix build and GEVP solver completely!
-                if (isolated_energy > 500.0 || std::real(N_xx) < 1e-10) {
+                if (isolated_energy > 5000.0 || std::real(N_xx) < 1e-10) {
                     continue; 
                 }
 
@@ -396,7 +418,7 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
 
                 // SAFEGUARD 1: Reject linearly dependent darts immediately
-                if (std::abs(N_test.determinant()) < 1e-10) continue;
+                if (std::abs(N_test.determinant()) < ZERO_LIMIT) continue;
 
                 ld E_estimate = solve_ground_state_energy(H_test, N_test);
 
@@ -485,9 +507,9 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 // Optimize ALL basis parameters together via global Nelder-Mead
 // This couples all basis states so they optimize together (not independently)
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) {
-    int max_sweeps = 200;
-    int nm_max_iter = 500;
-    ld improvement_threshold = 1e-5;
+    int max_sweeps = 50;
+    int nm_max_iter = 1000;
+    ld improvement_threshold = 1e-4;
     int patience = 3;
 
     ld previous_E = 999999.0;
@@ -511,7 +533,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
                     return 999999.0;
                 }
             }
-            return evaluate_basis_energy(test_basis, b, S, relativistic, false);
+            return evaluate_basis_energy(test_basis, b, S, relativistic);
         };
 
         // Run Nelder-Mead on ALL parameters at once

@@ -378,25 +378,24 @@ ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefun
 enum SpinChannel { NO_FLIP = 0, FLIP_PARTICLE_1 = 1, FLIP_PARTICLE_2 = 2 };
 
 cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed,
-                     const rvec& w_piN, const rvec& w_nn, ld b, ld S, ld isospin_factor, SpinChannel spin_chan)
+                     const rvec& w_piN, const rvec& w_nn,
+                     ld b, ld S, ld isospin_factor, SpinChannel spin_chan)
 {
     // Calculate the Gaussian width (alpha) from the physical interaction range (b)
     ld alpha = 1.0 / (b * b);
 
-    // // Calculate the normalization scaling factor from Eq. 10
-    // ld b_pow_5 = std::pow(b, 5.0);
-    // ld two_pow_11_halves = std::pow(2.0, 5.5);
-    // ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
+    // NOTE: w_piN and w_nn are already in Jacobi space!
+    // They come from get_internal_distance_vector() which:
+    //   1. Transforms physical coordinates using U_trans
+    //   2. Truncates the COM component
+    // So they are already the correct Jacobi vectors - no further transformation needed.
 
-    // // CRITICAL: Guard against division by underflowed norm_sq
-    // // If norm_sq is very small, norm_factor becomes huge
-    // ld norm_factor = 1.0;
-    // if (norm_sq > 1e-10) {  // Much stricter threshold
-    //     ld sqrt_norm_sq = std::sqrt(norm_sq);
-    //     if (sqrt_norm_sq > 1e-10) {
-    //         norm_factor = 1.0 / sqrt_norm_sq;
-    //     }
-    // }
+    // Calculate the normalization scaling factor from Eq. 10
+    ld b_pow_5 = std::pow(b, 5.0);
+    ld two_pow_11_halves = std::pow(2.0, 5.5);
+    ld norm = std::sqrt(4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves);
+
+    
 
     // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();
@@ -435,7 +434,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
         }
 
         // Multiply by S (strength) and the isospin constant (e.g., 1 for pi^0, sqrt(2) for pi^+)
-        return W_term * S * isospin_factor;
+        return W_term * S * isospin_factor * norm;
     });
 }
 
