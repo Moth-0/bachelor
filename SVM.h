@@ -55,7 +55,39 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
     return solve_ground_state_energy(H, N);
 }
 
-// Prune basis states with negligible coefficients
+// Evaluate the binding energy gap (E_0 - E_1) for basis state selection
+// This objective is better for finding physically meaningful ground states:
+// minimizing just E_0 could find states where E_0 and E_1 are both very negative (small gap)
+// minimizing (E_0 - E_1) ensures the ground state is stable against decay to excited states
+ld evaluate_binding_energy_gap(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
+    auto [H, N] = build_matrices(basis, b, S, relativistic);
+
+    cmat L = N.cholesky();
+
+    if (L.size1() == 0) {
+        if (debug) {
+            std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite (Cholesky failed).\n";
+        }
+        return 999999.0;
+    }
+
+    for (size_t i = 0; i < L.size1(); ++i) {
+        if (std::abs(L(i, i)) < 0.05) {
+            if (debug) {
+                std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n";
+            }
+            return 999999.0;
+        }
+    }
+
+    ld E0 = solve_ground_state_energy(H, N);
+    ld E1 = solve_kth_state_energy(H, N, 1);
+
+    if (E0 >= 999999.0 || E1 >= 999999.0) return 999999.0;
+
+    return E0 - E1;  // Return the binding energy gap (binding energy difference)
+}
+
 // Keeps only states with |c_i| >= threshold_fraction * max(|c_i|)
 size_t prune_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, ld threshold_fraction = 0.01) {
     if (basis.empty()) return 0;
@@ -502,7 +534,8 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
         rvec p0 = pack_all_basis_states(basis, opt_shift);
         ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
 
-        // Global objective function: optimize all basis parameters together
+        // Global objective function: optimize all basis parameters to minimize binding energy gap (E_0 - E_1)
+        // This ensures we find states with stable, well-bound ground states
         auto global_objective = [&](const qm::rvec& p_test) -> qm::ld {
             std::vector<BasisState> test_basis = basis;
             unpack_all_basis_states(test_basis, p_test, opt_shift);
@@ -513,7 +546,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
                     return 999999.0;
                 }
             }
-            return evaluate_basis_energy(test_basis, b, S, relativistic, false);
+            return evaluate_binding_energy_gap(test_basis, b, S, relativistic, false);
         };
 
         // Run Nelder-Mead on ALL parameters at once
