@@ -28,14 +28,14 @@ struct SvmResult {
 ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
 
-    // 1. Explicit Overlap & Spatial Anti-Cloning Filter
+    // CRITICAL: Multi-level overlap check prevents basis collapse
+    // Level 1: Standard overlap (catches identical channels)
+    // Level 2: Spatial overlap (catches hidden clones with different spin/isospin)
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
-            
-            // Standard overlap (handles identical channels naturally)
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
 
-            // Pure spatial cross-channel check
+            // Level 2: Pure spatial cross-channel check (expensive but necessary!)
             if (overlap <= 0.95 && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
                 BasisState temp = basis[j];
                 temp.type = basis[i].type; // Force channel match to strip spin/isospin orthogonality
@@ -45,34 +45,33 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
 
             if (overlap > 0.99) {
                 if (debug) {
-                    std::cerr << "  [REJECT GEVP] Near-duplicate spatial clone detected (Overlap: " << overlap << " > 0.95).\n";
+                    std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > 0.99).\n";
                 }
                 return 999999.0;
             }
         }
     }
-    
+
     // 2. Tikhonov Regularization (Relative Scaling)
     for (size_t i = 0; i < N.size1(); ++i) {
-        N(i, i) *= cld(1.0 + 1e-8, 0.0); 
+        N(i, i) *= cld(1.0 + 1e-8, 0.0);
     }
 
     cmat L = N.cholesky();
-    
+
     // 3. Total Failure Check: The matrix is explicitly not Positive-Definite
-    if (L.size1() == 0) { 
+    if (L.size1() == 0) {
         if (debug) {
-            std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite (Cholesky failed). "
-                      << "Basis size: " << basis.size() << ".\n";
+            std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite.\n";
         }
-        return 999999.0; 
+        return 999999.0;
     }
-    
+
     // 4. Near-Singularity Check (Dynamic Safety net)
     for (size_t i = 0; i < L.size1(); ++i) {
-        if (std::abs(L(i, i)) < 1e-5 * std::sqrt(std::abs(N(i, i)))) { 
+        if (std::abs(L(i, i)) < 1e-5 * std::sqrt(std::abs(N(i, i)))) {
             if (debug) {
-                std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n";
+                std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << i << ".\n";
             }
             return 999999.0;
         }
@@ -510,57 +509,51 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 
 
 // Optimize basis parameters using Single-State Sweeping
-// This optimizes one state at a time, keeping the Nelder-Mead dimensionality low!
-void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, 
+// Fast and memory-efficient: optimizes one state at a time
+void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic,
                           rvec& convergence_energies, int max_sweeps=100, ld threshold = 1e-4) {
-    int nm_max_iter = 200; // Drastically reduced! NM converges very fast on single states.
+    int nm_max_iter = 150;  // Single-state optimization converges very quickly
     int patience = 2;
 
-    ld previous_E = evaluate_basis_energy(basis, b, S, relativistic);
+    ld previous_E = evaluate_basis_energy(basis, b, S, relativistic, false);
     int no_improve_count = 0;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         bool opt_shift = true;
         ld sweep_start_E = previous_E;
 
-        // SWEEP: Optimize states ONE BY ONE instead of globally
+        // SWEEP: Optimize each state ONE AT A TIME
         for (size_t k = 0; k < basis.size(); ++k) {
-            
-            // 1. Pack ONLY the parameters for the k-th state
             rvec p0 = pack_wavefunction(basis[k].psi, opt_shift);
-            ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
 
-            // 2. Local objective function: Modifies ONLY basis[k]
+            // Local objective: Modifies ONLY basis[k], captures reference to basis
             auto local_objective = [&](const qm::rvec& p_test) -> qm::ld {
-                std::vector<BasisState> test_basis = basis; // Copy current basis
-                unpack_wavefunction(test_basis[k].psi, p_test, opt_shift);
+                // Avoid copying: modify temporary state and check physicality
+                SpatialWavefunction test_psi = basis[k].psi;
+                unpack_wavefunction(test_psi, p_test, opt_shift);
 
-                // Check physicality of the modified state
-                if (!is_physical_gaussian(test_basis[k].psi, false)) {
+                if (!is_physical_gaussian(test_psi, false)) {
                     return 999999.0;
                 }
-                
-                // (Note: To make this even faster, you could use your cached 
-                // H/N matrix updater here like you did in refine_basis_state!)
-                return evaluate_basis_energy(test_basis, b, S, relativistic, false);
+
+                // Temporarily replace state k's psi
+                SpatialWavefunction orig_psi = basis[k].psi;
+                basis[k].psi = test_psi;
+                ld E = evaluate_basis_energy(basis, b, S, relativistic, false);
+                basis[k].psi = orig_psi;  // Restore
+
+                return E;
             };
 
-            // 3. Run Nelder-Mead on ONLY this state's ~10 parameters
+            // Run Nelder-Mead on just this state's ~10 parameters
             rvec p_best = nelder_mead(p0, local_objective, nm_max_iter);
 
-            // 4. Test the optimized parameters
-            std::vector<BasisState> test_basis = basis;
-            unpack_wavefunction(test_basis[k].psi, p_best, opt_shift);
-            ld E_after = evaluate_basis_energy(test_basis, b, S, relativistic, false);
-
-            // 5. Keep it only if it actually improved the total energy
-            if (E_after < E_before) {
-                basis[k] = test_basis[k]; // Lock in the improvement
-            }
+            // Apply the optimized parameters (inline - no extra evaluation)
+            unpack_wavefunction(basis[k].psi, p_best, opt_shift);
         }
 
-        // Evaluate energy after the full sweep across all states
-        ld current_E = evaluate_basis_energy(basis, b, S, relativistic);
+        // Single energy evaluation after the full sweep
+        ld current_E = evaluate_basis_energy(basis, b, S, relativistic, false);
         convergence_energies.push_back(current_E);
 
         ld improvement = sweep_start_E - current_E;

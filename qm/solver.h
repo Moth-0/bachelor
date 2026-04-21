@@ -216,11 +216,9 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 1000) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
 
-    // Adaptive tolerance: for high-dimensional problems, need loose tolerance to allow exploration
-    // For 50+ params, use 1 MeV as convergence criterion (relative to typical energy scales of 10 MeV)
-    ld tolerance = 1e-5;
-
-    const int max_no_improve = 200;  // Reduced, we rely more on tolerance
+    // Adaptive tolerance: single-state optimization (n<=20) converges quickly
+    ld tolerance = (n <= 20) ? 1e-4 : 1e-5;
+    const int max_no_improve = 100;
 
     // 1. Initialize the Simplex (n+1 vertices)
     std::vector<rvec> simplex(n + 1, rvec(n));
@@ -229,23 +227,19 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 1000) {
     // First vertex is the initial point
     simplex[0] = p0;
 
-    // SCALE-AWARE SIMPLEX INITIALIZATION WITH AGGRESSIVE EXPLORATION
-    // Estimate typical scale of each parameter to avoid dominating one scale over another
+    // FAST SIMPLEX INITIALIZATION: No rand() calls, use deterministic pattern
     rvec scales(n);
     for (size_t i = 0; i < n; ++i) {
-        // For high-dimensional: use 50% perturbation, min 0.2 to force exploration
-        ld scale = std::abs(p0[i]) * 0.50;
-        if (scale < 0.2) scales[i] = 0.2;
+        ld scale = std::abs(p0[i]) * 0.30;  // 30% perturbation
+        if (scale < 0.1) scales[i] = 0.1;
         else scales[i] = scale;
     }
 
-    // Create remaining vertices with scale-aware perturbations
+    // Create vertices with alternating +/- perturbations (faster, deterministic)
     for (size_t i = 1; i <= n; ++i) {
         simplex[i] = p0;
-
-        // Generate random factor between -1 and +1, then scale by the parameter's typical scale
-        ld factor = (static_cast<ld>(rand()) / RAND_MAX) * 2.0 - 1.0;  // Range: [-1, +1]
-        simplex[i][i - 1] += factor * scales[i - 1];
+        ld perturbation = (i % 2 == 1) ? scales[i - 1] : -0.7 * scales[i - 1];
+        simplex[i][i - 1] += perturbation;
     }
 
     // Evaluate all vertices
