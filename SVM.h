@@ -16,12 +16,13 @@ namespace qm {
 
 struct SvmResult {
     ld energy;
+    ld energy_excited;
     rvec coefficients;
     ld charge_radius;
     ld avg_kinetic_energy;
     ld prob_bare;
     ld prob_dressed;
-    rvec convergence_history; 
+    rvec convergence_history;
 };
 
 // Evaluate energy: build H,N and solve GEVP
@@ -109,11 +110,12 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     auto [H, N] = build_matrices(basis, b, S, relativistic);
     cld detN = N.determinant();
     if (std::abs(detN) < ZERO_LIMIT) {
-        return {999999.0, {}, 99999.0, 0.0, {}};
+        return {999999.0, 999999.0, {}, 99999.0, 0.0, 0.0, 0.0, {}};
     }
 
     auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
-    
+    ld E1 = solve_kth_state_energy(H, N, 1);
+
     rvec coeff(eigvec.size());
     for (size_t i = 0; i < coeff.size(); ++i) {
         coeff[i] = abs(eigvec[i]);
@@ -127,17 +129,17 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     cld t_expectation   = 0.0;
     ld prob_bare        = 0.0;
     ld prob_dressed     = 0.0;
-    
+
     for (size_t i = 0; i < basis.size(); ++i) {
         for (size_t j = 0; j < basis.size(); ++j) {
             r2_expectation += std::conj(eigvec[i]) * R2(i, j) * eigvec[j];
-            
+
             t_expectation += std::conj(eigvec[i]) * T_mat(i, j) * eigvec[j];
-            
+
             cld overlap_term = std::conj(eigvec[i]) * N(i, j) * eigvec[j];
             if (basis[i].type == Channel::PN && basis[j].type == Channel::PN) {
                 prob_bare += std::real(overlap_term);
-            } 
+            }
             else if (basis[i].type != Channel::PN && basis[j].type != Channel::PN) {
                 prob_dressed += std::real(overlap_term);
             }
@@ -145,13 +147,13 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     }
 
     ld r2_point = std::real(r2_expectation);
-    ld r_p_sq = 0.8414 * 0.8414;  
-    ld r_n_sq = -0.1161;          
+    ld r_p_sq = 0.8414 * 0.8414;
+    ld r_n_sq = -0.1161;
 
     ld r2_total_charge = r2_point + r_p_sq + r_n_sq;
     ld charge_radius = (r2_total_charge > 0.0) ? std::sqrt(r2_total_charge) : 0.0;
 
-    return {E0, coeff, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
+    return {E0, E1, coeff, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
 }
 
 // Physics constraint checker - validates Gaussian state is physical

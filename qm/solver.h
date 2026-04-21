@@ -174,6 +174,53 @@ ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
     return jacobi_with_eigenvector(A, max_sweeps).first;
 }
 
+// Get the k-th lowest eigenvalue (0-indexed) from diagonalized matrix
+ld get_kth_eigenvalue(cmat A, size_t k, int max_sweeps = 50) {
+    size_t n = A.size1();
+    ld tolerance = ZERO_LIMIT;
+    cmat V = eye<cld>(n);
+
+    // Run Jacobi to diagonalize
+    for (int sweep = 0; sweep < max_sweeps; ++sweep) {
+        ld max_off_diag = 0.0;
+        for (size_t p = 0; p < n - 1; ++p) {
+            for (size_t q = p + 1; q < n; ++q) {
+                ld off_diag_mag = std::abs(A(p, q));
+                if (off_diag_mag > max_off_diag) max_off_diag = off_diag_mag;
+                if (off_diag_mag > tolerance) {
+                    ld app = std::real(A(p, p));
+                    ld aqq = std::real(A(q, q));
+                    cld apq = A(p, q);
+                    ld theta = 0.5 * std::atan2(2.0 * off_diag_mag, aqq - app);
+                    ld cos_t = std::cos(theta);
+                    ld sin_t = std::sin(theta);
+                    cld phase = std::conj(apq) / off_diag_mag;
+                    for (size_t i = 0; i < n; ++i) {
+                        cld ip = A(i, p), iq = A(i, q);
+                        A(i, p) = cos_t * ip - sin_t * phase * iq;
+                        A(i, q) = sin_t * std::conj(phase) * ip + cos_t * iq;
+                    }
+                    for (size_t i = 0; i < n; ++i) {
+                        cld pi = A(p, i), qi = A(q, i);
+                        A(p, i) = cos_t * pi - sin_t * std::conj(phase) * qi;
+                        A(q, i) = sin_t * phase * pi + cos_t * qi;
+                    }
+                }
+            }
+        }
+        if (max_off_diag < tolerance) break;
+    }
+
+    // Extract all eigenvalues and sort
+    std::vector<ld> eigenvalues;
+    for (size_t i = 0; i < n; ++i) {
+        eigenvalues.push_back(std::real(A(i, i)));
+    }
+    std::sort(eigenvalues.begin(), eigenvalues.end());
+
+    // Return k-th eigenvalue (or 999999 if out of range)
+    return (k < eigenvalues.size()) ? eigenvalues[k] : 999999.0;
+}
 
 // The Main GEVP Solver - with eigenvector
 std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N) {
@@ -209,7 +256,19 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
     return solve_ground_state_with_eigenvector(H, N).first;
 }
 
+// Get the k-th eigenvalue of the GEVP problem (0-indexed, k=0 is ground state)
+ld solve_kth_state_energy(const cmat& H, const cmat& N, size_t k) {
+    cmat L = N.cholesky();
+    if (L.size1() == 0) return 999999.0;
 
+    cmat L_inv = L.inverse_lower();
+    if (L_inv.size1() == 0) return 999999.0;
+
+    cmat L_inv_dag = L_inv.adjoint();
+    cmat H_prime = L_inv * H * L_inv_dag;
+
+    return get_kth_eigenvalue(H_prime, k);
+}
 
 template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 100) {

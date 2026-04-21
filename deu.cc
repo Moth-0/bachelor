@@ -217,13 +217,13 @@ int main(int argc, char* argv[]) {
             ld pion_pct = (100.0 - res.prob_bare * 100.0);
             ld pn_pct = res.prob_bare * 100.0;
 
-            std::cout << "    E = " << std::fixed << std::setprecision(6) << res.energy
+            std::cout << "    E = " << std::fixed << std::setprecision(6) << (res.energy - res.energy_excited)
                       << " MeV | R = " << res.charge_radius
                       << " fm | PN = " << pn_pct
                       << "% | Pions = " << pion_pct << "%\n";
 
             outfile << S_test << "\t"
-                    << std::fixed << std::setprecision(6) << res.energy << "\t"
+                    << std::fixed << std::setprecision(6) << (res.energy - res.energy_excited) << "\t"
                     << res.charge_radius << "\t"
                     << pn_pct << "\t"
                     << pion_pct << "\n";
@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) {
             SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
             all_results.push_back(res);
 
-            std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
+            std::cout << "--> FINAL " << label << " | E: " << (res.energy - res.energy_excited) << " MeV, R: " << res.charge_radius << " fm\n";
 
             outfile << "\"Iteration\"\t\"" << label << "\"\n";
             for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
@@ -265,7 +265,8 @@ int main(int argc, char* argv[]) {
 
         for (size_t i = 0; i < configurations.size(); ++i) {
             std::cout << std::setw(24) << std::left << configurations[i].first
-                      << " | E: "       << std::right << all_results[i].energy  << " MeV"
+                      << " | E_0,E_1: " << all_results[i].energy << ", " << all_results[i].energy_excited
+                      << " | E: "       << std::right << (all_results[i].energy - all_results[i].energy_excited)  << " MeV"
                       << " | R: "       << all_results[i].charge_radius         << " fm"
                       << " | <T>: "     << all_results[i].avg_kinetic_energy    << " MeV"
                       << " | PN: "      << (all_results[i].prob_bare * 100.0)   << " %"
