@@ -485,8 +485,8 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 // Optimize ALL basis parameters together via global Nelder-Mead
 // This couples all basis states so they optimize together (not independently)
 void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, rvec& convergence_energies) {
-    int max_sweeps = 100;
-    int nm_max_iter = 1000;
+    int max_sweeps = 200;
+    int nm_max_iter = 500;
     ld improvement_threshold = 1e-5;
     int patience = 3;
 

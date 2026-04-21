@@ -127,22 +127,23 @@ inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, con
     // Case 2: W-Operator Coupling (PN <-> Pion)
     else if ((state_i.type == Channel::PN && state_j.type != Channel::PN) ||
              (state_i.type != Channel::PN && state_j.type == Channel::PN)) {
-        
+
         bool i_is_bare = (state_i.type == Channel::PN);
         const auto& state_bare  = i_is_bare ? state_i : state_j;
         const auto& state_dress = i_is_bare ? state_j : state_i;
 
-        rvec c_pi_1 = state_dress.jac.get_internal_distance_vector(2, 0); 
-        rvec c_pi_2 = state_dress.jac.get_internal_distance_vector(2, 1); 
+        rvec c_pi_1 = state_dress.jac.get_internal_distance_vector(2, 0);
+        rvec c_pi_2 = state_dress.jac.get_internal_distance_vector(2, 1);
+        rvec c_nn = state_dress.jac.get_internal_distance_vector(0, 1);  // Nucleon-nucleon distance
         cld w_val = 0.0;
 
         if (state_dress.flip == FLIP_PARTICLE_1) {
-            w_val = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_1, b, S, state_dress.isospin_factor, state_dress.flip);
+            w_val = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_1, c_nn, b, S, state_dress.isospin_factor, state_dress.flip);
         } else if (state_dress.flip == FLIP_PARTICLE_2) {
-            w_val = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_2, b, S, state_dress.isospin_factor, state_dress.flip);
+            w_val = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_2, c_nn, b, S, state_dress.isospin_factor, state_dress.flip);
         } else {
-            cld w_val_n1 = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_1, b, S, state_dress.isospin_factor, state_dress.flip);
-            cld w_val_n2 = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_2, b, S, state_dress.isospin_factor, state_dress.flip);
+            cld w_val_n1 = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_1, c_nn, b, S, state_dress.isospin_factor, state_dress.flip);
+            cld w_val_n2 = total_w_coupling(state_bare.psi, state_dress.psi, c_pi_2, c_nn, b, S, state_dress.isospin_factor, state_dress.flip);
             w_val = w_val_n1 - w_val_n2;
         }
 

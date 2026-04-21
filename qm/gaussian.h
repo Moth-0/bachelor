@@ -304,8 +304,8 @@ inline ld spactial_overlap(const SpatialWavefunction& g1, const SpatialWavefunct
 }
 
 // Promotes a bare state (e.g., pn) to the dressed dimension (pn + pion)
-inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim, 
-                                   const rvec& w_piN, ld alpha) 
+inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
+                                   const rvec& w_piN, const rvec& w_nn, ld alpha)
 {
     // 1. Promote A^(d) by padding it with zeros up to target_dim
     rmat A_tilde = zeros<ld>(target_dim, target_dim);
@@ -324,8 +324,8 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
     }
 
     // 3. Absorb the spatial form factor into the padded matrix!
-    // A_tilde = A_promoted + (1 / b^2) * w_piN * w_piN^T
-    A_tilde += outer_no_conj(w_piN, w_piN) * alpha;
+    // A_tilde = A_promoted + (1 / b^2) * (w_piN * w_piN^T + w_nn * w_nn^T)
+    A_tilde += (outer_no_conj(w_piN, w_piN) + outer_no_conj(w_nn, w_nn)) * alpha;
 
     // Return the new fully prepped Gaussian
     return Gaussian(A_tilde, s_promoted);

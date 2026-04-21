@@ -377,31 +377,31 @@ ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefun
 // Coupeling operator using spin flip 
 enum SpinChannel { NO_FLIP = 0, FLIP_PARTICLE_1 = 1, FLIP_PARTICLE_2 = 2 };
 
-cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed, 
-                     const rvec& c, ld b, ld S, ld isospin_factor, SpinChannel spin_chan) 
+cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed,
+                     const rvec& w_piN, const rvec& w_nn, ld b, ld S, ld isospin_factor, SpinChannel spin_chan)
 {
     // Calculate the Gaussian width (alpha) from the physical interaction range (b)
     ld alpha = 1.0 / (b * b);
 
-    // Calculate the normalization scaling factor from Eq. 10
-    ld b_pow_5 = std::pow(b, 5.0);
-    ld two_pow_11_halves = std::pow(2.0, 5.5);
-    ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
+    // // Calculate the normalization scaling factor from Eq. 10
+    // ld b_pow_5 = std::pow(b, 5.0);
+    // ld two_pow_11_halves = std::pow(2.0, 5.5);
+    // ld norm_sq = 4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves;
 
-    // CRITICAL: Guard against division by underflowed norm_sq
-    // If norm_sq is very small, norm_factor becomes huge
-    ld norm_factor = 1.0;
-    if (norm_sq > 1e-10) {  // Much stricter threshold
-        ld sqrt_norm_sq = std::sqrt(norm_sq);
-        if (sqrt_norm_sq > 1e-10) {
-            norm_factor = 1.0 / sqrt_norm_sq;
-        }
-    }
+    // // CRITICAL: Guard against division by underflowed norm_sq
+    // // If norm_sq is very small, norm_factor becomes huge
+    // ld norm_factor = 1.0;
+    // if (norm_sq > 1e-10) {  // Much stricter threshold
+    //     ld sqrt_norm_sq = std::sqrt(norm_sq);
+    //     if (sqrt_norm_sq > 1e-10) {
+    //         norm_factor = 1.0 / sqrt_norm_sq;
+    //     }
+    // }
 
     // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();
     Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
-    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, c, alpha);
+    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, w_piN, w_nn, alpha);
     
     SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
 
@@ -409,10 +409,10 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
             [&](const Gaussian& g_t, const Gaussian& g_d, ld M_term, const rmat& R) -> cld {
         
         // Calculate the real Cartesian vector
-        rmat v = g_t.s + g_d.s; 
+        rmat v = g_t.s + g_d.s;
         rvec spatial_vec(3); // [x, y, z]
         for (size_t col = 0; col < 3; ++col) {
-            spatial_vec[col] = M_term * 0.5 * dot_no_conj(c, R * v[col]);
+            spatial_vec[col] = M_term * 0.5 * dot_no_conj(w_piN, R * v[col]);
         }
         
         // Map Cartesian [x, y, z] to Spherical [r^0, r^+, r^-]
@@ -435,7 +435,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
         }
 
         // Multiply by S (strength) and the isospin constant (e.g., 1 for pi^0, sqrt(2) for pi^+)
-        return W_term * S * isospin_factor * norm_factor;
+        return W_term * S * isospin_factor;
     });
 }
 

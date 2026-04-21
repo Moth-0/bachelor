@@ -105,7 +105,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {0.2, 3.0, 10.0};
+    std::vector<ld> deterministic_widths = {1.0, 3.0, 10.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -113,7 +113,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     }
 
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 3;
+    int num_cycles = 4;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 1; cycle < num_cycles+1; ++cycle) {
@@ -126,7 +126,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
 
         std::cout << "\nStarting Sweep optimize\n";
         sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
-        
+
         std::cout << "\n-------------------------------------------------------\n";
     }
 
@@ -143,7 +143,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 200;
+    ld b_range = 100;
     ld b_form = 1.4;
     ld S = 30.0;
     bool do_s_sweep = false;
