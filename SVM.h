@@ -31,31 +31,32 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Level 1: Standard overlap (catches identical channels)
     // Level 2: Spatial overlap (catches hidden clones with different spin/isospin)
+    ld tol = 0.95;
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
 
             // Level 2: Pure spatial cross-channel check (expensive but necessary!)
-            if (overlap <= 0.95 && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
+            if (overlap <= tol && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
                 BasisState temp = basis[j];
                 temp.type = basis[i].type; // Force channel match to strip spin/isospin orthogonality
                 ld spatial_overlap = std::abs(calc_N_elem(basis[i], temp));
                 overlap = spatial_overlap / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
             }
 
-            if (overlap > 0.99) {
+            if (overlap > tol) {
                 if (debug) {
-                    std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > 0.99).\n";
+                    //std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > " << tol << ").\n";
                 }
                 return 999999.0;
             }
         }
     }
 
-    // 2. Tikhonov Regularization (Relative Scaling)
-    for (size_t i = 0; i < N.size1(); ++i) {
-        N(i, i) *= cld(1.0 + 1e-8, 0.0);
-    }
+    // // 2. Tikhonov Regularization (Relative Scaling)
+    // for (size_t i = 0; i < N.size1(); ++i) {
+    //     N(i, i) *= cld(1.0 + 1e-6, 0.0);
+    // }
 
     cmat L = N.cholesky();
 
@@ -69,9 +70,11 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
 
     // 4. Near-Singularity Check (Dynamic Safety net)
     for (size_t i = 0; i < L.size1(); ++i) {
-        if (std::abs(L(i, i)) < 1e-5 * std::sqrt(std::abs(N(i, i)))) {
+        ld num = std::abs(L(i, i));
+        ld thresh = (1-tol) * std::sqrt(std::abs(N(i, i)));
+        if (num < thresh ) {
             if (debug) {
-                std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << i << ".\n";
+                std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << num << " < " << thresh << ".\n";
             }
             return 999999.0;
         }
@@ -180,8 +183,28 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     return {E0, coeff, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
 }
 
+// Check if a candidate state has positive kinetic energy (rejects unphysical states)
+bool has_positive_kinetic_energy(const BasisState& state, const std::vector<bool>& relativistic) {
+    // Build appropriate relativistic flags for this state's Jacobian dimension
+    // relativistic flags should have size = jac.masses.size() - 1
+    size_t expected_size = state.jac.masses.size() - 1;
+    std::vector<bool> rel_flags(expected_size, false);  // Default to classical for this dimension
+
+    // Copy from the provided relativistic vector if it exists
+    for (size_t i = 0; i < expected_size && i < relativistic.size(); ++i) {
+        rel_flags[i] = relativistic[i];
+    }
+
+    ld kinetic = total_kinetic_energy(state.psi, state.psi, state.jac, rel_flags);
+    ld overlap = spactial_overlap(state.psi, state.psi);
+    if (overlap < ZERO_LIMIT) return false;
+
+    ld kinetic_expectation = kinetic / overlap;
+    return kinetic_expectation > -1e-6;  // Allow tiny numerical noise
+}
+
 // Physics constraint checker - validates Gaussian state is physical
-bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
+bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = true) {
     const ld min_width = 1.0 / (200.0 * 200.0); 
     const ld max_width = 1.0 / (0.05 * 0.05); 
 
@@ -198,19 +221,21 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
             return false;
         }
 
-        // Shift constraint: |s_i| ≤ 2.0 * width * r_max (keep Gaussian localized)
-        ld total_shift = 0;
+        // Calculate physical shift distance in fm: r = s / (2A)
+        ld shift_sq = 0.0;
         for (size_t col = 0; col < 3; ++col) {
-            ld shift = std::abs(psi.s(i, col));
-            ld limit = 2.0 * width * 5.0;
-            if (shift > limit) {
-                if (debug) std::cerr << "  [REJECT] |s[" << i << "," << col << "]|=" << shift
-                                     << " > limit=" << limit << " (width=" << width << ")\n";
-                return false;
-            }
-
-            total_shift += shift * shift; 
+            shift_sq += psi.s(i, col) * psi.s(i, col);
         }
+        ld absolute_shift_magnitude = std::sqrt(shift_sq);
+        ld physical_shift_fm = absolute_shift_magnitude / (2.0 * width);
+
+        // THE PHYSICAL LIMIT in fm
+        ld limit = 0.1;
+        if (physical_shift_fm > limit) {
+            if (debug) std::cerr << "  [REJECT] Shift too large: " << physical_shift_fm << " fm > " << limit <<" fm\n";
+            return false; 
+        }
+
         // if (psi.parity_sign == -1 && i > 0 && total_shift < ZERO_LIMIT) {
         //     if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
         //     return false;
@@ -247,9 +272,8 @@ void print_basis_details(const std::vector<BasisState>& basis, const rvec& coeff
                 shift_sq += basis[k].psi.s(i, col) * basis[k].psi.s(i, col);
             }
             ld total_shift = std::sqrt(shift_sq);
-            ld total_position = total_shift / (2.0 * width); 
 
-            std::cerr << "Total Shift: " << total_position << " fm | \n";
+            std::cerr << "Total Shift: " << total_shift << " fm | \n";
         }
     }
     std::cerr << std::string(120, '=') << "\n";
@@ -310,7 +334,10 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld noise_scale
             test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, is_pion);
             
             // Check if the random kick made it unphysical
-            if (!is_physical_gaussian(test_candidate.psi, false)) continue;
+            if (!is_physical_gaussian(test_candidate.psi)) continue;
+
+            // Reject candidates with negative kinetic energy
+            if (!has_positive_kinetic_energy(test_candidate, relativistic)) continue;
 
             // FAST EVALUATION: Only update the k-th row and column
             for (size_t i = 0; i < basis.size(); ++i) {
@@ -391,7 +418,9 @@ inline void competitive_search(std::vector<BasisState>& basis,
             for (int c = 0; c < num_candidates; ++c) {
                 BasisState test_candidate = channel_templates[t];
                 Gaussian g;
-                g.randomize(test_candidate.jac, b_range, b_form);
+                // For PN states: lock row 0. For pion states: allow row 0 to randomize
+                bool lock_first = (test_candidate.type == Channel::PN);
+                g.randomize(test_candidate.jac, b_range, b_form, lock_first);
                 test_candidate.psi.set_from_gaussian(g);
 
                 // Calculate the dart's isolated diagonal elements first
@@ -402,10 +431,15 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 // Calculate the isolated energy of this single Gaussian
                 ld isolated_energy = std::real(H_xx) / std::real(N_xx);
 
-                // If the Gaussian itself costs more than +5000 MeV, it's garbage. 
+                // If the Gaussian itself costs more than +5000 MeV, it's garbage.
                 // Skip the matrix build and GEVP solver completely!
                 if (isolated_energy > 5000.0 || std::real(N_xx) < 1e-10) {
-                    continue; 
+                    continue;
+                }
+
+                // Reject candidates with negative kinetic energy
+                if (!has_positive_kinetic_energy(test_candidate, relativistic)) {
+                    continue;
                 }
 
                 for (size_t i = 0; i < K; ++i) {
@@ -464,7 +498,8 @@ inline void competitive_search(std::vector<BasisState>& basis,
 rvec pack_all_basis_states(const std::vector<BasisState>& basis, bool optimize_shift) {
     rvec p;
     for (const auto& state : basis) {
-        rvec state_params = pack_wavefunction(state.psi, optimize_shift);
+        bool skip_first_shift_row = (state.type == Channel::PN);  // true for PN, false for pions
+        rvec state_params = pack_wavefunction(state.psi, optimize_shift, skip_first_shift_row);
         // Manually concatenate (rvec is a custom type, no insert method)
         for (size_t i = 0; i < state_params.size(); ++i) {
             p.push_back(state_params[i]);
@@ -478,13 +513,20 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
     size_t idx = 0;
     for (size_t k = 0; k < basis.size(); ++k) {
         auto& state = basis[k];
+        bool skip_first_shift_row = (state.type == Channel::PN);
+
         // Calculate size of parameters for this state
         size_t state_size;
         size_t dim = state.psi.A.size1();
         if (optimize_shift) {
-            // L lower triangle (not upper!) + non-NN shifts
+            // L lower triangle (not upper!)
             state_size = (dim * (dim + 1)) / 2;  // Lower triangle = dim*(dim+1)/2
-            state_size += dim * 3 - 3;  // Shifts (skip row 0, which has 3 cols)
+
+            if (!skip_first_shift_row) {
+                // Pion states: shifts for all rows (0, 1, ..., dim-1)
+                state_size += dim * 3;  // All rows have 3 coords
+            }
+            // Bare PN states: no shifts added (skip_first_shift_row=true means no shifts)
         } else {
             state_size = (dim * (dim + 1)) / 2;  // Just L
         }
@@ -502,7 +544,7 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
             state_params.push_back(p[idx + i]);
         }
 
-        unpack_wavefunction(state.psi, state_params, optimize_shift);
+        unpack_wavefunction(state.psi, state_params, optimize_shift, skip_first_shift_row);
         idx += state_size;
     }
 }
@@ -519,37 +561,47 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
     int no_improve_count = 0;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
-        bool opt_shift = true;
         ld sweep_start_E = previous_E;
 
         // SWEEP: Optimize each state ONE AT A TIME
         for (size_t k = 0; k < basis.size(); ++k) {
-            rvec p0 = pack_wavefunction(basis[k].psi, opt_shift);
+            // Bare PN states: no shift optimization, pion states: optimize shifts for all rows
+            bool opt_shift = (basis[k].type != Channel::PN);
+            bool skip_first_shift_row = (basis[k].type == Channel::PN);  // true for PN, false for pions
+
+            rvec p0 = pack_wavefunction(basis[k].psi, opt_shift, skip_first_shift_row);
 
             // Local objective: Modifies ONLY basis[k], captures reference to basis
             auto local_objective = [&](const qm::rvec& p_test) -> qm::ld {
                 // Avoid copying: modify temporary state and check physicality
                 SpatialWavefunction test_psi = basis[k].psi;
-                unpack_wavefunction(test_psi, p_test, opt_shift);
+                unpack_wavefunction(test_psi, p_test, opt_shift, skip_first_shift_row);
 
-                if (!is_physical_gaussian(test_psi, false)) {
+                if (!is_physical_gaussian(test_psi)) {
+                    return 999999.0;
+                }
+
+                // Check kinetic energy is positive (rejects unphysical states)
+                BasisState temp_state = basis[k];
+                temp_state.psi = test_psi;
+                if (!has_positive_kinetic_energy(temp_state, relativistic)) {
                     return 999999.0;
                 }
 
                 // Temporarily replace state k's psi
                 SpatialWavefunction orig_psi = basis[k].psi;
                 basis[k].psi = test_psi;
-                ld E = evaluate_basis_energy(basis, b, S, relativistic, false);
+                ld E = evaluate_basis_energy(basis, b, S, relativistic, true);
                 basis[k].psi = orig_psi;  // Restore
 
                 return E;
             };
 
-            // Run Nelder-Mead on just this state's ~10 parameters
+            // Run Nelder-Mead on just this state's parameters
             rvec p_best = nelder_mead(p0, local_objective, nm_max_iter);
 
             // Apply the optimized parameters (inline - no extra evaluation)
-            unpack_wavefunction(basis[k].psi, p_best, opt_shift);
+            unpack_wavefunction(basis[k].psi, p_best, opt_shift, skip_first_shift_row);
         }
 
         // Single energy evaluation after the full sweep

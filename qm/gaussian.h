@@ -99,7 +99,7 @@ struct Gaussian {
     //   - jac: Jacobian object with N particles, dimension N-1
     //   - b_range: Search space for widths (fm); larger → explores wider spatial scales
     
-    void randomize(const Jacobian& jac, ld b_range, ld b_form) {
+    void randomize(const Jacobian& jac, ld b_range, ld b_form, bool lock_first_shift_row = true) {
         size_t N = jac.N;           // Number of physical particles
         size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
 
@@ -122,7 +122,7 @@ struct Gaussian {
                 rvec w_j = jac.transform_w(j);
                 rvec w_ij_full = w_i - w_j;
 
-                // Truncate the Center of Mass coordinate 
+                // Truncate the Center of Mass coordinate
                 rvec w_ij(dim);
                 for (size_t k = 0; k < dim; ++k) {
                     w_ij[k] = w_ij_full[k];
@@ -133,7 +133,7 @@ struct Gaussian {
                 // -------------------------------------------------------------
                 // 3. THE HALTON GENERATOR
                 // Use a different prime base for each physical pair!
-                size_t base = primes[pair_idx % 10]; 
+                size_t base = primes[pair_idx % 10];
                 ld u = van_der_corput(current_n, base);
                 pair_idx++;
                 // -------------------------------------------------------------
@@ -156,18 +156,21 @@ struct Gaussian {
         SELF.A = A_new;
 
         rmat r0(dim, 3);
-        ld range = b_form;
+        ld range = 0.1;
         FOR_MAT(r0) {
             // The pion gets a random physical shift
             r0(j, i) = random_ld(-range, range);
         }
-        
+
         // 1. Matrix multiply (this will mix the coordinates!)
         SELF.s = A_new * r0 * 2.0L;
 
-        // 2. THE LOCK: Mathematically sever the NN shift from the pion shift
-        for (size_t col = 0; col < 3; ++col) {
-            SELF.s(0, col) = 0.0; 
+        // 2. Lock NN shift to zero for bare PN states only
+        // For pion states, allow row 0 to have shifts
+        if (lock_first_shift_row) {
+            for (size_t col = 0; col < 3; ++col) {
+                SELF.s(0, col) = 0.0;
+            }
         }
     }
 };
@@ -333,7 +336,7 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 
 // Flattens a wavefunction into a 1D rvec for Nelder-Mead
 // Packs lower-triangular Cholesky factor L where A = L * L^T
-rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
+rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift, bool skip_first_shift_row = true) {
     rvec p;
     size_t dim = psi.A.size1();
 
@@ -371,9 +374,11 @@ rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
         }
     }
 
-    // 3. Pack the non-NN shifts only
+    // 3. Pack shifts
     if (optimize_shift) {
-        for (size_t i = 1; i < psi.s.size1(); ++i) {
+        size_t start_row = skip_first_shift_row ? 1 : 0;  // For bare PN: skip_first_shift_row=true, start at 1
+                                                           // For pion:   skip_first_shift_row=false, start at 0
+        for (size_t i = start_row; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
                 p.push_back(psi.s(i, j));
             }
@@ -392,7 +397,7 @@ rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
 
 // Rebuilds the wavefunction from the 1D rvec
 // Reconstructs A from lower-triangular Cholesky factor: A = L * L^T (guaranteed PD!)
-void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_shift) {
+void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_shift, bool skip_first_shift_row = true) {
     size_t idx = 0;
     size_t dim = psi.A.size1();
 
@@ -407,21 +412,27 @@ void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_
     // 2. Reconstruct A = L * L^T (guaranteed positive-definite!)
     psi.A = L * L.transpose();
 
-    // 3. Unpack shifts (or force to zero)
+    // 3. Unpack shifts
     if (optimize_shift) {
-        for (size_t i = 1; i < psi.s.size1(); ++i) {
+        size_t start_row = skip_first_shift_row ? 1 : 0;  // For bare PN: skip_first_shift_row=true, start at 1
+                                                           // For pion:   skip_first_shift_row=false, start at 0
+        for (size_t i = start_row; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
                 psi.s(i, j) = p[idx++];
             }
         }
-    }
-
-    // Always zero out the first row (NN shift locked to zero) for PN states only
-    // For pion states (3 Jacobi coords), row 0 is not NN - keep it!
-    // Only lock if this is a 1D state (PN)
-    if (dim == 1) {
-        for (size_t j = 0; j < psi.s.size2(); ++j) {
-            psi.s(0, j) = 0.0;
+        // Zero out shifts before start_row
+        for (size_t i = 0; i < start_row; ++i) {
+            for (size_t j = 0; j < psi.s.size2(); ++j) {
+                psi.s(i, j) = 0.0;
+            }
+        }
+    } else {
+        // No shifts at all - zero them all
+        for (size_t i = 0; i < psi.s.size1(); ++i) {
+            for (size_t j = 0; j < psi.s.size2(); ++j) {
+                psi.s(i, j) = 0.0;
+            }
         }
     }
 }

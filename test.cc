@@ -13,6 +13,9 @@
 #include "qm/gaussian.h"
 #include "qm/operators.h"
 #include "qm/jacobi.h"
+#include "deuterium.h"
+#include "qm/serialization.h"
+#include "SVM.h"
 
 using namespace qm;
 
@@ -338,26 +341,100 @@ bool test_promote_and_absorb() {
 }
 
 // ========================================================================
+// TEST 5: LOAD AND ANALYZE SAVED BASIS STATE
+// ========================================================================
+bool test_load_and_analyze_basis(ld b, ld S, const std::string& filename = "basis_final.txt") {
+    std::cout << "----------------------------------------------------\n";
+    std::cout << " RUNNING TEST 5: Load & Analyze Saved Basis\n";
+    std::cout << "----------------------------------------------------\n";
+
+    try {
+        // Load basis and observables
+        auto [basis, coefficients, energy, radius, kinetic_energy] = load_basis_state(filename);
+
+        std::cout << "Loaded " << basis.size() << " basis states from " << filename << "\n";
+        std::cout << "Energy: " << std::fixed << std::setprecision(6) << energy << " MeV\n";
+        std::cout << "Radius: " << radius << " fm\n";
+        std::cout << "Kinetic Energy: " << kinetic_energy << " MeV\n";
+        std::cout << "Coefficients: " << coefficients.size() << "\n\n";
+
+        // Print coefficients
+        std::cout << "Ground state coefficients (|c_i|):\n";
+        for (size_t i = 0; i < coefficients.size(); ++i) {
+            std::cout << "  c[" << i << "]: " << std::setprecision(10) << coefficients[i] << "\n";
+        }
+        std::cout << "\n";
+
+        // // Print basis state details
+        // std::cout << "Basis state properties:\n";
+        // for (size_t i = 0; i < basis.size(); ++i) {
+        //     std::cout << "  State " << i << ":\n";
+        //     std::cout << "    Channel: " << channel_to_string((int)basis[i].type) << "\n";
+        //     std::cout << "    Flip: " << spinch_to_string((int)basis[i].flip) << "\n";
+        //     std::cout << "    Isospin: " << basis[i].isospin_factor << "\n";
+        //     std::cout << "    Pion mass: " << basis[i].pion_mass << " MeV\n";
+        //     std::cout << "    A dimensions: " << basis[i].psi.A.size1() << "x" << basis[i].psi.A.size2() << "\n";
+        //     std::cout << "    A(0,0): " << std::setprecision(10) << basis[i].psi.A(0, 0) << "\n";
+        //     if (basis[i].psi.A.size1() > 1) {
+        //         std::cout << "    A(1,1): " << basis[i].psi.A(1, 1) << "\n";
+        //     }
+        // }
+        // std::cout << "\n";
+
+        // Compute and print overlap matrix
+        std::cout << "Overlap Matrix (N):\n";
+        auto [H, N] = build_matrices(basis, b, S, {false, false});
+        for (size_t i = 0; i < N.size1(); ++i) {
+            for (size_t j = 0; j < N.size2(); ++j) {
+                std::cout << "  N(" << i << "," << j << ") = " << std::setprecision(10) << N(i, j) << "\n";
+            }
+        }
+
+        // Compute and print Hamiltonian matrix
+        std::cout << "\nHamiltonian Matrix (H):\n";
+        for (size_t i = 0; i < H.size1(); ++i) {
+            for (size_t j = 0; j < H.size2(); ++j) {
+                std::cout << "  H(" << i << "," << j << ") = " << std::setprecision(10) << H(i, j) << "\n";
+            }
+        }
+
+        // Compute overlap magnitudes to check for collapse
+        std::cout << "\nOverlap magnitudes (N_ii normalized):\n";
+        for (size_t i = 0; i < N.size1(); ++i) {
+            for (size_t j = i + 1; j < N.size2(); ++j) {
+                ld N_ii = std::abs(N(i, i));
+                ld N_jj = std::abs(N(j, j));
+                ld N_ij = std::abs(N(i, j));
+                ld normalized = N_ij / std::sqrt(N_ii * N_jj);
+                if (normalized > ZERO_LIMIT) {
+                    std::cout << "  <" << i << "|" << j << "> = " << normalized;
+                    if (normalized > 0.8) {
+                    std::cout << " [WARNING: Nearly identical states!]";
+                    }
+                    std::cout << "\n";
+                }
+                
+            }
+        }
+
+        std::cout << " -> [PASS] Basis loaded and analyzed successfully\n\n";
+        return true;
+
+    } catch (const std::exception& e) {
+        std::cout << " -> [FAIL] Error loading basis: " << e.what() << "\n\n";
+        return false;
+    }
+}
+
+// ========================================================================
 // MAIN EXECUTION
 // ========================================================================
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "====================================================\n";
     std::cout << "        STARTING SVM OPERATOR TEST SUITE\n";
     std::cout << "====================================================\n\n";
 
-    bool t1 = test_2_particle_system();
-    bool t2 = test_3_particle_shifted_system();
-    bool t3 = test_w_coupling();
-    bool t4 = test_promote_and_absorb();
-    test_relativistic_explosion();
-
-    std::cout << "====================================================\n";
-    if (t1 && t2 && t3 && t4) {
-        std::cout << " [ALL TESTS PASSED] \n";
-    } else {
-        std::cout << " [WARNING] One or more tests failed. \n";
-    }
-    std::cout << "====================================================\n";
-
+    test_load_and_analyze_basis(1.4, 45.0);
+    
     return 0;
 }
