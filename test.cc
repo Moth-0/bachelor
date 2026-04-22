@@ -381,22 +381,22 @@ bool test_load_and_analyze_basis(ld b, ld S, const std::string& filename = "basi
         // }
         // std::cout << "\n";
 
-        // Compute and print overlap matrix
-        std::cout << "Overlap Matrix (N):\n";
+        // // Compute and print overlap matrix
+        // std::cout << "Overlap Matrix (N):\n";
         auto [H, N] = build_matrices(basis, b, S, {false, false});
-        for (size_t i = 0; i < N.size1(); ++i) {
-            for (size_t j = 0; j < N.size2(); ++j) {
-                std::cout << "  N(" << i << "," << j << ") = " << std::setprecision(10) << N(i, j) << "\n";
-            }
-        }
+        // for (size_t i = 0; i < N.size1(); ++i) {
+        //     for (size_t j = 0; j < N.size2(); ++j) {
+        //         std::cout << "  N(" << i << "," << j << ") = " << std::setprecision(10) << N(i, j) << "\n";
+        //     }
+        // }
 
-        // Compute and print Hamiltonian matrix
-        std::cout << "\nHamiltonian Matrix (H):\n";
-        for (size_t i = 0; i < H.size1(); ++i) {
-            for (size_t j = 0; j < H.size2(); ++j) {
-                std::cout << "  H(" << i << "," << j << ") = " << std::setprecision(10) << H(i, j) << "\n";
-            }
-        }
+        // // Compute and print Hamiltonian matrix
+        // std::cout << "\nHamiltonian Matrix (H):\n";
+        // for (size_t i = 0; i < H.size1(); ++i) {
+        //     for (size_t j = 0; j < H.size2(); ++j) {
+        //         std::cout << "  H(" << i << "," << j << ") = " << std::setprecision(10) << H(i, j) << "\n";
+        //     }
+        // }
 
         // Compute overlap magnitudes to check for collapse
         std::cout << "\nOverlap magnitudes (N_ii normalized):\n";

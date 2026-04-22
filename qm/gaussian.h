@@ -99,7 +99,7 @@ struct Gaussian {
     //   - jac: Jacobian object with N particles, dimension N-1
     //   - b_range: Search space for widths (fm); larger → explores wider spatial scales
     
-    void randomize(const Jacobian& jac, ld b_range, ld b_form, bool lock_first_shift_row = true) {
+    void randomize(const Jacobian& jac, ld b_range, ld b_form, bool lock_first_shift_row = false) {
         size_t N = jac.N;           // Number of physical particles
         size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
 
@@ -156,7 +156,7 @@ struct Gaussian {
         SELF.A = A_new;
 
         rmat r0(dim, 3);
-        ld range = 0.1;
+        ld range = b_form;
         FOR_MAT(r0) {
             // The pion gets a random physical shift
             r0(j, i) = random_ld(-range, range);
@@ -328,7 +328,7 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 
     // 3. Absorb the spatial form factor into the padded matrix!
     // A_tilde = A_promoted + (1 / b^2) * (w_piN * w_piN^T + w_nn * w_nn^T)
-    A_tilde += (outer_no_conj(w_piN, w_piN) + outer_no_conj(w_nn, w_nn)) * alpha;
+    A_tilde += (outer_no_conj(w_piN, w_piN) + outer_no_conj(w_nn, w_nn)/10.0L) * alpha;
 
     // Return the new fully prepped Gaussian
     return Gaussian(A_tilde, s_promoted);

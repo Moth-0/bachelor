@@ -230,7 +230,7 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = true) {
         ld physical_shift_fm = absolute_shift_magnitude / (2.0 * width);
 
         // THE PHYSICAL LIMIT in fm
-        ld limit = 0.1;
+        ld limit = 5.0;
         if (physical_shift_fm > limit) {
             if (debug) std::cerr << "  [REJECT] Shift too large: " << physical_shift_fm << " fm > " << limit <<" fm\n";
             return false; 
@@ -392,7 +392,7 @@ inline void competitive_search(std::vector<BasisState>& basis,
     size_t K = basis.size();
     auto [H_core, N_core] = build_matrices(basis, b_form, S, relativistic);
 
-    for (size_t t = 1; t < channel_templates.size(); ++t) {
+    for (size_t t = 0; t < channel_templates.size(); ++t) {
         BasisState best_candidate = channel_templates[t];
         
         // 2. Set the baseline to E_core
@@ -419,9 +419,9 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 BasisState test_candidate = channel_templates[t];
                 Gaussian g;
                 // For PN states: lock row 0. For pion states: allow row 0 to randomize
-                bool lock_first = (test_candidate.type == Channel::PN);
-                g.randomize(test_candidate.jac, b_range, b_form, lock_first);
+                g.randomize(test_candidate.jac, b_range, b_form);
                 test_candidate.psi.set_from_gaussian(g);
+                if (!is_physical_gaussian(test_candidate.psi)) continue;
 
                 // Calculate the dart's isolated diagonal elements first
                 cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
