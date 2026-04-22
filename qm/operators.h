@@ -400,7 +400,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
     // Promote the bare state up to the dressed dimension
     size_t target_dim = psi_dressed.A.size1();
     Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
-    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, w_piN, w_nn, alpha);
+    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, w_piN, alpha);
     
     SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
 

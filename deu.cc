@@ -212,7 +212,9 @@ int main(int argc, char* argv[]) {
         SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
         all_results.push_back(res);
 
-        std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
+        ld binding_energy = res.energy_excited - res.energy;  // E_1 - E_0
+        std::cout << "--> FINAL " << label << " | E_0: " << res.energy << " MeV, E_1: " << res.energy_excited
+                  << " MeV, Binding: " << binding_energy << " MeV, R: " << res.charge_radius << " fm\n";
 
         outfile << "\"Iteration\"\t\"" << label << "\"\n";
         for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
@@ -228,8 +230,11 @@ int main(int argc, char* argv[]) {
     std::cout << std::fixed << std::setprecision(5);
 
     for (size_t i = 0; i < configurations.size(); ++i) {
+        ld binding_energy = all_results[i].energy_excited - all_results[i].energy;
         std::cout << std::setw(24) << std::left << configurations[i].first
-                  << " | E: "       << std::right << all_results[i].energy  << " MeV"
+                  << " | E_0: "     << std::right << all_results[i].energy  << " MeV"
+                  << " | E_1: "     << all_results[i].energy_excited        << " MeV"
+                  << " | Binding: " << binding_energy                        << " MeV"
                   << " | R: "       << all_results[i].charge_radius         << " fm"
                   << " | <T>: "     << all_results[i].avg_kinetic_energy    << " MeV"
                   << " | PN: "      << (all_results[i].prob_bare * 100.0)   << " %"

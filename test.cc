@@ -283,7 +283,7 @@ bool test_promote_and_absorb() {
 
     // 5. Promote to 2D (pion space)
     size_t target_dim = 2;
-    Gaussian g_promoted = promote_and_absorb(g_bare, target_dim, w_piN, w_nn, alpha);
+    Gaussian g_promoted = promote_and_absorb(g_bare, target_dim, w_piN, alpha);
 
     // 6. Check the promoted A matrix
     //    Expected:

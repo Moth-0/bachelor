@@ -99,7 +99,7 @@ struct Gaussian {
     //   - jac: Jacobian object with N particles, dimension N-1
     //   - b_range: Search space for widths (fm); larger → explores wider spatial scales
     
-    void randomize(const Jacobian& jac, ld b_range, ld b_form, bool lock_first_shift_row = true) {
+    void randomize(const Jacobian& jac, ld b_range, ld b_form) {
         size_t N = jac.N;           // Number of physical particles
         size_t dim = N - 1;         // Internal Jacobi dimensions (ignoring CM)
 
@@ -158,20 +158,12 @@ struct Gaussian {
         rmat r0(dim, 3);
         ld range = 0.1;
         FOR_MAT(r0) {
-            // The pion gets a random physical shift
+            // Random physical shifts for all coordinates
             r0(j, i) = random_ld(-range, range);
         }
 
-        // 1. Matrix multiply (this will mix the coordinates!)
+        // Matrix multiply to mix coordinates and generate shifts
         SELF.s = A_new * r0 * 2.0L;
-
-        // 2. Lock NN shift to zero for bare PN states only
-        // For pion states, allow row 0 to have shifts
-        if (lock_first_shift_row) {
-            for (size_t col = 0; col < 3; ++col) {
-                SELF.s(0, col) = 0.0;
-            }
-        }
     }
 };
 
@@ -308,7 +300,7 @@ inline ld spactial_overlap(const SpatialWavefunction& g1, const SpatialWavefunct
 
 // Promotes a bare state (e.g., pn) to the dressed dimension (pn + pion)
 inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
-                                   const rvec& w_piN, const rvec& w_nn, ld alpha)
+                                   const rvec& w_piN, ld alpha)
 {
     // 1. Promote A^(d) by padding it with zeros up to target_dim
     rmat A_tilde = zeros<ld>(target_dim, target_dim);
@@ -326,9 +318,9 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
         }
     }
 
-    // 3. Absorb the spatial form factor into the padded matrix!
-    // A_tilde = A_promoted + (1 / b^2) * (w_piN * w_piN^T + w_nn * w_nn^T)
-    A_tilde += (outer_no_conj(w_piN, w_piN) + outer_no_conj(w_nn, w_nn)) * alpha;
+    // 3. Absorb only the pion-nucleon form factor (remove bNN constraint)
+    // A_tilde = A_promoted + (1 / b^2) * (w_piN * w_piN^T)
+    A_tilde += outer_no_conj(w_piN, w_piN) * alpha;
 
     // Return the new fully prepped Gaussian
     return Gaussian(A_tilde, s_promoted);
@@ -336,7 +328,7 @@ inline Gaussian promote_and_absorb(const Gaussian& g_bare, size_t target_dim,
 
 // Flattens a wavefunction into a 1D rvec for Nelder-Mead
 // Packs lower-triangular Cholesky factor L where A = L * L^T
-rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift, bool skip_first_shift_row = true) {
+rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
     rvec p;
     size_t dim = psi.A.size1();
 
@@ -374,11 +366,9 @@ rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift, bool
         }
     }
 
-    // 3. Pack shifts
+    // 3. Pack all shifts (including row 0)
     if (optimize_shift) {
-        size_t start_row = skip_first_shift_row ? 1 : 0;  // For bare PN: skip_first_shift_row=true, start at 1
-                                                           // For pion:   skip_first_shift_row=false, start at 0
-        for (size_t i = start_row; i < psi.s.size1(); ++i) {
+        for (size_t i = 0; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
                 p.push_back(psi.s(i, j));
             }
@@ -397,7 +387,7 @@ rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift, bool
 
 // Rebuilds the wavefunction from the 1D rvec
 // Reconstructs A from lower-triangular Cholesky factor: A = L * L^T (guaranteed PD!)
-void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_shift, bool skip_first_shift_row = true) {
+void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_shift) {
     size_t idx = 0;
     size_t dim = psi.A.size1();
 
@@ -412,19 +402,11 @@ void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_
     // 2. Reconstruct A = L * L^T (guaranteed positive-definite!)
     psi.A = L * L.transpose();
 
-    // 3. Unpack shifts
+    // 3. Unpack all shifts (including row 0)
     if (optimize_shift) {
-        size_t start_row = skip_first_shift_row ? 1 : 0;  // For bare PN: skip_first_shift_row=true, start at 1
-                                                           // For pion:   skip_first_shift_row=false, start at 0
-        for (size_t i = start_row; i < psi.s.size1(); ++i) {
+        for (size_t i = 0; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
                 psi.s(i, j) = p[idx++];
-            }
-        }
-        // Zero out shifts before start_row
-        for (size_t i = 0; i < start_row; ++i) {
-            for (size_t j = 0; j < psi.s.size2(); ++j) {
-                psi.s(i, j) = 0.0;
             }
         }
     } else {

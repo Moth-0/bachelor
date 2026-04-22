@@ -105,13 +105,12 @@ struct BasisState {
 ///   - relativistic: if true, use T_rel = √(p²+m²)-m; else T = p²/2m
 ///
 /// Returns: Pair (H, N) of complex matrices
-std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, bool relativistic)
+std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, bool relativistic) 
 {
     size_t size = basis.size();
     cmat H = zeros<cld>(size, size);
     cmat N = zeros<cld>(size, size);
-
-    #pragma omp parallel for schedule(dynamic)
+    
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
             

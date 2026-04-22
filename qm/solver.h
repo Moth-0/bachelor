@@ -209,7 +209,87 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
     return solve_ground_state_with_eigenvector(H, N).first;
 }
 
+// Solve for the k-th excited state energy (k=0 is ground state, k=1 is first excited, etc.)
+ld solve_kth_state_energy(const cmat& H, const cmat& N, size_t k) {
+    // 1. Cholesky Decomposition: N = L * L^dag
+    cmat L = N.cholesky();
+    if (L.size1() == 0) {
+        return 999999.0;
+    }
 
+    // 2. Invert L
+    cmat L_inv = L.inverse_lower();
+    if (L_inv.size1() == 0) {
+        return 999999.0;
+    }
+
+    // 3. Create the standard Hermitian matrix: H' = L^{-1} * H * L^{-dag}
+    cmat L_inv_dag = L_inv.adjoint();
+    cmat H_prime = L_inv * H * L_inv_dag;
+
+    // 4. Diagonalize to find ALL eigenvalues
+    cmat A_copy = H_prime;  // Copy for jacobi_with_eigenvector
+    size_t n = A_copy.size1();
+    ld tolerance = ZERO_LIMIT;
+    cmat V = eye<cld>(n);
+
+    // Perform Jacobi diagonalization
+    for (int sweep = 0; sweep < 50; ++sweep) {
+        ld max_off_diag = 0.0;
+        for (size_t p = 0; p < n - 1; ++p) {
+            for (size_t q = p + 1; q < n; ++q) {
+                ld off_diag_mag = std::abs(A_copy(p, q));
+                if (off_diag_mag > max_off_diag) max_off_diag = off_diag_mag;
+
+                if (off_diag_mag > tolerance) {
+                    ld app = std::real(A_copy(p, p));
+                    ld aqq = std::real(A_copy(q, q));
+                    cld apq = A_copy(p, q);
+
+                    ld theta = 0.5 * std::atan2(2.0 * off_diag_mag, aqq - app);
+                    ld cos_t = std::cos(theta);
+                    ld sin_t = std::sin(theta);
+                    cld phase = std::conj(apq) / off_diag_mag;
+
+                    for (size_t i = 0; i < n; ++i) {
+                        cld ip = A_copy(i, p);
+                        cld iq = A_copy(i, q);
+                        A_copy(i, p) = cos_t * ip - sin_t * phase * iq;
+                        A_copy(i, q) = sin_t * std::conj(phase) * ip + cos_t * iq;
+                    }
+                    for (size_t i = 0; i < n; ++i) {
+                        cld pi = A_copy(p, i);
+                        cld qi = A_copy(q, i);
+                        A_copy(p, i) = cos_t * pi - sin_t * std::conj(phase) * qi;
+                        A_copy(q, i) = sin_t * phase * pi + cos_t * qi;
+                    }
+
+                    for (size_t i = 0; i < n; ++i) {
+                        cld vip = V(i, p);
+                        cld viq = V(i, q);
+                        V(i, p) = cos_t * vip - sin_t * phase * viq;
+                        V(i, q) = sin_t * std::conj(phase) * vip + cos_t * viq;
+                    }
+                }
+            }
+        }
+        if (max_off_diag < tolerance) break;
+    }
+
+    // 5. Extract all diagonal eigenvalues and find the k-th smallest
+    std::vector<ld> eigenvalues;
+    for (size_t i = 0; i < n; ++i) {
+        eigenvalues.push_back(std::real(A_copy(i, i)));
+    }
+    std::sort(eigenvalues.begin(), eigenvalues.end());
+
+    // Check bounds
+    if (k >= eigenvalues.size()) {
+        return 999999.0;  // k-th state doesn't exist
+    }
+
+    return eigenvalues[k];
+}
 
 template <typename ObjectiveFunc>
 rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 1000) {
