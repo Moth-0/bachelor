@@ -105,7 +105,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    std::vector<ld> deterministic_widths = {0.2, 3.0, 5.0, 20.0};
+    std::vector<ld> deterministic_widths = {1.0, 10.0, 100.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -120,16 +120,16 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
         std::cout << " - Cycle " << cycle << " - \n";
 
         // 1. Competitive Search
-        competitive_search(basis, channel_templates, 100000, b_range, b_form, S, relativistic);
+        competitive_search(basis, channel_templates, 1000, b_range, b_form, S, relativistic);
         ld E_now = evaluate_basis_energy(basis, b_form, S, relativistic);
         convergence_energies.push_back(E_now);
 
-        std::cout << "\nStarting Sweep optimize\n";
-        sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
         
         std::cout << "\n-------------------------------------------------------\n";
     }
 
+    std::cout << "\nStarting Sweep optimize\n";
+    sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies);
     
 
     SvmResult result = evaluate_observables(basis, b_form, S, relativistic);

@@ -161,14 +161,9 @@ struct Gaussian {
             // The pion gets a random physical shift
             r0(j, i) = random_ld(-range, range);
         }
-        
+
         // 1. Matrix multiply (this will mix the coordinates!)
         SELF.s = A_new * r0 * 2.0L;
-
-        // 2. THE LOCK: Mathematically sever the NN shift from the pion shift
-        for (size_t col = 0; col < 3; ++col) {
-            SELF.s(0, col) = 0.0; 
-        }
     }
 };
 
@@ -371,9 +366,9 @@ rvec pack_wavefunction(const SpatialWavefunction& psi, bool optimize_shift) {
         }
     }
 
-    // 3. Pack the non-NN shifts only
+    // 3. Pack all shifts (including row 0)
     if (optimize_shift) {
-        for (size_t i = 1; i < psi.s.size1(); ++i) {
+        for (size_t i = 0; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
                 p.push_back(psi.s(i, j));
             }
@@ -407,21 +402,12 @@ void unpack_wavefunction(SpatialWavefunction& psi, const rvec& p, bool optimize_
     // 2. Reconstruct A = L * L^T (guaranteed positive-definite!)
     psi.A = L * L.transpose();
 
-    // 3. Unpack shifts (or force to zero)
+    // 3. Unpack all shifts (including row 0)
     if (optimize_shift) {
-        for (size_t i = 1; i < psi.s.size1(); ++i) {
+        for (size_t i = 0; i < psi.s.size1(); ++i) {
             for (size_t j = 0; j < psi.s.size2(); ++j) {
                 psi.s(i, j) = p[idx++];
             }
-        }
-    }
-
-    // Always zero out the first row (NN shift locked to zero) for PN states only
-    // For pion states (3 Jacobi coords), row 0 is not NN - keep it!
-    // Only lock if this is a 1D state (PN)
-    if (dim == 1) {
-        for (size_t j = 0; j < psi.s.size2(); ++j) {
-            psi.s(0, j) = 0.0;
         }
     }
 }

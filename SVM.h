@@ -28,25 +28,54 @@ struct SvmResult {
 // Evaluate energy: build H,N and solve GEVP
 ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
-    
-    cmat L = N.cholesky();
-    
-    // 1. Total Failure Check: The matrix is explicitly not Positive-Definite
-    if (L.size1() == 0) { 
-        if (debug) {
-            std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite (Cholesky failed). "
-                      << "Basis size: " << basis.size() << ".\n"
-                      << "  -> Cause: Basis functions are linearly dependent (numerical collapse).\n";
+
+    // CRITICAL: Multi-level overlap check prevents basis collapse
+    // Level 1: Standard overlap (catches identical channels)
+    // Level 2: Spatial overlap (catches hidden clones with different spin/isospin)
+    ld tol = 0.95;
+    for (size_t i = 0; i < N.size1(); ++i) {
+        for (size_t j = i + 1; j < N.size2(); ++j) {
+            ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
+
+            // Level 2: Pure spatial cross-channel check (expensive but necessary!)
+            if (overlap <= tol && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
+                BasisState temp = basis[j];
+                temp.type = basis[i].type; // Force channel match to strip spin/isospin orthogonality
+                ld spatial_overlap = std::abs(calc_N_elem(basis[i], temp));
+                overlap = spatial_overlap / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
+            }
+
+            if (overlap > tol) {
+                if (debug) {
+                    //std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > " << tol << ").\n";
+                }
+                return 999999.0;
+            }
         }
-        return 999999.0; 
     }
-    
-    // 2. Near-Singularity Check: The diagonal of L approaches 0
+
+    // // 2. Tikhonov Regularization (Relative Scaling)
+    // for (size_t i = 0; i < N.size1(); ++i) {
+    //     N(i, i) *= cld(1.0 + 1e-6, 0.0);
+    // }
+
+    cmat L = N.cholesky();
+
+    // 3. Total Failure Check: The matrix is explicitly not Positive-Definite
+    if (L.size1() == 0) {
+        if (debug) {
+            std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite.\n";
+        }
+        return 999999.0;
+    }
+
+    // 4. Near-Singularity Check (Dynamic Safety net)
     for (size_t i = 0; i < L.size1(); ++i) {
-        if (std::abs(L(i, i)) < 0.05) { 
+        ld num = std::abs(L(i, i));
+        ld thresh = (1-tol) * std::sqrt(std::abs(N(i, i)));
+        if (num < thresh ) {
             if (debug) {
-                std::cerr << "  [REJECT GEVP] Near-linear dependence detected at basis index " << i << ".\n"
-                          << "  -> L(" << i << "," << i << ") = " << std::abs(L(i, i)) << " < threshold.\n";
+                std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << num << " < " << thresh << ".\n";
             }
             return 999999.0;
         }
@@ -55,11 +84,12 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
     return solve_ground_state_energy(H, N);
 }
 
-// Evaluate the binding energy gap (E_0 - E_1) for basis state selection
-// This objective is better for finding physically meaningful ground states:
-// minimizing just E_0 could find states where E_0 and E_1 are both very negative (small gap)
-// minimizing (E_0 - E_1) ensures the ground state is stable against decay to excited states
-ld evaluate_binding_energy_gap(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
+// Evaluate the sum of ground and first excited state energies (E_0 + E_1) for basis state selection
+// This objective allows Nelder-Mead to dedicate different Gaussians to different states:
+// - Some Gaussians describe the wide ground state
+// - Other Gaussians describe the tight excited state
+// - Minimizing the sum finds the perfect mathematical compromise
+ld evaluate_energy_sum(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
     auto [H, N] = build_matrices(basis, b, S, relativistic);
 
     cmat L = N.cholesky();
@@ -85,56 +115,7 @@ ld evaluate_binding_energy_gap(const std::vector<BasisState>& basis, ld b, ld S,
 
     if (E0 >= 999999.0 || E1 >= 999999.0) return 999999.0;
 
-    return E0 - E1;  // Return the binding energy gap (binding energy difference)
-}
-
-// Keeps only states with |c_i| >= threshold_fraction * max(|c_i|)
-size_t prune_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, ld threshold_fraction = 0.01) {
-    if (basis.empty()) return 0;
-
-    // Get the eigenvector
-    auto [H, N] = build_matrices(basis, b, S, relativistic);
-    cld detN = N.determinant();
-    if (std::abs(detN) < ZERO_LIMIT) return 0;
-
-    auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
-
-    // Find max coefficient magnitude
-    ld max_coeff = 0.0;
-    for (size_t i = 0; i < eigvec.size(); ++i) {
-        ld coeff_mag = std::abs(eigvec[i]);
-        if (coeff_mag > max_coeff) max_coeff = coeff_mag;
-    }
-
-    ld threshold = max_coeff * threshold_fraction;
-
-    // Identify states to keep
-    // ALWAYS keep PN states, remove weak pion states only
-    std::vector<size_t> keep_indices;
-    for (size_t i = 0; i < eigvec.size(); ++i) {
-        bool is_pn_state = (basis[i].type == Channel::PN);
-        bool above_threshold = (std::abs(eigvec[i]) >= threshold);
-
-        if (is_pn_state || above_threshold) {
-            keep_indices.push_back(i);
-        }
-    }
-
-    size_t num_removed = basis.size() - keep_indices.size();
-
-    if (num_removed > 0) {
-        // Rebuild basis with only kept states
-        std::vector<BasisState> pruned_basis;
-        for (size_t idx : keep_indices) {
-            pruned_basis.push_back(basis[idx]);
-        }
-        basis = pruned_basis;
-
-        std::cout << "  [PRUNE] Removed " << num_removed << "Basis: " << basis.size() << " -> "
-                  << keep_indices.size()-num_removed << " states.\n";
-    }
-
-    return num_removed;
+    return E0 + E1;  // Minimize the sum (allows different Gaussians for each state)
 }
 
 SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
@@ -188,8 +169,28 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
     return {E0, E1, coeff, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
 }
 
+// Check if a candidate state has positive kinetic energy (rejects unphysical states)
+bool has_positive_kinetic_energy(const BasisState& state, const std::vector<bool>& relativistic) {
+    // Build appropriate relativistic flags for this state's Jacobian dimension
+    // relativistic flags should have size = jac.masses.size() - 1
+    size_t expected_size = state.jac.masses.size() - 1;
+    std::vector<bool> rel_flags(expected_size, false);  // Default to classical for this dimension
+
+    // Copy from the provided relativistic vector if it exists
+    for (size_t i = 0; i < expected_size && i < relativistic.size(); ++i) {
+        rel_flags[i] = relativistic[i];
+    }
+
+    ld kinetic = total_kinetic_energy(state.psi, state.psi, state.jac, rel_flags);
+    ld overlap = spactial_overlap(state.psi, state.psi);
+    if (overlap < ZERO_LIMIT) return false;
+
+    ld kinetic_expectation = kinetic / overlap;
+    return kinetic_expectation > -1e-6;  // Allow tiny numerical noise
+}
+
 // Physics constraint checker - validates Gaussian state is physical
-bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
+bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = true) {
     const ld min_width = 1.0 / (200.0 * 200.0); 
     const ld max_width = 1.0 / (0.05 * 0.05); 
 
@@ -206,19 +207,21 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
             return false;
         }
 
-        // Shift constraint: |s_i| ≤ 2.0 * width * r_max (keep Gaussian localized)
-        ld total_shift = 0;
+        // Calculate physical shift distance in fm: r = s / (2A)
+        ld shift_sq = 0.0;
         for (size_t col = 0; col < 3; ++col) {
-            ld shift = std::abs(psi.s(i, col));
-            ld limit = 2.0 * width * 5.0;
-            if (shift > limit) {
-                if (debug) std::cerr << "  [REJECT] |s[" << i << "," << col << "]|=" << shift
-                                     << " > limit=" << limit << " (width=" << width << ")\n";
-                return false;
-            }
-
-            total_shift += shift * shift; 
+            shift_sq += psi.s(i, col) * psi.s(i, col);
         }
+        ld absolute_shift_magnitude = std::sqrt(shift_sq);
+        ld physical_shift_fm = absolute_shift_magnitude / (2.0 * width);
+
+        // THE PHYSICAL LIMIT in fm
+        ld limit = 5.0;
+        if (physical_shift_fm > limit) {
+            if (debug) std::cerr << "  [REJECT] Shift too large: " << physical_shift_fm << " fm > " << limit <<" fm\n";
+            return false; 
+        }
+
         // if (psi.parity_sign == -1 && i > 0 && total_shift < ZERO_LIMIT) {
         //     if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
         //     return false;
@@ -255,9 +258,8 @@ void print_basis_details(const std::vector<BasisState>& basis, const rvec& coeff
                 shift_sq += basis[k].psi.s(i, col) * basis[k].psi.s(i, col);
             }
             ld total_shift = std::sqrt(shift_sq);
-            ld total_position = total_shift / (2.0 * width); 
 
-            std::cerr << "Total Shift: " << total_position << " fm | \n";
+            std::cerr << "Total Shift: " << total_shift << " fm | \n";
         }
     }
     std::cerr << std::string(120, '=') << "\n";
@@ -490,9 +492,9 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
         size_t state_size;
         size_t dim = state.psi.A.size1();
         if (optimize_shift) {
-            // L lower triangle (not upper!) + non-NN shifts
+            // L lower triangle + all shifts
             state_size = (dim * (dim + 1)) / 2;  // Lower triangle = dim*(dim+1)/2
-            state_size += dim * 3 - 3;  // Shifts (skip row 0, which has 3 cols)
+            state_size += dim * 3;  // All shifts (all dim rows, 3 columns)
         } else {
             state_size = (dim * (dim + 1)) / 2;  // Just L
         }
@@ -534,8 +536,8 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
         rvec p0 = pack_all_basis_states(basis, opt_shift);
         ld E_before = evaluate_basis_energy(basis, b, S, relativistic);
 
-        // Global objective function: optimize all basis parameters to minimize binding energy gap (E_0 - E_1)
-        // This ensures we find states with stable, well-bound ground states
+        // Global objective function: optimize all basis parameters to minimize sum of energies (E_0 + E_1)
+        // This allows Nelder-Mead to naturally dedicate some Gaussians to the ground state and others to the excited state
         auto global_objective = [&](const qm::rvec& p_test) -> qm::ld {
             std::vector<BasisState> test_basis = basis;
             unpack_all_basis_states(test_basis, p_test, opt_shift);
@@ -546,7 +548,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
                     return 999999.0;
                 }
             }
-            return evaluate_binding_energy_gap(test_basis, b, S, relativistic, false);
+            return evaluate_energy_sum(test_basis, b, S, relativistic, false);
         };
 
         // Run Nelder-Mead on ALL parameters at once
