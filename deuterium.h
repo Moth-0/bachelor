@@ -107,7 +107,7 @@ inline cld calc_N_elem(const BasisState& state_i, const BasisState& state_j) {
 
 // --- NEW HELPER: Calculate a single Hamiltonian matrix element ---
 inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, const ld b, const ld S, 
-                       const std::vector<bool>& relativistic, Integrator method = Integrator::SIMPSON) {
+                       const std::vector<bool>& relativistic, ld ho_k = 0.0, Integrator method = Integrator::SIMPSON) {
     cld h_val = 0.0;
 
     // Case 1: Same Channel
@@ -122,6 +122,24 @@ inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, con
             ld n_val = static_cast<ld>(spactial_overlap(state_i.psi, state_j.psi));
             ld rest_mass_term = state_i.pion_mass * n_val;
             h_val = cld(T_total + rest_mass_term, 0.0);
+        }
+
+        // =====================================================================
+        // NEW: HARMONIC OSCILLATOR REGULARIZATION (THE "BOX")
+        // If ho_k > 0, we apply an artificial confining potential.
+        // =====================================================================
+        if (ho_k > ZERO_LIMIT) {
+            // Create a vector of 1.0s for all N particles in this specific channel
+            size_t N_particles = state_i.jac.N;
+            rvec box_weights(N_particles);
+            for(size_t p = 0; p < N_particles; ++p) {
+                box_weights[p] = 1.0; 
+            }
+            ld r2_val = charge_radius_operator(state_i.psi, state_j.psi, state_i.jac, box_weights);
+            
+            // Multiply by 4.0 to convert CM distance squared to relative distance squared
+            ld v_box = ho_k * r2_val; 
+            h_val += cld(v_box, 0.0);
         }
     } 
     // Case 2: W-Operator Coupling (PN <-> Pion)
@@ -155,7 +173,7 @@ inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, con
 }
 
 std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, const ld b, const ld S, 
-                                      const std::vector<bool>& relativistic, Integrator method=Integrator::SIMPSON)
+                                      const std::vector<bool>& relativistic, ld ho_k = 0.0, Integrator method=Integrator::SIMPSON)
 {
     size_t size = basis.size();
     cmat H = zeros<cld>(size, size);
@@ -165,7 +183,7 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
             
-            cld h_val = calc_H_elem(basis[i], basis[j], b, S, relativistic, method);
+            cld h_val = calc_H_elem(basis[i], basis[j], b, S, relativistic, ho_k, method);
             cld n_val = calc_N_elem(basis[i], basis[j]);
 
             H(i, j) = h_val;

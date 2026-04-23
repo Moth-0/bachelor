@@ -155,15 +155,18 @@ struct Gaussian {
 
         SELF.A = A_new;
 
-        rmat r0(dim, 3);
-        ld range = 0.1;
-        FOR_MAT(r0) {
-            // Random physical shifts for all coordinates
-            r0(j, i) = random_ld(-range, range);
-        }
+        if (dim != 1) {
+            rmat r0(dim, 3);
+            ld range = 0.1;
+            FOR_MAT(r0) {
+                // Random physical shifts for all coordinates
+                r0(j, i) = random_ld(-range, range);
+            }
 
-        // Matrix multiply to mix coordinates and generate shifts
-        SELF.s = A_new * r0 * 2.0L;
+            // Matrix multiply to mix coordinates and generate shifts
+            SELF.s = A_new * r0 * 2.0L;
+        }
+        else {rmat s(dim, 3); SELF.s = s;}
     }
 };
 

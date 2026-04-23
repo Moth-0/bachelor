@@ -193,7 +193,7 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
-        eta_vec[col] = 2.0L * dot_no_conj(c, diff);
+        eta_vec[col] = dot_no_conj(c, diff);
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
 
@@ -247,7 +247,7 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
-        eta_vec[col] = 2.0L * dot_no_conj(c, diff);
+        eta_vec[col] = dot_no_conj(c, diff);
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
     if (eta_sq < 0.0) eta_sq = 0.0;  // Clamp to >= 0
