@@ -61,7 +61,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
     std::vector<BasisState> bare_basis;
-    std::vector<ld> deterministic_widths = {1.0, 10.0, 100.0};
+    std::vector<ld> deterministic_widths = {1.0, 5.0, 10.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -117,7 +117,7 @@ int main(int argc, char* argv[]) {
     ld b_range = 100;
     ld b_form = 1.4;
     ld S = 30.0;
-    ld E_self = 134.973;  // Default from nuc.cc
+    ld E_self = 0.0;
 
     std::string file_name = "convergence.data";
 
