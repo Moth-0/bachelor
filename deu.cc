@@ -28,7 +28,7 @@
 using namespace qm;
 
 
-// Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
+// Run deuteron SVM with staged trap loop
 SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;
@@ -43,16 +43,16 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
 
     std::vector<BasisState> channel_templates = {
         {SpatialWavefunction(1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0},
-        
+
         {SpatialWavefunction(-1), Channel::PI_0c_0f, NO_FLIP, 1.0, jac_dressed_0, m_pi0},
         {SpatialWavefunction(-1), Channel::PI_0c_1f, FLIP_PARTICLE_1, 1.0, jac_dressed_0, m_pi0},
         {SpatialWavefunction(-1), Channel::PI_0c_2f, FLIP_PARTICLE_2, 1.0, jac_dressed_0, m_pi0},
-        
+
         {SpatialWavefunction(-1), Channel::PI_pc_0f, NO_FLIP, iso_c, jac_dressed_c, m_pic},
         {SpatialWavefunction(-1), Channel::PI_pc_1f, FLIP_PARTICLE_1, iso_c, jac_dressed_c, m_pic},
         {SpatialWavefunction(-1), Channel::PI_pc_2f, FLIP_PARTICLE_2, iso_c, jac_dressed_c, m_pic},
-        
-        {SpatialWavefunction(-1), Channel::PI_mc_0f, NO_FLIP, -iso_c, jac_dressed_c, m_pic}, 
+
+        {SpatialWavefunction(-1), Channel::PI_mc_0f, NO_FLIP, -iso_c, jac_dressed_c, m_pic},
         {SpatialWavefunction(-1), Channel::PI_mc_1f, FLIP_PARTICLE_1, -iso_c, jac_dressed_c, m_pic},
         {SpatialWavefunction(-1), Channel::PI_mc_2f, FLIP_PARTICLE_2, -iso_c, jac_dressed_c, m_pic}
     };
@@ -63,7 +63,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     std::vector<BasisState> bare_basis;
     std::vector<ld> deterministic_widths = {1.0, 10.0, 100.0};
     for (ld width : deterministic_widths) {
-        rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
+        rmat A_fixed = eye<ld>(1) * 1.0L / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
         bare_basis.push_back({SpatialWavefunction(A_fixed, s_fixed, +1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
     }
@@ -117,6 +117,7 @@ int main(int argc, char* argv[]) {
     ld b_range = 100;
     ld b_form = 1.4;
     ld S = 30.0;
+    ld E_self = 134.973;  // Default from nuc.cc
 
     std::string file_name = "convergence.data";
 
@@ -129,14 +130,17 @@ int main(int argc, char* argv[]) {
             b_form = std::stold(argv[++i]);
         } else if ((arg == "-S") && i + 1 < argc) {
             S = std::stold(argv[++i]);
+        } else if ((arg == "-E_self") && i + 1 < argc) {
+            E_self = std::stold(argv[++i]);
         } else if ((arg == "-f" || arg == "--file") && i+1 < argc) {
             file_name = argv[++i];
         } else if (arg == "-h" || arg == "--help") {
             std::cout << "Usage: ./deu [options]\n";
             std::cout << "Options:\n";
-            std::cout << "  -b_range <value>    Search space for Gaussian width (default: 1.4 fm)\n";
+            std::cout << "  -b_range <value>    Search space for Gaussian width (default: 100 fm)\n";
             std::cout << "  -b_form <value>     Pion interaction range (default: 1.4 fm)\n";
-            std::cout << "  -S <value>          Pion coupling strength (default: 100.0 MeV)\n";
+            std::cout << "  -S <value>          Pion coupling strength (default: 30.0 MeV)\n";
+            std::cout << "  -E_self <value>     Nucleon self-energy (default: 134.973 MeV, from nuc)\n";
             std::cout << "  -f, --file <string> Choose convergence data file location\n";
             std::cout << "  -h, --help          Show this help message\n";
             return 0;
@@ -174,9 +178,10 @@ int main(int argc, char* argv[]) {
         SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
         all_results.push_back(res);
 
-        ld binding_energy = res.energy_excited - res.energy;  // E_1 - E_0
-        std::cout << "--> FINAL " << label << " | E_0: " << res.energy << " MeV, E_1: " << res.energy_excited
-                  << " MeV, Binding: " << binding_energy << " MeV, R: " << res.charge_radius << " fm\n";
+        // Calculate binding energy: 2 × E_self - E_0(deuteron)
+        ld binding_energy = (2.0 * E_self) - res.energy;
+        std::cout << "--> FINAL " << label << " | E_0: " << res.energy << " MeV, Binding: " << binding_energy
+                  << " MeV, R: " << res.charge_radius << " fm\n";
 
         outfile << "\"Iteration\"\t\"" << label << "\"\n";
         for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
@@ -192,20 +197,17 @@ int main(int argc, char* argv[]) {
     std::cout << std::fixed << std::setprecision(5);
 
     for (size_t i = 0; i < configurations.size(); ++i) {
-        ld binding_energy = all_results[i].energy_excited - all_results[i].energy;
+        ld binding_energy = (2.0 * E_self) - all_results[i].energy;
         std::cout << std::setw(24) << std::left << configurations[i].first
-                  << " | E_0: "     << std::right << all_results[i].energy  << " MeV"
-                  << " | E_1: "     << all_results[i].energy_excited        << " MeV"
-                  << " | Binding: " << binding_energy                        << " MeV"
-                  << " \n                        "
-                  << " |    R: "       << all_results[i].charge_radius         << " fm"
-                  << " | <T>: "     << all_results[i].avg_kinetic_energy    << " MeV"
-                  << " |  PN: "      << (all_results[i].prob_bare * 100.0)   << " %"
-                  << " | PN+pi: "   << (all_results[i].prob_dressed * 100.0)<< " %\n";
+                  << " | E_0:     " << std::right << std::setw(10) << all_results[i].energy  << " MeV"
+                  << " | Binding: " << std::setw(10) << binding_energy                        << " MeV"
+                  << " | R:       " << std::setw(10) << all_results[i].charge_radius         << " fm"
+                  << " | <T>:     " << std::setw(10) << all_results[i].avg_kinetic_energy    << " MeV\n";
     }
 
     std::cout << "----------------------------------------------------------------------------------------\n";
-    std::cout << "Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm\n";
+    std::cout << "Nucleon Self-Energy      | E_self: " << E_self << " MeV (compute from ./nuc)\n";
+    std::cout << "Experimental Target      | Binding: 2.224 MeV, R: 2.128 fm\n";
     std::cout << "========================================================================================\n";
 
     outfile.close();

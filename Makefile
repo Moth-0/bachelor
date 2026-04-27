@@ -6,15 +6,33 @@ LDFLAGS += -fopenmp
 LDLIBS = -lstdc++ -lm
 RM = rm -f
 
-all : deu
+# Default parameters for full run
+b_range ?= 100
+b_form ?= 1.4
+S ?= 1.0
 
-HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h SVM.h deuterium.h oscillator.h
+all : deu nuc
 
-% : %.o 
+HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h SVM.h deuterium.h nucleus.h oscillator.h
+
+% : %.o
 	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
 
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Full automated run: nucleon -> extract E_self -> deuteron
+run: nuc deu
+	@echo "======================================================================"
+	@echo "Step 1: Computing nucleon self-energy with b_range=$(b_range) b_form=$(b_form) S=$(S)"
+	@echo "======================================================================"
+	./nuc -n p -b_range $(b_range) -b_form $(b_form) -S $(S) > /tmp/nuc_output.txt 2>&1
+	@E_self=$$(grep "Final E_self" /tmp/nuc_output.txt | awk '{print $$4}'); \
+	echo ""; \
+	echo "======================================================================";\
+	echo "Step 2: Computing deuteron with E_self=$$E_self";\
+	echo "======================================================================";\
+	./deu -b_range $(b_range) -b_form $(b_form) -S $(S) -E_self $$E_self
 
 convergence.png: convergence.data Makefile
 	echo '\
@@ -30,4 +48,6 @@ convergence.png: convergence.data Makefile
 	' | tee plot.gpi | gnuplot
 
 clean :
-	$(RM) *.o *.log *.dat *.gpi
+	$(RM) *.o *.log *.dat *.gpi /tmp/nuc_output.txt
+
+.PHONY: all clean run
