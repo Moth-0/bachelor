@@ -392,7 +392,7 @@ inline void competitive_search(std::vector<BasisState>& basis,
     size_t K = basis.size();
     auto [H_core, N_core] = build_matrices(basis, b_form, S, relativistic);
 
-    for (size_t t = 0; t < channel_templates.size(); ++t) {
+    for (size_t t = 1; t < channel_templates.size(); ++t) {
         BasisState best_candidate = channel_templates[t];
         
         // 2. Set the baseline to E_core
@@ -498,8 +498,8 @@ inline void competitive_search(std::vector<BasisState>& basis,
 rvec pack_all_basis_states(const std::vector<BasisState>& basis, bool optimize_shift) {
     rvec p;
     for (const auto& state : basis) {
-        bool skip_first_shift_row = (state.type == Channel::PN);  // true for PN, false for pions
-        rvec state_params = pack_wavefunction(state.psi, optimize_shift, skip_first_shift_row);
+        // All states (PN and pion) can optimize shifts in Phase 2
+        rvec state_params = pack_wavefunction(state.psi, optimize_shift);
         // Manually concatenate (rvec is a custom type, no insert method)
         for (size_t i = 0; i < state_params.size(); ++i) {
             p.push_back(state_params[i]);
@@ -513,7 +513,6 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
     size_t idx = 0;
     for (size_t k = 0; k < basis.size(); ++k) {
         auto& state = basis[k];
-        bool skip_first_shift_row = (state.type == Channel::PN);
 
         // Calculate size of parameters for this state
         size_t state_size;
@@ -521,12 +520,8 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
         if (optimize_shift) {
             // L lower triangle (not upper!)
             state_size = (dim * (dim + 1)) / 2;  // Lower triangle = dim*(dim+1)/2
-
-            if (!skip_first_shift_row) {
-                // Pion states: shifts for all rows (0, 1, ..., dim-1)
-                state_size += dim * 3;  // All rows have 3 coords
-            }
-            // Bare PN states: no shifts added (skip_first_shift_row=true means no shifts)
+            // All states (PN and pion) can optimize shifts: dim rows × 3 coords
+            state_size += dim * 3;
         } else {
             state_size = (dim * (dim + 1)) / 2;  // Just L
         }
@@ -544,10 +539,12 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
             state_params.push_back(p[idx + i]);
         }
 
-        unpack_wavefunction(state.psi, state_params, optimize_shift, skip_first_shift_row);
+        unpack_wavefunction(state.psi, state_params, optimize_shift);
         idx += state_size;
     }
 }
+
+
 
 
 // Optimize basis parameters using Single-State Sweeping
@@ -566,16 +563,15 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
         // SWEEP: Optimize each state ONE AT A TIME
         for (size_t k = 0; k < basis.size(); ++k) {
             // Bare PN states: no shift optimization, pion states: optimize shifts for all rows
-            bool opt_shift = (basis[k].type != Channel::PN);
-            bool skip_first_shift_row = (basis[k].type == Channel::PN);  // true for PN, false for pions
+            bool opt_shift = true;
 
-            rvec p0 = pack_wavefunction(basis[k].psi, opt_shift, skip_first_shift_row);
+            rvec p0 = pack_wavefunction(basis[k].psi, opt_shift);
 
             // Local objective: Modifies ONLY basis[k], captures reference to basis
             auto local_objective = [&](const qm::rvec& p_test) -> qm::ld {
                 // Avoid copying: modify temporary state and check physicality
                 SpatialWavefunction test_psi = basis[k].psi;
-                unpack_wavefunction(test_psi, p_test, opt_shift, skip_first_shift_row);
+                unpack_wavefunction(test_psi, p_test, opt_shift);
 
                 if (!is_physical_gaussian(test_psi)) {
                     return 999999.0;
@@ -601,7 +597,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
             rvec p_best = nelder_mead(p0, local_objective, nm_max_iter);
 
             // Apply the optimized parameters (inline - no extra evaluation)
-            unpack_wavefunction(basis[k].psi, p_best, opt_shift, skip_first_shift_row);
+            unpack_wavefunction(basis[k].psi, p_best, opt_shift);
         }
 
         // Single energy evaluation after the full sweep

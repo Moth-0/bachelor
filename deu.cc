@@ -106,34 +106,34 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 1: SKELETON BASIS WITH GEOMETRIC GRID --------
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
-    // std::vector<ld> deterministic_widths = {1.0};
-    // for (ld width : deterministic_widths) {
-    //     rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
-    //     rmat s_fixed = zeros<ld>(1, 3);
-    //     basis.push_back({SpatialWavefunction(A_fixed, s_fixed, +1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
-    // }
+    std::vector<ld> deterministic_widths = {0.1, 1.0, 10.0, 100.0};
+    for (ld width : deterministic_widths) {
+        rmat A_fixed = eye<ld>(1) * 1.0L /(width * width);
+        rmat s_fixed = zeros<ld>(1, 3);
+        basis.push_back({SpatialWavefunction(A_fixed, s_fixed, +1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
+    }
 
     // ------- PHASE 2: COMPETITIVE SVM GROWTH --------
-    int num_cycles = 3;
+    int num_cycles = 2;
 
     std::cout << "--- 2. Competitive SVM Growth ---\n";
     for (int cycle = 1; cycle < num_cycles+1; ++cycle) {
         std::cout << " - Cycle " << cycle << " - \n";
 
         // 1. Competitive Search
-        competitive_search(basis, channel_templates, 10000, b_range, b_form, S, relativistic);
+        competitive_search(basis, channel_templates, 5000, b_range, b_form, S, relativistic);
         ld E_now = evaluate_basis_energy(basis, b_form, S, relativistic);
         convergence_energies.push_back(E_now);
 
-        // std::cout << "\nStarting Sweep optimize\n";
-        // sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies, 10, 1e-3);
+        std::cout << "\nStarting Sweep optimize\n";
+        sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies, 10, 1e-3);
 
 
         std::cout << "\n-------------------------------------------------------\n";
     }
 
-    // std::cout << "\nStarting Sweep optimize\n";
-    // sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies, 10, 1e-4);
+    std::cout << "\nStarting Sweep optimize\n";
+    sweep_optimize_basis(basis, b_form, S, relativistic, convergence_energies, 10, 1e-4);
     
 
     SvmResult result = evaluate_observables(basis, b_form, S, relativistic);
