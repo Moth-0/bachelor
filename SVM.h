@@ -32,7 +32,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
 
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
-    ld tol = 0.99;
+    ld tol = 0.999;
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));

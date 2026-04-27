@@ -115,9 +115,9 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 100;
-    ld b_form = 1.4;
-    ld S = 30.0;
+    ld b_range = 3.6;
+    ld b_form = 1.5;
+    ld S = 20.0;
 
     std::string file_name = "convergence.data";
 
