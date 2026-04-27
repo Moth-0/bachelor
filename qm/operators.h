@@ -193,7 +193,7 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
-        eta_vec[col] = 2.0L * dot_no_conj(c, diff);
+        eta_vec[col] = dot_no_conj(c, diff);
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
 
@@ -247,7 +247,7 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     rvec eta_vec(3);
     for (size_t col = 0; col < 3; ++col) {
         rvec diff = (g_bra.A * (R * g_ket.s[col])) - (g_ket.A * (R * g_bra.s[col]));
-        eta_vec[col] = 2.0L * dot_no_conj(c, diff);
+        eta_vec[col] = dot_no_conj(c, diff);
     }
     ld eta_sq = dot_no_conj(eta_vec, eta_vec);
     if (eta_sq < 0.0) eta_sq = 0.0;  // Clamp to >= 0
@@ -379,26 +379,25 @@ enum SpinChannel { NO_FLIP = 0, FLIP_PARTICLE_1 = 1, FLIP_PARTICLE_2 = 2 };
 
 cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed,
                      const rvec& w_piN, const rvec& w_nn,
-                     ld b, ld S, ld isospin_factor, SpinChannel spin_chan)
+                     ld b_form, ld b_range, ld S, ld isospin_factor, SpinChannel spin_chan)
 {
-    // Calculate the Gaussian width (alpha) from the physical interaction range (b)
-    ld alpha = 1.0 / (b * b);
-
     // NOTE: w_piN and w_nn are already in Jacobi space!
     // They come from get_internal_distance_vector() which:
     //   1. Transforms physical coordinates using U_trans
     //   2. Truncates the COM component
     // So they are already the correct Jacobi vectors - no further transformation needed.
 
-    // Calculate the normalization scaling factor from Eq. 10
-    ld b_pow_5 = std::pow(b, 5.0);
-    ld two_pow_11_halves = std::pow(2.0, 5.5);
-    ld norm = std::sqrt(4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves);    
+    // Calculate the normalization scaling factor from Eq. 10 using b_form
+    // ld b_pow_5 = std::pow(b_form, 5.0);
+    // ld two_pow_11_halves = std::pow(2.0, 5.5);
+    //ld norm = 1.0/std::sqrt(4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves);
+    ld norm = 1.0 / b_form;
 
     // Promote the bare state up to the dressed dimension
+    // w_piN is scaled by b_form, w_nn is scaled by b_range
     size_t target_dim = psi_dressed.A.size1();
     Gaussian g_bare_prim(psi_bare.A, psi_bare.s);
-    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, w_piN, w_nn, alpha);
+    Gaussian g_tilde = promote_and_absorb(g_bare_prim, target_dim, w_piN, w_nn, b_form, b_range);
     
     SpatialWavefunction psi_tilde(g_tilde.A, g_tilde.s, psi_bare.parity_sign);
 

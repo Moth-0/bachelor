@@ -10,7 +10,6 @@
 #include "qm/gaussian.h"
 #include "qm/operators.h"
 #include "qm/solver.h"
-#include "deuterium.h" 
 
 namespace qm {
 
@@ -21,24 +20,26 @@ struct SvmResult {
     ld avg_kinetic_energy;
     ld prob_bare;
     ld prob_dressed;
-    rvec convergence_history; 
+    rvec convergence_history;
 };
 
-// Evaluate energy: build H,N and solve GEVP
-ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, bool debug = false) {
-    auto [H, N] = build_matrices(basis, b, S, relativistic);
+// Template: Evaluate energy: build H,N and solve GEVP for E0 only
+// Uses overlap checking logic from the original evaluate_energy_sum
+template <typename BasisStateType>
+ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S,
+                        const std::vector<bool>& relativistic, ld ho_k = 0.0, bool debug = false) {
+    auto [H, N] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
 
     // CRITICAL: Multi-level overlap check prevents basis collapse
-    // Level 1: Standard overlap (catches identical channels)
-    // Level 2: Spatial overlap (catches hidden clones with different spin/isospin)
-    ld tol = 0.95;
+    // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
+    ld tol = 0.99;
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
 
             // Level 2: Pure spatial cross-channel check (expensive but necessary!)
             if (overlap <= tol && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
-                BasisState temp = basis[j];
+                BasisStateType temp = basis[j];
                 temp.type = basis[i].type; // Force channel match to strip spin/isospin orthogonality
                 ld spatial_overlap = std::abs(calc_N_elem(basis[i], temp));
                 overlap = spatial_overlap / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
@@ -46,21 +47,16 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
 
             if (overlap > tol) {
                 if (debug) {
-                    //std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > " << tol << ").\n";
+                    std::cerr << "  [REJECT GEVP] Near-duplicate detected (Overlap: " << overlap << " > " << tol << ").\n";
                 }
                 return 999999.0;
             }
         }
     }
 
-    // // 2. Tikhonov Regularization (Relative Scaling)
-    // for (size_t i = 0; i < N.size1(); ++i) {
-    //     N(i, i) *= cld(1.0 + 1e-6, 0.0);
-    // }
-
     cmat L = N.cholesky();
 
-    // 3. Total Failure Check: The matrix is explicitly not Positive-Definite
+    // Total Failure Check: The matrix is explicitly not Positive-Definite
     if (L.size1() == 0) {
         if (debug) {
             std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite.\n";
@@ -68,11 +64,11 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
         return 999999.0;
     }
 
-    // 4. Near-Singularity Check (Dynamic Safety net)
+    // Near-Singularity Check (Dynamic Safety net)
     for (size_t i = 0; i < L.size1(); ++i) {
         ld num = std::abs(L(i, i));
-        ld thresh = (1-tol) * std::sqrt(std::abs(N(i, i)));
-        if (num < thresh ) {
+        ld thresh = 1e-3 * std::sqrt(std::abs(N(i, i)));
+        if (num < thresh) {
             if (debug) {
                 std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << num << " < " << thresh << ".\n";
             }
@@ -83,59 +79,9 @@ ld evaluate_basis_energy(const std::vector<BasisState>& basis, ld b, ld S, const
     return solve_ground_state_energy(H, N);
 }
 
-// Prune basis states with negligible coefficients
-// Keeps only states with |c_i| >= threshold_fraction * max(|c_i|)
-size_t prune_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic, ld threshold_fraction = 0.01) {
-    if (basis.empty()) return 0;
-
-    // Get the eigenvector
-    auto [H, N] = build_matrices(basis, b, S, relativistic);
-    cld detN = N.determinant();
-    if (std::abs(detN) < ZERO_LIMIT) return 0;
-
-    auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
-
-    // Find max coefficient magnitude
-    ld max_coeff = 0.0;
-    for (size_t i = 0; i < eigvec.size(); ++i) {
-        ld coeff_mag = std::abs(eigvec[i]);
-        if (coeff_mag > max_coeff) max_coeff = coeff_mag;
-    }
-
-    ld threshold = max_coeff * threshold_fraction;
-
-    // Identify states to keep
-    // ALWAYS keep PN states, remove weak pion states only
-    std::vector<size_t> keep_indices;
-    for (size_t i = 0; i < eigvec.size(); ++i) {
-        bool is_pn_state = (basis[i].type == Channel::PN);
-        bool above_threshold = (std::abs(eigvec[i]) >= threshold);
-
-        if (is_pn_state || above_threshold) {
-            keep_indices.push_back(i);
-        }
-    }
-
-    size_t num_removed = basis.size() - keep_indices.size();
-
-    if (num_removed > 0) {
-        // Rebuild basis with only kept states
-        std::vector<BasisState> pruned_basis;
-        for (size_t idx : keep_indices) {
-            pruned_basis.push_back(basis[idx]);
-        }
-        basis = pruned_basis;
-
-        std::cout << "  [PRUNE] Removed " << num_removed << "Basis: " << basis.size() << " -> "
-                  << keep_indices.size()-num_removed << " states.\n";
-    }
-
-    return num_removed;
-}
-
-SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
+SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, ld b_range, ld S,
                                const std::vector<bool>& relativistic) {
-    auto [H, N] = build_matrices(basis, b, S, relativistic);
+    auto [H, N] = build_matrices(basis, b_form, b_range, S, relativistic);
     cld detN = N.determinant();
     if (std::abs(detN) < ZERO_LIMIT) {
         return {999999.0, {}, 99999.0, 0.0, {}};
@@ -184,15 +130,19 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b, ld S,
 }
 
 // Check if a candidate state has positive kinetic energy (rejects unphysical states)
-bool has_positive_kinetic_energy(const BasisState& state, const std::vector<bool>& relativistic) {
+template <typename BasisStateType>
+bool has_positive_kinetic_energy(const BasisStateType& state, const std::vector<bool>& relativistic) {
     // Build appropriate relativistic flags for this state's Jacobian dimension
-    // relativistic flags should have size = jac.masses.size() - 1
     size_t expected_size = state.jac.masses.size() - 1;
-    std::vector<bool> rel_flags(expected_size, false);  // Default to classical for this dimension
+    std::vector<bool> rel_flags(expected_size, false);
 
-    // Copy from the provided relativistic vector if it exists
     for (size_t i = 0; i < expected_size && i < relativistic.size(); ++i) {
         rel_flags[i] = relativistic[i];
+    }
+
+    // Skip kinetic energy check for bare nucleon (0 internal coordinates)
+    if (state.jac.masses.size() == 1) {
+        return true;  // Bare nucleon is always physical
     }
 
     ld kinetic = total_kinetic_energy(state.psi, state.psi, state.jac, rel_flags);
@@ -200,13 +150,13 @@ bool has_positive_kinetic_energy(const BasisState& state, const std::vector<bool
     if (overlap < ZERO_LIMIT) return false;
 
     ld kinetic_expectation = kinetic / overlap;
-    return kinetic_expectation > -1e-6;  // Allow tiny numerical noise
+    return kinetic_expectation > -1e-6;
 }
 
 // Physics constraint checker - validates Gaussian state is physical
-bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = true) {
-    const ld min_width = 1.0 / (200.0 * 200.0); 
-    const ld max_width = 1.0 / (0.05 * 0.05); 
+bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
+    const ld min_width = 1.0 / (500.0 * 500.0); 
+    const ld max_width = 1.0 / (0.01 * 0.01); 
 
     // Check diagonal widths and shifts
     for (size_t i = 0; i < psi.A.size1(); ++i) {
@@ -230,7 +180,7 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = true) {
         ld physical_shift_fm = absolute_shift_magnitude / (2.0 * width);
 
         // THE PHYSICAL LIMIT in fm
-        ld limit = 5.0;
+        ld limit = 10.0;
         if (physical_shift_fm > limit) {
             if (debug) std::cerr << "  [REJECT] Shift too large: " << physical_shift_fm << " fm > " << limit <<" fm\n";
             return false; 
@@ -305,62 +255,65 @@ SpatialWavefunction perturb_wavefunction(const SpatialWavefunction& original, ld
 }
 
 // Refine a single basis state using fast Matrix Caching and Micro-Darts
-bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld noise_scale, 
-                        ld b_form, ld S, const std::vector<bool>& relativistic) 
+// TEMPLATE VERSION: Works with any BasisState type
+template <typename BasisStateType>
+bool refine_basis_state(std::vector<BasisStateType>& basis, size_t k, ld noise_scale,
+                        ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic)
 {
     // CACHING: Build the full matrix once
-    auto [H_full, N_full] = build_matrices(basis, b_form, S, relativistic);
+    auto [H_full, N_full] = build_matrices(basis, b_form, b_range, S, relativistic);
     ld original_E = solve_ground_state_energy(H_full, N_full);
-    
+
     int cands = 200; // Micro-dart cloud size
     ld best_E = original_E;
-    BasisState best_state = basis[k];
+    BasisStateType best_state = basis[k];
 
     #pragma omp parallel
     {
         ld local_best_E = original_E;
-        BasisState local_best_state = basis[k];
-        
+        BasisStateType local_best_state = basis[k];
+
         // Thread-local matrix copies
         cmat H_test = H_full;
         cmat N_test = N_full;
 
         #pragma omp for
         for (int c = 0; c < cands; ++c) {
-            BasisState test_candidate = basis[k];
+            BasisStateType test_candidate = basis[k];
 
-            // LOCK: For pion states, don't perturb A[0,0] (PN block)
-            bool is_pion = (basis[k].type != Channel::PN);
-            test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, is_pion);
-            
-            // Check if the random kick made it unphysical
-            if (!is_physical_gaussian(test_candidate.psi)) continue;
+            // Skip perturbation for bare nucleon (0-coordinate system)
+            if (basis[k].jac.masses.size() > 1) {
+                test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, false);
 
-            // Reject candidates with negative kinetic energy
-            if (!has_positive_kinetic_energy(test_candidate, relativistic)) continue;
+                // Check if the random kick made it unphysical
+                if (!is_physical_gaussian(test_candidate.psi)) continue;
 
-            // FAST EVALUATION: Only update the k-th row and column
-            for (size_t i = 0; i < basis.size(); ++i) {
-                if (i == k) continue; // Skip self
-                
-                cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, S, relativistic);
-                cld n_ik = calc_N_elem(basis[i], test_candidate);
-                
-                H_test(i, k) = h_ik;
-                N_test(i, k) = n_ik;
-                H_test(k, i) = std::conj(h_ik);
-                N_test(k, i) = std::conj(n_ik);
-            }
-            
-            H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
-            N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
+                // Reject candidates with negative kinetic energy
+                if (!has_positive_kinetic_energy(test_candidate, relativistic)) continue;
 
-            // Solve updated matrix
-            ld E_estimate = solve_ground_state_energy(H_test, N_test);
+                // FAST EVALUATION: Only update the k-th row and column
+                for (size_t i = 0; i < basis.size(); ++i) {
+                    if (i == k) continue; // Skip self
 
-            if (E_estimate < local_best_E - 1e-6) {
-                local_best_E = E_estimate;
-                local_best_state = test_candidate;
+                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
+                    cld n_ik = calc_N_elem(basis[i], test_candidate);
+
+                    H_test(i, k) = h_ik;
+                    N_test(i, k) = n_ik;
+                    H_test(k, i) = std::conj(h_ik);
+                    N_test(k, i) = std::conj(n_ik);
+                }
+
+                H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
+                N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
+
+                // Solve updated matrix
+                ld E_estimate = solve_ground_state_energy(H_test, N_test);
+
+                if (E_estimate < local_best_E - 1e-6) {
+                    local_best_E = E_estimate;
+                    local_best_state = test_candidate;
+                }
             }
         }
 
@@ -382,31 +335,33 @@ bool refine_basis_state(std::vector<BasisState>& basis, size_t k, ld noise_scale
 }
 
 // Performs one full cycle of competitive basis growth using ROBUST Matrix Caching
-inline void competitive_search(std::vector<BasisState>& basis, 
-                               const std::vector<BasisState>& channel_templates,
-                               int num_candidates, ld b_range, ld b_form, ld S, 
-                               const std::vector<bool>& relativistic) 
+// TEMPLATE VERSION: Works with any BasisState type
+// OPTIMIZES E0 ONLY (no E0+E1)
+template <typename BasisStateType>
+inline void competitive_search(std::vector<BasisStateType>& basis,
+                               const std::vector<BasisStateType>& channel_templates,
+                               int num_candidates, ld b_range, ld b_form, ld S,
+                               const std::vector<bool>& relativistic, ld ho_k = 0.0)
 {
-    // 1. Get the current baseline energy. Darts MUST beat this!
-    ld E_core = evaluate_basis_energy(basis, b_form, S, relativistic);
+    // 1. Get the current baseline energy (E0 only)
+    ld E_core = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
     size_t K = basis.size();
-    auto [H_core, N_core] = build_matrices(basis, b_form, S, relativistic);
+    auto [H_core, N_core] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
 
     for (size_t t = 1; t < channel_templates.size(); ++t) {
-        BasisState best_candidate = channel_templates[t];
-        
-        // 2. Set the baseline to E_core
-        ld best_E = E_core; 
+        BasisStateType best_candidate = channel_templates[t];
+
+        ld best_E = E_core;
         bool found_valid_dart = false;
 
         #pragma omp parallel
         {
-            BasisState local_best_candidate = channel_templates[t];
-            ld local_best_E = E_core; 
+            BasisStateType local_best_candidate = channel_templates[t];
+            ld local_best_E = E_core;
 
             cmat H_test = zeros<cld>(K + 1, K + 1);
             cmat N_test = zeros<cld>(K + 1, K + 1);
-            
+
             for (size_t i = 0; i < K; ++i) {
                 for (size_t j = 0; j < K; ++j) {
                     H_test(i, j) = H_core(i, j);
@@ -414,57 +369,80 @@ inline void competitive_search(std::vector<BasisState>& basis,
                 }
             }
 
+            int reject_unphysical = 0, reject_energy = 0, reject_kinetic = 0, reject_singular = 0, reject_improve = 0;
+
             #pragma omp for
             for (int c = 0; c < num_candidates; ++c) {
-                BasisState test_candidate = channel_templates[t];
+                BasisStateType test_candidate = channel_templates[t];
                 Gaussian g;
-                // For PN states: lock row 0. For pion states: allow row 0 to randomize
                 g.randomize(test_candidate.jac, b_range, b_form);
                 test_candidate.psi.set_from_gaussian(g);
-                if (!is_physical_gaussian(test_candidate.psi)) continue;
+                if (!is_physical_gaussian(test_candidate.psi)) {
+                    reject_unphysical++;
+                    continue;
+                }
 
-                // Calculate the dart's isolated diagonal elements first
-                cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
+                // Calculate the dart's isolated diagonal elements
+                cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
                 cld N_xx = calc_N_elem(test_candidate, test_candidate);
 
-                // 1. FAST REJECTION GATE: Is this dart completely unphysical?
-                // Calculate the isolated energy of this single Gaussian
-                ld isolated_energy = std::real(H_xx) / std::real(N_xx);
-
-                // If the Gaussian itself costs more than +5000 MeV, it's garbage.
-                // Skip the matrix build and GEVP solver completely!
+                // FAST REJECTION GATE: unphysical Gaussians
+                ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;
                 if (isolated_energy > 5000.0 || std::real(N_xx) < 1e-10) {
+                    reject_energy++;
                     continue;
                 }
 
                 // Reject candidates with negative kinetic energy
                 if (!has_positive_kinetic_energy(test_candidate, relativistic)) {
+                    reject_kinetic++;
                     continue;
                 }
 
                 for (size_t i = 0; i < K; ++i) {
-                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, S, relativistic);
+                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
                     cld n_ik = calc_N_elem(basis[i], test_candidate);
-                    
+
                     H_test(i, K) = h_ik;
                     N_test(i, K) = n_ik;
                     H_test(K, i) = std::conj(h_ik);
                     N_test(K, i) = std::conj(n_ik);
                 }
-                
-                H_test(K, K) = calc_H_elem(test_candidate, test_candidate, b_form, S, relativistic);
+
+                H_test(K, K) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
                 N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
 
-                // SAFEGUARD 1: Reject linearly dependent darts immediately
-                if (std::abs(N_test.determinant()) < ZERO_LIMIT) continue;
+                // SAFEGUARD: Reject linearly dependent darts
+                if (std::abs(N_test.determinant()) < ZERO_LIMIT) {
+                    reject_singular++;
+                    continue;
+                }
 
-                ld E_estimate = solve_ground_state_energy(H_test, N_test);
+                // CRITICAL: Check overlap tolerance (0.99) to avoid states that will be rejected later
+                ld tol = 0.95;
+                bool overlap_violation = false;
+                for (size_t i = 0; i < K; ++i) {
+                    ld overlap = std::abs(N_test(i, K)) / std::sqrt(std::abs(N_test(i, i)) * std::abs(N_test(K, K)));
+                    if (overlap > tol) {
+                        overlap_violation = true;
+                        break;
+                    }
+                }
+                if (overlap_violation) {
+                    reject_singular++;  // Reuse counter for overlap rejections
+                    continue;
+                }
 
-                // SAFEGUARD 2: The Strict Improvement Gate
-                // It MUST be noticeably better than the current basis to be considered!
+                // Compute E0 ONLY (no E1)
+                ld E0 = solve_ground_state_energy(H_test, N_test);
+                ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
+
+                // Strict improvement gate
                 if (E_estimate < local_best_E - 1e-6) {
                     local_best_E = E_estimate;
                     local_best_candidate = test_candidate;
+                } else {
+                    reject_improve++;
                 }
             }
 
@@ -475,23 +453,76 @@ inline void competitive_search(std::vector<BasisState>& basis,
                     best_candidate = local_best_candidate;
                     found_valid_dart = true;
                 }
+                // std::cerr << "  Channel " << t << ": Unphysical=" << reject_unphysical
+                //           << " BadEnergy=" << reject_energy << " NegKE=" << reject_kinetic
+                //           << " Singular=" << reject_singular << " NoImprove=" << reject_improve << "\n";
             }
         }
 
         // 3. LOCK AND VERIFY
         if (found_valid_dart) {
             basis.push_back(best_candidate);
-            
-            // CRITICAL: Update the core matrices so the next channel sees the new state!
+
+            // CRITICAL: Update the core matrices
             K = basis.size();
-            std::tie(H_core, N_core) = build_matrices(basis, b_form, S, relativistic);
+            std::tie(H_core, N_core) = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
             E_core = best_E;
 
-            std::cout << "\rAdded State " << basis.size() << " (Ch " << t << ") -> E = "
+            std::cout << "\rAdded State " << basis.size() << " (Ch " << t << ") -> E0 = "
                       << std::fixed << std::setprecision(5) << best_E << " MeV    " << std::flush;
         }
     }
     std::cout << "\n";
+}
+
+// Prune near-duplicate states from basis (states with overlap > tolerance)
+template <typename BasisStateType>
+void prune_near_duplicates(std::vector<BasisStateType>& basis, ld overlap_tol = 0.95) {
+    if (basis.size() <= 1) return;
+
+    auto [H, N] = build_matrices(basis, 1.4, 100.0, 0.0, std::vector<bool>(1, false)); // dummy params for matrix build
+
+    std::vector<bool> keep(basis.size(), true);
+
+    for (size_t i = 0; i < basis.size(); ++i) {
+        if (!keep[i]) continue;
+
+        for (size_t j = i + 1; j < basis.size(); ++j) {
+            if (!keep[j]) continue;
+
+            // Check overlap between states i and j
+            ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
+            if (overlap > overlap_tol) {
+                // Keep the one with lower energy, remove the other
+                cld H_ii = H(i, i), H_jj = H(j, j);
+                cld N_ii = N(i, i), N_jj = N(j, j);
+                ld E_i = std::real(H_ii) / std::real(N_ii);
+                ld E_j = std::real(H_jj) / std::real(N_jj);
+
+                if (E_i < E_j) {
+                    keep[j] = false;
+                } else {
+                    keep[i] = false;
+                    break;  // Move to next i
+                }
+            }
+        }
+    }
+
+    // Build pruned basis
+    std::vector<BasisStateType> pruned;
+    for (size_t i = 0; i < basis.size(); ++i) {
+        if (keep[i]) {
+            pruned.push_back(basis[i]);
+        }
+    }
+
+    size_t removed = basis.size() - pruned.size();
+    if (removed > 0) {
+        std::cout << "Pruned " << removed << " near-duplicate states (overlap > "
+                  << overlap_tol << "), kept " << pruned.size() << " unique states\n";
+    }
+    basis = pruned;
 }
 
 // Pack ALL basis states into a single vector for global Nelder-Mead optimization
@@ -545,16 +576,16 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 }
 
 
-
-
 // Optimize basis parameters using Single-State Sweeping
-// Fast and memory-efficient: optimizes one state at a time
-void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std::vector<bool>& relativistic,
-                          rvec& convergence_energies, int max_sweeps=100, ld threshold = 1e-4) {
-    int nm_max_iter = 150;  // Single-state optimization converges very quickly
+// TEMPLATE VERSION: Works with any BasisState type
+// OPTIMIZES E0 ONLY (no E0+E1)
+template <typename BasisStateType>
+void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic,
+                          rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0) {
+    int nm_max_iter = 100;
     int patience = 2;
 
-    ld previous_E = evaluate_basis_energy(basis, b, S, relativistic, false);
+    ld previous_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
     int no_improve_count = 0;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
@@ -562,14 +593,13 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
 
         // SWEEP: Optimize each state ONE AT A TIME
         for (size_t k = 0; k < basis.size(); ++k) {
-            // Bare PN states: no shift optimization, pion states: optimize shifts for all rows
-            bool opt_shift = true;
+            // Optimize shifts for dressed states, not for bare nucleon
+            bool opt_shift = (basis[k].jac.masses.size() > 1);
 
             rvec p0 = pack_wavefunction(basis[k].psi, opt_shift);
 
-            // Local objective: Modifies ONLY basis[k], captures reference to basis
+            // Local objective: Minimizes E0 only
             auto local_objective = [&](const qm::rvec& p_test) -> qm::ld {
-                // Avoid copying: modify temporary state and check physicality
                 SpatialWavefunction test_psi = basis[k].psi;
                 unpack_wavefunction(test_psi, p_test, opt_shift);
 
@@ -577,8 +607,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
                     return 999999.0;
                 }
 
-                // Check kinetic energy is positive (rejects unphysical states)
-                BasisState temp_state = basis[k];
+                BasisStateType temp_state = basis[k];
                 temp_state.psi = test_psi;
                 if (!has_positive_kinetic_energy(temp_state, relativistic)) {
                     return 999999.0;
@@ -587,7 +616,7 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
                 // Temporarily replace state k's psi
                 SpatialWavefunction orig_psi = basis[k].psi;
                 basis[k].psi = test_psi;
-                ld E = evaluate_basis_energy(basis, b, S, relativistic, true);
+                ld E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
                 basis[k].psi = orig_psi;  // Restore
 
                 return E;
@@ -596,12 +625,12 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
             // Run Nelder-Mead on just this state's parameters
             rvec p_best = nelder_mead(p0, local_objective, nm_max_iter);
 
-            // Apply the optimized parameters (inline - no extra evaluation)
+            // Apply the optimized parameters
             unpack_wavefunction(basis[k].psi, p_best, opt_shift);
         }
 
         // Single energy evaluation after the full sweep
-        ld current_E = evaluate_basis_energy(basis, b, S, relativistic, false);
+        ld current_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k, true);
         convergence_energies.push_back(current_E);
 
         ld improvement = sweep_start_E - current_E;
@@ -611,8 +640,8 @@ void sweep_optimize_basis(std::vector<BasisState>& basis, ld b, ld S, const std:
             no_improve_count = 0;
         }
 
-        std::cout << "\rSweep " << sweep << " (Basis=" << basis.size() << "): E=" << current_E
-                  << " MeV  (ΔE=" << improvement << ")     " << std::flush;
+        std::cout << "\rSweep " << sweep << " (Basis=" << basis.size() << "): E0 = " << current_E
+                  << " MeV  (ΔE = " << improvement << ")     " << std::flush;
 
         if (no_improve_count >= patience) {
             std::cout << "\n  - Converged: improvement < " << threshold << " MeV for " << patience << " sweeps\n";

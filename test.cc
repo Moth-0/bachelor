@@ -170,7 +170,7 @@ bool test_w_coupling() {
     // 5. Calculate W using the engine
     // We test NO_FLIP, which strictly evaluates the Z-coordinate projection
     cld W_calc_cld = total_w_coupling(psi_bare, psi_dressed, w_piN, w_nn,
-                                      b_form, S_strength, iso_factor, NO_FLIP);
+                                      b_form, b_form, S_strength, iso_factor, NO_FLIP);
     ld W_calculated = std::real(W_calc_cld); // Imaginary part should be 0
 
     // 6. Analytical Hand-Calculation
@@ -283,7 +283,7 @@ bool test_promote_and_absorb() {
 
     // 5. Promote to 2D (pion space)
     size_t target_dim = 2;
-    Gaussian g_promoted = promote_and_absorb(g_bare, target_dim, w_piN, w_nn, alpha);
+    Gaussian g_promoted = promote_and_absorb(g_bare, target_dim, w_piN, w_nn, b, b);
 
     // 6. Check the promoted A matrix
     //    Expected:
