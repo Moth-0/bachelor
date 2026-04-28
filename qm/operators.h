@@ -390,7 +390,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
     // Calculate the normalization scaling factor from Eq. 10 using b_form
     // ld b_pow_5 = std::pow(b_form, 5.0);
     // ld two_pow_11_halves = std::pow(2.0, 5.5);
-    //ld norm = 1.0/std::sqrt(4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves);
+    // ld norm = 1.0/std::sqrt(4.0 * M_PI * (3.0 * std::sqrt(M_PI) * b_pow_5) / two_pow_11_halves);
     ld norm = 1.0 / b_form;
 
     // Promote the bare state up to the dressed dimension

@@ -145,10 +145,6 @@ struct Gaussian {
                 ld b_ij = -std::log(u) * b_range;
                 ld b2 = b_ij * b_ij;
 
-                // Safety constraints
-                if (b2 < 0.01) b2 = 0.01;
-                if (b2 > (b_range * b_range)) b2 = (b_range * b_range);
-
                 A_new += outer / b2;
             }
         }
@@ -157,7 +153,7 @@ struct Gaussian {
 
         // Generate shifts for ALL systems (including 1D nucleon+pion)
         rmat r0(dim, 3);
-        ld range = 0.1;
+        ld range = 0.2;
         FOR_MAT(r0) {
             // Random physical shifts for all coordinates
             r0(j, i) = random_ld(-range, range);

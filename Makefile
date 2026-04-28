@@ -8,13 +8,24 @@ RM = rm -f
 
 all : deu
 
-HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h deuterium.h proton.h sigma.h SVM.h
+HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h qm/serialization.h deuterium.h SVM.h
 
-% : %.o 
-	$(CXX) $(LDFLAGS) $(LDLIBS) -o $@ $^
+% : %.o
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+run: deu params
+	@echo "======================================================================"
+	@echo "Step 1: Computing binding energy with b_range=$(b_range) b_form=$(b_form) S=$(S)"
+	@echo "======================================================================"
+	./deu -b_range $(b_range) -b_form $(b_form) -S $(S) 
+	@echo ""
+	@echo "======================================================================"
+	@echo "Step 2: Binary search for S with  b_range=$(b_range) b_form=$(b_form)"
+	@echo "======================================================================"
+	./params $(b_range) $(b_form)
 
 convergence.png: convergence.data Makefile
 	echo '\

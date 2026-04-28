@@ -343,7 +343,7 @@ bool test_promote_and_absorb() {
 // ========================================================================
 // TEST 5: LOAD AND ANALYZE SAVED BASIS STATE
 // ========================================================================
-bool test_load_and_analyze_basis(ld b, ld S, const std::string& filename = "basis_final.txt") {
+bool test_load_and_analyze_basis(ld b_range, ld b_form, ld S, const std::string& filename = "basis_final.txt") {
     std::cout << "----------------------------------------------------\n";
     std::cout << " RUNNING TEST 5: Load & Analyze Saved Basis\n";
     std::cout << "----------------------------------------------------\n";
@@ -383,7 +383,7 @@ bool test_load_and_analyze_basis(ld b, ld S, const std::string& filename = "basi
 
         // // Compute and print overlap matrix
         // std::cout << "Overlap Matrix (N):\n";
-        auto [H, N] = build_matrices(basis, b, S, {false, false});
+        auto [H, N] = build_matrices(basis, b_range, b_form, S, {false, true});
         // for (size_t i = 0; i < N.size1(); ++i) {
         //     for (size_t j = 0; j < N.size2(); ++j) {
         //         std::cout << "  N(" << i << "," << j << ") = " << std::setprecision(10) << N(i, j) << "\n";
@@ -434,7 +434,7 @@ int main(int argc, char* argv[]) {
     std::cout << "        STARTING SVM OPERATOR TEST SUITE\n";
     std::cout << "====================================================\n\n";
 
-    test_load_and_analyze_basis(1.4, 45.0);
+    test_load_and_analyze_basis(2.5, 1.2, 38.4);
     
     return 0;
 }

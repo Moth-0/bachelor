@@ -32,7 +32,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
 
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
-    ld tol = 0.999;
+    ld tol = 1.0-ZERO_LIMIT;
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
@@ -67,7 +67,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
     // Near-Singularity Check (Dynamic Safety net)
     for (size_t i = 0; i < L.size1(); ++i) {
         ld num = std::abs(L(i, i));
-        ld thresh = 1e-3 * std::sqrt(std::abs(N(i, i)));
+        ld thresh = ZERO_LIMIT * std::sqrt(std::abs(N(i, i)));
         if (num < thresh) {
             if (debug) {
                 std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << num << " < " << thresh << ".\n";

@@ -62,7 +62,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
     std::vector<BasisState> bare_basis;
-    std::vector<ld> deterministic_widths = {1.0, 5.0, 10.0};
+    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0L / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -72,7 +72,7 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // ------- PHASE 2 & 3: COMPETITIVE GROWTH & BOX REGULARIZATION --------
     std::cout << "--- 2. Competitive Growth inside widening HO Box ---\n";
     
-    std::vector<ld> box_strengths = {10.0, 1.0, 0.1, 0.0};
+    std::vector<ld> box_strengths = {1.0, 0.1, 0.0};
     std::vector<BasisState> grand_basis;
     grand_basis.insert(grand_basis.end(), bare_basis.begin(), bare_basis.end());
 
@@ -96,14 +96,14 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
 
     // (Optional) Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 3, 1e-4, 0.0);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, 0.0);
 
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
 
     result.convergence_history = convergence_energies;
 
-    print_basis_details(grand_basis, result.coefficients);
-    std::cout << "\n";
+    // print_basis_details(grand_basis, result.coefficients);
+    // std::cout << "\n";
 
     // Save final basis state for analysis
     save_basis_state(grand_basis, result.coefficients, result.energy, result.charge_radius,
@@ -163,6 +163,9 @@ int main(int argc, char* argv[]) {
     // Single S value mode
     std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
         {"PN_{Cla} Pi_{Cla}", {false,  false}},
+        {"PN_{Rel} Pi_{Cla}", {true,  false}},
+        {"PN_{Cla} Pi_{Rel}", {false,  true}},
+        {"PN_{Rel} Pi_{Rel}", {true,  true}},
     };
 
     // Run the configurations loop
