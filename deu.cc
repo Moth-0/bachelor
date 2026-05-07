@@ -29,7 +29,8 @@ using namespace qm;
 
 
 // Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
-SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S) {
+// Returns pair of (basis, result) for saving all configurations
+std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;
     ld m_pi0 = 134.97, m_pic = 139.57;
@@ -105,12 +106,12 @@ SvmResult run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld
     // print_basis_details(grand_basis, result.coefficients);
     // std::cout << "\n";
 
-    // Save final basis state for analysis
+    // Save final basis state for analysis (keep this for individual inspection)
     save_basis_state(grand_basis, result.coefficients, result.energy, result.charge_radius,
                      result.avg_kinetic_energy, "basis_final.txt");
     std::cout << "Saved basis state to basis_final.txt\n";
 
-    return result;
+    return {grand_basis, result};
 }
 
 int main(int argc, char* argv[]) {
@@ -145,7 +146,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Enable nested parallelism
-    omp_set_nested(0);
+    //omp_set_nested(0);
     //omp_set_max_active_levels(2);
 
     std::cout << "========================================\n";
@@ -159,13 +160,14 @@ int main(int argc, char* argv[]) {
 
     std::ofstream outfile(file_name);
     std::vector<SvmResult> all_results;
+    std::vector<ConfigurationResult> all_configs;
 
     // Single S value mode
     std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-        {"PN_{Cla} Pi_{Cla}", {false,  false}},
-        {"PN_{Rel} Pi_{Cla}", {true,  false}},
+        // {"PN_{Cla} Pi_{Cla}", {false,  false}},
+        // {"PN_{Rel} Pi_{Cla}", {true,  false}},
         {"PN_{Cla} Pi_{Rel}", {false,  true}},
-        {"PN_{Rel} Pi_{Rel}", {true,  true}},
+        // {"PN_{Rel} Pi_{Rel}", {true,  true}},
     };
 
     // Run the configurations loop
@@ -175,7 +177,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << "\n>>>>>>>> RUNNING CONFIGURATION: " << label << " <<<<<<<<\n";
 
-        SvmResult res = run_deuteron_svm(flags, b_range, b_form, S);
+        auto [basis, res] = run_deuteron_svm(flags, b_range, b_form, S);
         all_results.push_back(res);
 
         std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
@@ -185,6 +187,18 @@ int main(int argc, char* argv[]) {
             outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
         }
         outfile << "\n\n";
+
+        // Collect configuration for saving
+        all_configs.push_back({
+            label,
+            basis,
+            res.coefficients,
+            res.energy,
+            res.charge_radius,
+            res.avg_kinetic_energy,
+            res.prob_bare,
+            res.prob_dressed
+        });
     }
 
     // Print final summary comparison table
@@ -207,5 +221,10 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================================================================\n";
 
     outfile.close();
+
+    // Save all configurations to file
+    save_all_configurations(all_configs, "all_configurations.txt");
+    std::cout << "Saved all configurations to all_configurations.txt\n";
+
     return 0;
 }

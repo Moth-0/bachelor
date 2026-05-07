@@ -272,4 +272,215 @@ load_basis_state(const std::string& filename) {
     return {basis, coefficients, energy, radius, kinetic_energy};
 }
 
+/*
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                   SAVE/LOAD ALL 4 CONFIGURATIONS                              ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+*/
+
+struct ConfigurationResult {
+    std::string label;
+    std::vector<BasisState> basis;
+    rvec coefficients;
+    ld energy;
+    ld charge_radius;
+    ld avg_kinetic_energy;
+    ld prob_bare;
+    ld prob_dressed;
+};
+
+inline void save_all_configurations(const std::vector<ConfigurationResult>& configs,
+                                    const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file: " + filename);
+    }
+
+    file << std::setprecision(12);
+    file << "# ALL 4 CONFIGURATIONS\n";
+    file << "# Total configurations: " << configs.size() << "\n\n";
+
+    for (const auto& config : configs) {
+        file << "CONFIGURATION " << config.label << "\n";
+        file << "  ENERGY " << config.energy << "\n";
+        file << "  RADIUS " << config.charge_radius << "\n";
+        file << "  KINETIC_ENERGY " << config.avg_kinetic_energy << "\n";
+        file << "  PROB_BARE " << config.prob_bare << "\n";
+        file << "  PROB_DRESSED " << config.prob_dressed << "\n";
+        file << "  NUM_BASIS_STATES " << config.basis.size() << "\n";
+        file << "  COEFFICIENTS " << config.coefficients.size() << "\n";
+        for (size_t i = 0; i < config.coefficients.size(); ++i) {
+            file << "    " << config.coefficients[i] << "\n";
+        }
+        file << "\n";
+
+        // Save each basis state in this configuration
+        for (size_t idx = 0; idx < config.basis.size(); ++idx) {
+            const BasisState& b = config.basis[idx];
+
+            file << "  STATE " << idx << "\n";
+            file << "    CHANNEL " << channel_to_string((int)b.type) << "\n";
+            file << "    FLIP " << spinch_to_string((int)b.flip) << "\n";
+            file << "    ISOSPIN_FACTOR " << b.isospin_factor << "\n";
+            file << "    PION_MASS " << b.pion_mass << "\n";
+            file << "    PARITY " << b.psi.parity_sign << "\n";
+
+            // Jacobian masses
+            file << "    JACOBIAN_MASSES " << b.jac.masses.size() << "\n";
+            for (size_t j = 0; j < b.jac.masses.size(); ++j) {
+                file << "      " << b.jac.masses[j] << "\n";
+            }
+
+            // Dimension
+            file << "    DIMENSION " << b.psi.A.size1() << "\n";
+
+            // Packed parameters
+            rvec packed = pack_wavefunction(b.psi, true);
+            file << "    PACKED_PARAMS " << packed.size() << "\n";
+            for (size_t i = 0; i < packed.size(); ++i) {
+                file << "      " << packed[i] << "\n";
+            }
+            file << "\n";
+        }
+
+        file << "\n";
+    }
+
+    file.close();
+}
+
+inline std::vector<ConfigurationResult> load_all_configurations(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file: " + filename);
+    }
+
+    std::vector<ConfigurationResult> configs;
+    std::string line;
+    ConfigurationResult current_config;
+    bool in_configuration = false;
+
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') continue;
+
+        std::istringstream iss(line);
+        std::string key;
+        iss >> key;
+
+        if (key == "CONFIGURATION") {
+            if (in_configuration && !current_config.label.empty()) {
+                configs.push_back(current_config);
+            }
+            iss >> current_config.label;
+            current_config.basis.clear();
+            current_config.coefficients.resize(0);
+            current_config.energy = 0;
+            current_config.charge_radius = 0;
+            current_config.avg_kinetic_energy = 0;
+            current_config.prob_bare = 0;
+            current_config.prob_dressed = 0;
+            in_configuration = true;
+        } else if (key == "ENERGY" && in_configuration) {
+            iss >> current_config.energy;
+        } else if (key == "RADIUS" && in_configuration) {
+            iss >> current_config.charge_radius;
+        } else if (key == "KINETIC_ENERGY" && in_configuration) {
+            iss >> current_config.avg_kinetic_energy;
+        } else if (key == "PROB_BARE" && in_configuration) {
+            iss >> current_config.prob_bare;
+        } else if (key == "PROB_DRESSED" && in_configuration) {
+            iss >> current_config.prob_dressed;
+        } else if (key == "COEFFICIENTS" && in_configuration) {
+            size_t n;
+            iss >> n;
+            current_config.coefficients.resize(n);
+            for (size_t i = 0; i < n; ++i) {
+                std::getline(file, line);
+                current_config.coefficients[i] = std::stold(line);
+            }
+        } else if (key == "STATE" && in_configuration) {
+            size_t state_idx;
+            iss >> state_idx;
+
+            // Temporary holders
+            int channel_id = 0;
+            int flip_id = 0;
+            ld isospin_factor = 1.0;
+            ld pion_mass = 0.0;
+            int parity_sign = 1;
+            std::vector<ld> jac_masses_vec = {1.0};
+            size_t dimension = 1;
+            rvec packed_params;
+
+            // Read state properties until blank line
+            while (std::getline(file, line)) {
+                if (line.empty()) break;
+
+                std::istringstream line_iss(line);
+                std::string prop;
+                line_iss >> prop;
+
+                if (prop == "CHANNEL") {
+                    std::string ch_name;
+                    line_iss >> ch_name;
+                    channel_id = string_to_channel(ch_name);
+                } else if (prop == "FLIP") {
+                    std::string flip_name;
+                    line_iss >> flip_name;
+                    flip_id = string_to_spinch(flip_name);
+                } else if (prop == "ISOSPIN_FACTOR") {
+                    line_iss >> isospin_factor;
+                } else if (prop == "PION_MASS") {
+                    line_iss >> pion_mass;
+                } else if (prop == "PARITY") {
+                    line_iss >> parity_sign;
+                } else if (prop == "JACOBIAN_MASSES") {
+                    size_t n;
+                    line_iss >> n;
+                    jac_masses_vec.resize(n);
+                    for (size_t i = 0; i < n; ++i) {
+                        std::getline(file, line);
+                        jac_masses_vec[i] = std::stold(line);
+                    }
+                } else if (prop == "DIMENSION") {
+                    line_iss >> dimension;
+                } else if (prop == "PACKED_PARAMS") {
+                    size_t n;
+                    line_iss >> n;
+                    packed_params.resize(n);
+                    for (size_t i = 0; i < n; ++i) {
+                        std::getline(file, line);
+                        packed_params[i] = std::stold(line);
+                    }
+                }
+            }
+
+            // Reconstruct BasisState
+            SpatialWavefunction psi(parity_sign);
+            psi.A = zeros<ld>(dimension, dimension);
+            psi.s = zeros<ld>(dimension, 3);
+
+            // Unpack parameters
+            unpack_wavefunction(psi, packed_params, true);
+
+            // Convert std::vector to qm::rvec for Jacobian
+            rvec jac_masses(jac_masses_vec.size());
+            for (size_t i = 0; i < jac_masses_vec.size(); ++i) {
+                jac_masses[i] = jac_masses_vec[i];
+            }
+
+            BasisState b{psi, (Channel)channel_id, (SpinChannel)flip_id,
+                        isospin_factor, Jacobian(jac_masses), pion_mass};
+            current_config.basis.push_back(b);
+        }
+    }
+
+    if (in_configuration && !current_config.label.empty()) {
+        configs.push_back(current_config);
+    }
+
+    file.close();
+    return configs;
+}
+
 } // namespace qm

@@ -212,36 +212,12 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
                                 ld M_overlap, const rmat& R, const rvec& c, ld mass,
                                 Integrator method=Integrator::SIMPSON)
 {
-    // Static counters for diagnostic
-    static int count_total = 0;
-    static int count_tiny_inv_gamma = 0;
-    static int count_huge_gamma = 0;
-    static int count_exp_overflow = 0;
-    static int count_nan_integral = 0;
-    static int count_success = 0;
-
-    count_total++;
-
     // Calculate gamma (Units: fm^2)
     rvec A_ket_c = g_ket.A * c;
     rvec R_A_ket_c = R * A_ket_c;
     rvec A_bra_R_A_ket_c = g_bra.A * R_A_ket_c;
     ld inv_gamma = 4.0 * dot_no_conj(c, A_bra_R_A_ket_c);
-
-    // CRITICAL GUARD: Small inv_gamma → huge gamma → NaN/Inf
-    // Relaxed: only catch truly pathological cases (< 1e-4)
-    if (inv_gamma < 1e-4) {
-        count_tiny_inv_gamma++;
-        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-    }
     ld gamma = 1.0 / inv_gamma;
-
-    // CRITICAL GUARD: Very large gamma means Gaussian is too sharp
-    // Relaxed: allow up to gamma=100 (sharp but still integrable)
-    if (gamma > 100.0) {
-        count_huge_gamma++;
-        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-    }
 
     // Calculate the shift magnitude eta (Units: fm^-1)
     rvec eta_vec(3);
@@ -282,56 +258,17 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
             break;
     }
 
-    // CRITICAL CHECK: Catch NaN/Inf before proceeding
-    if (!std::isfinite(integral_result) || integral_result < 0.0) {
-        count_nan_integral++;
-        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-    }
-
     // Apply the prefactors
     ld prefactor;
     if (eta < ZERO_LIMIT) {
         prefactor = 4.0 * M_PI * std::pow(gamma / M_PI, 1.5);
     } else {
-        // CRITICAL: Check exp arg - allow up to 150 (balanced threshold)
         ld exp_arg = gamma * eta * eta;
-        if (exp_arg > 150.0) {
-            count_exp_overflow++;
-            return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-        }
         ld exp_val = std::exp(exp_arg);
-        if (!std::isfinite(exp_val)) {
-            count_exp_overflow++;
-            return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-        }
         prefactor = 2.0 * M_PI * std::pow(gamma / M_PI, 1.5) * exp_val / (gamma * eta);
     }
 
-    // CRITICAL CHECK: Final sanity check
-    if (!std::isfinite(prefactor) || prefactor < 0.0) {
-        count_exp_overflow++;
-        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-    }
-
     ld result = M_overlap * prefactor * integral_result;
-
-    // Final overflow check
-    if (!std::isfinite(result)) {
-        count_exp_overflow++;
-        return classic_kinetic_energy(g_bra, g_ket, M_overlap, R, c, mass);
-    }
-
-    count_success++;
-
-    // // Print diagnostics every 1000 calls
-    // if (count_total % 1000 == 0 && count_total > 0) {
-    //     std::cerr << "[RELATIVISTIC KE] Total: " << count_total
-    //               << " | Success: " << count_success << " (" << (100.0*count_success/count_total) << "%)"
-    //               << " | Tiny inv_gamma: " << count_tiny_inv_gamma
-    //               << " | Huge gamma: " << count_huge_gamma
-    //               << " | Exp overflow: " << count_exp_overflow
-    //               << " | NaN integral: " << count_nan_integral << "\n";
-    // }
 
     return result;
 }

@@ -434,7 +434,7 @@ int main(int argc, char* argv[]) {
     std::cout << "        STARTING SVM OPERATOR TEST SUITE\n";
     std::cout << "====================================================\n\n";
 
-    test_load_and_analyze_basis(2.5, 1.2, 38.4);
-    
+    //test_load_and_analyze_basis(2.5, 1.2, 38.4);
+    test_relativistic_explosion();
     return 0;
 }

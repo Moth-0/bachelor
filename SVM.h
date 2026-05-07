@@ -453,9 +453,12 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                     best_candidate = local_best_candidate;
                     found_valid_dart = true;
                 }
-                // std::cerr << "  Channel " << t << ": Unphysical=" << reject_unphysical
-                //           << " BadEnergy=" << reject_energy << " NegKE=" << reject_kinetic
-                //           << " Singular=" << reject_singular << " NoImprove=" << reject_improve << "\n";
+                bool debug = false;
+                if(debug==true){
+                    std::cerr << "\r  Channel " << t << ": Unphysical=" << reject_unphysical
+                            << " BadEnergy=" << reject_energy << " NegKE=" << reject_kinetic
+                            << " Singular=" << reject_singular << " NoImprove=" << reject_improve << std::flush;
+                }
             }
         }
 

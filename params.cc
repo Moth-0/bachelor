@@ -1,5 +1,5 @@
 /*
- * s_finder.cc - Finds the exact S for a specific b_range and b_form
+ * params.cc - Finds a better S for a specific b_range and b_form
  */
 #include <iostream>
 #include <vector>
@@ -17,7 +17,7 @@ using namespace qm;
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cout << "Usage: ./s_finder <b_range> <b_form>\n";
+        std::cout << "Usage: ./params <b_range> <b_form>\n";
         return 1;
     }
 
