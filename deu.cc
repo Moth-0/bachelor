@@ -14,6 +14,7 @@
 #include <cmath>
 #include <iomanip>
 #include <fstream>
+#include <memory>
 #include <omp.h>
 #include <string>
 
@@ -23,6 +24,7 @@
 #include "qm/solver.h"
 #include "deuterium.h"
 #include "qm/serialization.h"
+#include "qm/csv_writer.h"
 #include "SVM.h"
 
 using namespace qm;
@@ -30,7 +32,7 @@ using namespace qm;
 
 // Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
 // Returns pair of (basis, result) for saving all configurations
-std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S) {
+std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S, const std::vector<ld>& box_strengths) {
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;
     ld m_pi0 = 134.97, m_pic = 139.57;
@@ -73,7 +75,6 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     // ------- PHASE 2 & 3: COMPETITIVE GROWTH & BOX REGULARIZATION --------
     std::cout << "--- 2. Competitive Growth inside widening HO Box ---\n";
     
-    std::vector<ld> box_strengths = {1.0, 0.1, 0.0};
     std::vector<BasisState> grand_basis;
     grand_basis.insert(grand_basis.end(), bare_basis.begin(), bare_basis.end());
 
@@ -116,11 +117,15 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 3.6;
-    ld b_form = 1.5;
-    ld S = 20.0;
+    ld b_range = 2.5;
+    ld b_form = 1.2;
+    ld S = 38.4;
 
     std::string file_name = "convergence.data";
+    std::string output_csv = "";
+    int max_basis_size = 0;
+    std::vector<ld> box_strengths_input = {0.0};  // default: only free space
+    bool pn_rel = false, pi_rel = false;  // defaults: both classical
 
     // Parse command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -133,14 +138,37 @@ int main(int argc, char* argv[]) {
             S = std::stold(argv[++i]);
         } else if ((arg == "-f" || arg == "--file") && i+1 < argc) {
             file_name = argv[++i];
+        } else if ((arg == "--output-csv") && i + 1 < argc) {
+            output_csv = argv[++i];
+        } else if ((arg == "--max-basis-size") && i + 1 < argc) {
+            max_basis_size = std::stoi(argv[++i]);
+        } else if ((arg == "-box-strengths" || arg == "--box-strengths") && i + 1 < argc) {
+            // Parse comma-separated box strengths: "0.0" or "0.1,0.0" or "0.5,0.1,0.0"
+            std::string box_str = argv[++i];
+            box_strengths_input.clear();
+            size_t start = 0, end = 0;
+            while ((end = box_str.find(',', start)) != std::string::npos) {
+                box_strengths_input.push_back(std::stold(box_str.substr(start, end - start)));
+                start = end + 1;
+            }
+            box_strengths_input.push_back(std::stold(box_str.substr(start)));
+        } else if ((arg == "--pn-rel") && i + 1 < argc) {
+            pn_rel = (std::string(argv[++i]) == "true");
+        } else if ((arg == "--pi-rel") && i + 1 < argc) {
+            pi_rel = (std::string(argv[++i]) == "true");
         } else if (arg == "-h" || arg == "--help") {
             std::cout << "Usage: ./deu [options]\n";
             std::cout << "Options:\n";
-            std::cout << "  -b_range <value>    Search space for Gaussian width (default: 1.4 fm)\n";
-            std::cout << "  -b_form <value>     Pion interaction range (default: 1.4 fm)\n";
-            std::cout << "  -S <value>          Pion coupling strength (default: 100.0 MeV)\n";
-            std::cout << "  -f, --file <string> Choose convergence data file location\n";
-            std::cout << "  -h, --help          Show this help message\n";
+            std::cout << "  -b_range <value>       Search space for Gaussian width (default: 3.6 fm)\n";
+            std::cout << "  -b_form <value>        Pion interaction range (default: 1.5 fm)\n";
+            std::cout << "  -S <value>             Pion coupling strength (default: 20.0 MeV)\n";
+            std::cout << "  -f, --file <string>    Convergence data file location\n";
+            std::cout << "  --output-csv <path>    Write results to CSV file (includes metadata and convergence)\n";
+            std::cout << "  --max-basis-size <n>   Limit maximum basis size (0=unlimited, default: 0)\n";
+            std::cout << "  -box-strengths <list> Comma-separated HO box strengths (e.g. '0.0' or '0.1,0.0' or '0.5,0.1,0.0')\n";
+            std::cout << "  --pn-rel true|false    Use relativistic PN channel (default: false)\n";
+            std::cout << "  --pi-rel true|false    Use relativistic pion channel (default: true)\n";
+            std::cout << "  -h, --help             Show this help message\n";
             return 0;
         }
     }
@@ -152,22 +180,54 @@ int main(int argc, char* argv[]) {
     std::cout << "========================================\n";
     std::cout << "  DEUTERON SYSTEM (FAST COMPETITIVE SVM)\n";
     std::cout << "========================================\n";
+    
     std::cout << "Parameters:\n";
     std::cout << "  b_range = " << b_range << " fm\n";
     std::cout << "  b_form  = " << b_form << " fm\n";
     std::cout << "  S       = " << S << " MeV\n";
+    std::cout << "  PN Treatment: " << (pn_rel ? "Rel" : "Cla") << ", Pion Treatment: " << (pi_rel ? "Rel" : "Cla") << "\n";
+    std::cout << "  Box Strengths: ";
+    for (size_t i = 0; i < box_strengths_input.size(); ++i) {
+        if (i > 0) std::cout << ", ";
+        std::cout << box_strengths_input[i];
+    }
+    std::cout << "\n";
     std::cout << "========================================\n\n";
+
+    // Create results directory if output CSV is specified
+    std::unique_ptr<qm::CsvWriter> csv_writer;
+    if (!output_csv.empty()) {
+        csv_writer = std::make_unique<qm::CsvWriter>(output_csv);
+        csv_writer->write_metadata("b_range", std::to_string(b_range));
+        csv_writer->write_metadata("b_form", std::to_string(b_form));
+        csv_writer->write_metadata("S", std::to_string(S));
+        
+        // Write box strengths as comma-separated list
+        std::string box_str;
+        for (size_t i = 0; i < box_strengths_input.size(); ++i) {
+            if (i > 0) box_str += ",";
+            box_str += std::to_string(box_strengths_input[i]);
+        }
+        csv_writer->write_metadata("box_strengths", box_str);
+        
+        if (max_basis_size > 0) {
+            csv_writer->write_metadata("max_basis_size", std::to_string(max_basis_size));
+        }
+        csv_writer->write_timestamp();
+        csv_writer->write_headers({"iteration", "energy_mev", "kinetic_mev", "radius_fm", "basis_size"});
+    }
 
     std::ofstream outfile(file_name);
     std::vector<SvmResult> all_results;
     std::vector<ConfigurationResult> all_configs;
 
-    // Single S value mode
+    // Set labels based on relativistic flags (for display and CSV)
+    std::string pn_label = pn_rel ? "Rel" : "Cla";
+    std::string pi_label = pi_rel ? "Rel" : "Cla";
+
+    // Build configuration vector from parsed flags
     std::vector<std::pair<std::string, std::vector<bool>>> configurations = {
-        // {"PN_{Cla} Pi_{Cla}", {false,  false}},
-        // {"PN_{Rel} Pi_{Cla}", {true,  false}},
-        {"PN_{Cla} Pi_{Rel}", {false,  true}},
-        // {"PN_{Rel} Pi_{Rel}", {true,  true}},
+        {"PN_{" + pn_label + "} Pi_{" + pi_label + "}", {pn_rel, pi_rel}}
     };
 
     // Run the configurations loop
@@ -177,7 +237,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << "\n>>>>>>>> RUNNING CONFIGURATION: " << label << " <<<<<<<<\n";
 
-        auto [basis, res] = run_deuteron_svm(flags, b_range, b_form, S);
+        auto [basis, res] = run_deuteron_svm(flags, b_range, b_form, S, box_strengths_input);
         all_results.push_back(res);
 
         std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
@@ -185,8 +245,24 @@ int main(int argc, char* argv[]) {
         outfile << "\"Iteration\"\t\"" << label << "\"\n";
         for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
             outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
+            // Write to CSV if requested
+            if (csv_writer) {
+                csv_writer->write_row({
+                    static_cast<long double>(iter),
+                    res.convergence_history[iter],
+                    0.0,  // kinetic energy per iteration not tracked
+                    0.0,  // radius per iteration not tracked
+                    static_cast<long double>(basis.size())
+                });
+            }
         }
         outfile << "\n\n";
+
+        // Write final summary row to CSV
+        if (csv_writer) {
+            csv_writer->write_final_row(res.energy, res.avg_kinetic_energy, 
+                                       res.charge_radius, basis.size());
+        }
 
         // Collect configuration for saving
         all_configs.push_back({
