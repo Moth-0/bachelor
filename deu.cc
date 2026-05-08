@@ -98,7 +98,8 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     // (Optional) Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, 0.0);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 5, 1e-3, 0.0);
+    // std::cout << "\n Skipped, evaluate: \n";
 
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
 
@@ -124,7 +125,7 @@ int main(int argc, char* argv[]) {
     std::string file_name = "convergence.data";
     std::string output_csv = "";
     int max_basis_size = 0;
-    std::vector<ld> box_strengths_input = {0.0};  // default: only free space
+    std::vector<ld> box_strengths_input = {1.0, 0.1, 0.0};  // default: only free space
     bool pn_rel = false, pi_rel = false;  // defaults: both classical
 
     // Parse command-line arguments

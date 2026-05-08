@@ -82,10 +82,11 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
 SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, ld b_range, ld S,
                                const std::vector<bool>& relativistic) {
     auto [H, N] = build_matrices(basis, b_form, b_range, S, relativistic);
-    cld detN = N.determinant();
-    if (std::abs(detN) < ZERO_LIMIT) {
-        return {999999.0, {}, 99999.0, 0.0, {}};
-    }
+    // cld detN = N.determinant();
+    // if (std::abs(detN) < ZERO_LIMIT) {
+    //     std::cerr << "det(N) < " << ZERO_LIMIT << "\n";
+    //     return {999999.0, {}, 99999.0, 0.0, {}};
+    // }
 
     auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
     
@@ -591,7 +592,7 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
     ld previous_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
     int no_improve_count = 0;
 
-    for (int sweep = 0; sweep < max_sweeps; ++sweep) {
+    for (int sweep = 1; sweep < max_sweeps+1; ++sweep) {
         ld sweep_start_E = previous_E;
 
         // SWEEP: Optimize each state ONE AT A TIME

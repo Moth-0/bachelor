@@ -54,7 +54,7 @@ class ParameterSweep:
         combinations = []
         
         # Base strengths for box confinement
-        base_strengths = [0.0, 0.1, 1.0, 0.5, 2.0, 0.2, 3.0, 0.3]
+        base_strengths = [0.0, 0.1, 1.0, 0.5, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0]
         
         # Get box strengths configuration (only for non-basis_size scans)
         box_strengths = None
@@ -153,7 +153,7 @@ class ParameterSweep:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=3600  # 1 hour timeout per run
+                timeout=36000  # 10 hour timeout per run
             )
             
             if result.returncode != 0:

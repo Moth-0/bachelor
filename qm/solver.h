@@ -212,12 +212,12 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
 
 
 template <typename ObjectiveFunc>
-rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 1000) {
+rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
 
     // Adaptive tolerance: single-state optimization (n<=20) converges quickly
-    ld tolerance = (n <= 20) ? 1e-4 : 1e-5;
+    ld tolerance = 1e-4;
     const int max_no_improve = 100;
 
     // 1. Initialize the Simplex (n+1 vertices)
