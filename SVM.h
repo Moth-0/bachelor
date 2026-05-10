@@ -33,12 +33,12 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
     ld tol = 1.0-ZERO_LIMIT;
-    for (size_t i = 0; i < N.size1(); ++i) {
-        for (size_t j = i + 1; j < N.size2(); ++j) {
+    for (Eigen::Index i = 0; i < N.rows(); ++i) {
+        for (Eigen::Index j = i + 1; j < N.cols(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
 
             // Level 2: Pure spatial cross-channel check (expensive but necessary!)
-            if (overlap <= tol && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
+            if (overlap <= tol && basis[i].psi.A.rows() == basis[j].psi.A.rows()) {
                 BasisStateType temp = basis[j];
                 temp.type = basis[i].type; // Force channel match to strip spin/isospin orthogonality
                 ld spatial_overlap = std::abs(calc_N_elem(basis[i], temp));
@@ -57,7 +57,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
     cmat L = N.cholesky();
 
     // Total Failure Check: The matrix is explicitly not Positive-Definite
-    if (L.size1() == 0) {
+    if (L.rows() == 0) {
         if (debug) {
             std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite.\n";
         }
@@ -65,7 +65,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
     }
 
     // Near-Singularity Check (Dynamic Safety net)
-    for (size_t i = 0; i < L.size1(); ++i) {
+    for (Eigen::Index i = 0; i < L.rows(); ++i) {
         ld num = std::abs(L(i, i));
         ld thresh = ZERO_LIMIT * std::sqrt(std::abs(N(i, i)));
         if (num < thresh) {
@@ -384,8 +384,8 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                 }
 
                 // Calculate the dart's isolated diagonal elements
-                cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
-                cld N_xx = calc_N_elem(test_candidate, test_candidate);
+                std::complex<double> H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
+                std::complex<double> N_xx = calc_N_elem(test_candidate, test_candidate);
 
                 // FAST REJECTION GATE: unphysical Gaussians
                 ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;

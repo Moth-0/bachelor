@@ -1,6 +1,6 @@
 MAKEFLAGS += -r
 # Variables
-CXXFLAGS = -Wall -Werror -O3 -std=c++23 -fopenmp
+CXXFLAGS = -Wall -Werror -O3 -std=c++23 -fopenmp -I./qm/eigen
 CXX = c++
 LDFLAGS += -fopenmp
 LDLIBS = -lstdc++ -lm
