@@ -32,7 +32,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
 
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
-    ld tol = 1.0-ZERO_LIMIT;
+    ld tol = 0.99;
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
@@ -580,14 +580,12 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 }
 
 
-// Optimize basis parameters using Single-State Sweeping
-// TEMPLATE VERSION: Works with any BasisState type
-// OPTIMIZES E0 ONLY (no E0+E1)
 template <typename BasisStateType>
 void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic,
                           rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0) {
-    int nm_max_iter = 100;
+    int nm_max_iter = 500; 
     int patience = 2;
+    size_t n = basis.size();
 
     ld previous_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
     int no_improve_count = 0;
@@ -595,46 +593,94 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
     for (int sweep = 1; sweep < max_sweeps+1; ++sweep) {
         ld sweep_start_E = previous_E;
 
-        // SWEEP: Optimize each state ONE AT A TIME
-        for (size_t k = 0; k < basis.size(); ++k) {
-            // Optimize shifts for dressed states, not for bare nucleon
-            bool opt_shift = (basis[k].jac.masses.size() > 1);
+        // PRE-BUILD matrices once per sweep
+        auto [H_cache, N_cache] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
 
+        // SWEEP: Optimize each state ONE AT A TIME
+        for (size_t k = 0; k < n; ++k) {
+            bool opt_shift = (basis[k].jac.masses.size() > 1);
             rvec p0 = pack_wavefunction(basis[k].psi, opt_shift);
 
-            // Local objective: Minimizes E0 only
+            // --- 1. FRESH COEFFICIENTS ---
+            // Solve GEVP exactly ONCE per state to get perfect, up-to-date coefficients
+            auto [current_exact_E, current_c] = solve_ground_state_with_eigenvector(H_cache, N_cache);
+
             auto local_objective = [&](const qm::rvec& p_test) -> qm::ld {
                 SpatialWavefunction test_psi = basis[k].psi;
                 unpack_wavefunction(test_psi, p_test, opt_shift);
 
-                if (!is_physical_gaussian(test_psi)) {
-                    return 999999.0;
-                }
+                if (!is_physical_gaussian(test_psi)) return 999999.0;
 
                 BasisStateType temp_state = basis[k];
                 temp_state.psi = test_psi;
-                if (!has_positive_kinetic_energy(temp_state, relativistic)) {
-                    return 999999.0;
+                if (!has_positive_kinetic_energy(temp_state, relativistic)) return 999999.0;
+
+                cmat H_updated = H_cache;
+                cmat N_updated = N_cache;
+                
+                for (size_t i = 0; i < n; ++i) {
+                    if (i == k) {
+                        H_updated(k, k) = calc_H_elem(temp_state, temp_state, b_form, b_range, S, relativistic);
+                        N_updated(k, k) = calc_N_elem(temp_state, temp_state);
+                    } else {
+                        cld h_ki = calc_H_elem(basis[i], temp_state, b_form, b_range, S, relativistic);
+                        cld n_ki = calc_N_elem(basis[i], temp_state);
+                        H_updated(i, k) = h_ki;
+                        H_updated(k, i) = std::conj(h_ki);
+                        N_updated(i, k) = n_ki;
+                        N_updated(k, i) = std::conj(n_ki);
+                    }
                 }
-
-                // Temporarily replace state k's psi
-                SpatialWavefunction orig_psi = basis[k].psi;
-                basis[k].psi = test_psi;
-                ld E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
-                basis[k].psi = orig_psi;  // Restore
-
-                return E;
+                
+                // O(N^2) Rayleigh Quotient for lightning-fast Nelder-Mead steps
+                cld H_exp = 0.0; cld N_exp = 0.0;
+                for (size_t i = 0; i < n; ++i) {
+                    for (size_t j = 0; j < n; ++j) {
+                        H_exp += std::conj(current_c[i]) * H_updated(i, j) * current_c[j];
+                        N_exp += std::conj(current_c[i]) * N_updated(i, j) * current_c[j];
+                    }
+                }
+                return std::real(H_exp / N_exp);
             };
 
-            // Run Nelder-Mead on just this state's parameters
+            // Run Nelder-Mead using the proxy objective
             rvec p_best = nelder_mead(p0, local_objective, nm_max_iter);
 
-            // Apply the optimized parameters
-            unpack_wavefunction(basis[k].psi, p_best, opt_shift);
+            // --- 2. THE VARIATIONAL SAFETY CATCH ---
+            // Build the proposed new state
+            BasisStateType proposed_state = basis[k];
+            unpack_wavefunction(proposed_state.psi, p_best, opt_shift);
+
+            // Create temporary matrices for the proposed state
+            cmat H_test = H_cache;
+            cmat N_test = N_cache;
+            for (size_t i = 0; i < n; ++i) {
+                if (i == k) {
+                    H_test(k, k) = calc_H_elem(proposed_state, proposed_state, b_form, b_range, S, relativistic);
+                    N_test(k, k) = calc_N_elem(proposed_state, proposed_state);
+                } else {
+                    cld h_ki = calc_H_elem(basis[i], proposed_state, b_form, b_range, S, relativistic);
+                    cld n_ki = calc_N_elem(basis[i], proposed_state);
+                    H_test(i, k) = h_ki; H_test(k, i) = std::conj(h_ki);
+                    N_test(i, k) = n_ki; N_test(k, i) = std::conj(n_ki);
+                }
+            }
+
+            // Calculate the EXACT energy of the proposed update
+            ld test_E = solve_ground_state_energy(H_test, N_test);
+
+            // Only accept the new state if it ACTUALLY lowered the true energy!
+            // (Subtracting a tiny epsilon like 1e-8 prevents accepting numerical noise)
+            if (test_E < current_exact_E - 1e-8) {
+                basis[k] = proposed_state; // Accept state
+                H_cache = H_test;          // Commit to cache
+                N_cache = N_test;
+            } 
+            // Else: Do nothing! The old state and old cache are preserved.
         }
 
-        // Single energy evaluation after the full sweep
-        ld current_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k, true);
+        // Single exact energy evaluation after the full sweep
+        ld current_E = solve_ground_state_energy(H_cache, N_cache);
         convergence_energies.push_back(current_E);
 
         ld improvement = sweep_start_E - current_E;
@@ -644,14 +690,13 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
             no_improve_count = 0;
         }
 
-        std::cout << "\rSweep " << sweep << " (Basis=" << basis.size() << "): E0 = " << current_E
+        std::cout << "\rSweep " << sweep << " (Basis=" << n << "): E0 = " << current_E
                   << " MeV  (ΔE = " << improvement << ")     " << std::flush;
 
         if (no_improve_count >= patience) {
             std::cout << "\n  - Converged: improvement < " << threshold << " MeV for " << patience << " sweeps\n";
             break;
         }
-
         previous_E = current_E;
     }
     std::cout << "\n";

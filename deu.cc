@@ -67,7 +67,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     std::vector<BasisState> bare_basis;
     std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0};
     for (ld width : deterministic_widths) {
-        rmat A_fixed = eye<ld>(1) * 1.0L / (width * width);
+        rmat A_fixed = eye<ld>(1) * 1.0 / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
         bare_basis.push_back({SpatialWavefunction(A_fixed, s_fixed, +1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
     }
@@ -88,7 +88,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
         competitive_search(local_basis, channel_templates, 10000, b_range, b_form, S, relativistic, ho_k);
         
         // 2. Fast sweep on just these 10 states!
-        sweep_optimize_basis(local_basis, b_form, b_range, S, relativistic, convergence_energies, 10, 1e-4, ho_k);
+        sweep_optimize_basis(local_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, ho_k);
 
         // 3. Move these highly specialized states into the master pool
         grand_basis.insert(grand_basis.end(), local_basis.begin() + bare_basis.size(), local_basis.end());
@@ -98,7 +98,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     // (Optional) Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 5, 1e-3, 0.0);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 30, 1e-4, 0.0);
     // std::cout << "\n Skipped, evaluate: \n";
 
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);

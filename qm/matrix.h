@@ -82,10 +82,10 @@ inline auto scalar_abs2(const T& x) -> decltype(std::real(x * scalar_conj(x)))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Templated vector<T>
-//   T = long double               for real calculations
+//   T = double               for real calculations
 //   T = std::complex<long double> for complex (W-operator blocks, P-wave)
 // ─────────────────────────────────────────────────────────────────────────────
-template<typename T = long double>
+template<typename T = double>
 struct vector {
     using value_type = T;
     std::vector<T> data;
@@ -173,8 +173,8 @@ T dot_no_conj(const vector<T>& v, const vector<T>& u) {
 }
 
 // Approximate equality (real types only)
-inline bool approx(long double x, long double y,
-                   long double acc = 1e-6, long double eps = 1e-6) {
+inline bool approx(double x, double y,
+                   double acc = 1e-6, double eps = 1e-6) {
     if (std::fabs(x - y) < acc) return true;
     if (std::fabs(x - y) < eps * (std::fabs(x) + std::fabs(y))) return true;
     return false;
@@ -192,10 +192,10 @@ std::ostream& operator<<(std::ostream& os, const vector<T>& v) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Templated matrix<T>  (column-major: cols[j][i] = M(i,j))
-//   T = long double               for real matrices
+//   T = double               for real matrices
 //   T = std::complex<long double> for complex matrices
 // ─────────────────────────────────────────────────────────────────────────────
-template<typename T = long double>
+template<typename T = double>
 struct matrix {
     using value_type = T;
     std::vector<vector<T>> cols;
@@ -502,8 +502,8 @@ std::ostream& operator<<(std::ostream& os, const matrix<T>& M) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Convenience type aliases
 // ─────────────────────────────────────────────────────────────────────────────
-using ld      = long double;
-using cld     = std::complex<long double>;
+using ld      = double;
+using cld     = std::complex<double>;
 
 using rvec    = vector<ld>;   // real vector
 using cvec    = vector<cld>;  // complex vector
@@ -567,7 +567,7 @@ matrix<T> zeros(size_t rows, size_t cols) {
 }
 
 // Make identity matrix of size n
-template<typename T = long double>
+template<typename T = double>
 matrix<T> eye(size_t n) {
     matrix<T> M(n, n);
     M.setid();

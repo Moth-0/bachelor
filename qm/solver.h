@@ -230,8 +230,8 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
     // FAST SIMPLEX INITIALIZATION: No rand() calls, use deterministic pattern
     rvec scales(n);
     for (size_t i = 0; i < n; ++i) {
-        ld scale = std::abs(p0[i]) * 0.30;  // 30% perturbation
-        if (scale < 0.1) scales[i] = 0.1;
+        ld scale = std::abs(p0[i]) * 0.05;
+        if (scale < 0.01) scales[i] = 0.01;
         else scales[i] = scale;
     }
 
@@ -279,7 +279,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
         for (size_t i = 0; i < n; ++i) {
             centroid += simplex[indices[i]];
         }
-        ld n_inv = 1.0L / static_cast<ld>(n);
+        ld n_inv = 1.0 / (n);
         centroid *= n_inv;
 
         // Precompute direction from worst to centroid (optimize reflections/contractions)

@@ -160,7 +160,7 @@ struct Gaussian {
         }
 
         // Matrix multiply to mix coordinates and generate shifts
-        SELF.s = A_new * r0 * 2.0L;
+        SELF.s = A_new * r0 * 2.0;
     }
 };
 
