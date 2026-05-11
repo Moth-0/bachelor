@@ -99,7 +99,7 @@ class ParameterSweep:
             # Step 1: [0.0], Step 2: [0.1, 0.0], Step 3: [0.5, 0.1, 0.0], etc.
             num_steps = int(self.sweep_params.get("basis_size_steps", 5))
             
-            for step in range(5, num_steps + 1):
+            for step in range(7, num_steps + 1):
                 # Take 'step' number of base strengths (sorted for increasing basis)
                 step_box_strengths = sorted(base_strengths[:step], reverse=True)
                 params = dict(self.fixed_params)  # Copy all fixed params

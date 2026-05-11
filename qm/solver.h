@@ -85,15 +85,24 @@ namespace qm {
 
 // Helper function to find lowest eigenvalue and eigenvector using Jacobi diagonalization
 // Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
-std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
+std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100) {
     size_t n = A.size1();
-    ld tolerance = ZERO_LIMIT;
+    ld tolerance = 0.1;
 
     // Initialize eigenvector matrix as identity (tracks rotations)
     cmat V = eye<cld>(n);
 
+    // 1. Setup Phase
+    ld sum_off_diag = 0.0;
+    for (size_t p = 0; p < n - 1; ++p) {
+        for (size_t q = p + 1; q < n; ++q) sum_off_diag += std::abs(A(p, q));
+    }
+    ld threshold = sum_off_diag / (n * n);
+    int total_rotations;
+
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         ld max_off_diag = 0.0;
+        total_rotations = 0; // Track if we actually did anything this sweep
 
         // Standard Jacobi sweep over the upper triangle
         for (size_t p = 0; p < n - 1; ++p) {
@@ -102,14 +111,17 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
                 if (off_diag_mag > max_off_diag) max_off_diag = off_diag_mag;
 
                 if (off_diag_mag > tolerance) {
+                    total_rotations++;
                     // Calculate the rotation angles
                     ld app = std::real(A(p, p));
                     ld aqq = std::real(A(q, q));
                     cld apq = A(p, q);
 
-                    ld theta = 0.5 * std::atan2(2.0 * off_diag_mag, aqq - app);
-                    ld cos_t = std::cos(theta);
-                    ld sin_t = std::sin(theta);
+                    ld tau = (aqq - app) / (2.0 * off_diag_mag);
+                    ld t = (tau >= 0.0) ? 1.0 / (tau + std::sqrt(1.0 + tau * tau)) 
+                                        : -1.0 / (-tau + std::sqrt(1.0 + tau * tau));
+                    ld cos_t = 1.0 / std::sqrt(1.0 + t * t);
+                    ld sin_t = t * cos_t;
                     cld phase = std::conj(apq) / off_diag_mag; // Phase to handle complex elements
 
                     // Apply Givens rotation to A
@@ -136,7 +148,15 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
                 }
             }
         }
-        if (max_off_diag < tolerance) break; // Converged!
+        // 3. Lower the threshold for the next sweep
+        if (threshold > ZERO_LIMIT) {
+            threshold *= 0.2; 
+        }
+
+        // 4. Convergence Check (We hit the floor AND found no errors)
+        if (max_off_diag < ZERO_LIMIT && total_rotations == 0) {
+            break; 
+        }    
     }
 
     // Find the lowest eigenvalue and its index
@@ -170,7 +190,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
 
 // A helper function to find the lowest eigenvalue of a standard Hermitian matrix
 // using the Jacobi rotation method.
-ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
+ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 50) {
     return jacobi_with_eigenvector(A, max_sweeps).first;
 }
 
@@ -212,13 +232,13 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
 
 
 template <typename ObjectiveFunc>
-rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
+rvec nelder_mead(const rvec& p0, const ObjectiveFunc& objective, int max_iter = 500) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
 
     // Adaptive tolerance: single-state optimization (n<=20) converges quickly
     ld tolerance = 1e-4;
-    const int max_no_improve = 100;
+    const int max_no_improve = 20;
 
     // 1. Initialize the Simplex (n+1 vertices)
     std::vector<rvec> simplex(n + 1, rvec(n));
@@ -230,7 +250,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
     // FAST SIMPLEX INITIALIZATION: No rand() calls, use deterministic pattern
     rvec scales(n);
     for (size_t i = 0; i < n; ++i) {
-        ld scale = std::abs(p0[i]) * 0.05;
+        ld scale = std::abs(p0[i]) * 0.2;
         if (scale < 0.01) scales[i] = 0.01;
         else scales[i] = scale;
     }

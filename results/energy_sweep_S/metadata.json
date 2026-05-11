@@ -1,17 +1,18 @@
 {
   "scan_type": "S",
-  "timestamp": "2026-05-08T08:42:18.814627",
+  "timestamp": "2026-05-11T09:11:44.674012",
   "fixed_params": {
     "b_range": 2.5,
     "b_form": 1.2
   },
   "sweep_params": {
-    "S_min": 36.0,
-    "S_max": 40.0,
-    "S_steps": 4
+    "S_min": 38.2,
+    "S_max": 38.4,
+    "S_steps": 5,
+    "basis_size_steps": 9
   },
-  "num_jobs": 1,
-  "total_runs": 4,
-  "successful_runs": 4,
+  "num_jobs": 2,
+  "total_runs": 5,
+  "successful_runs": 5,
   "aggregated_csv": "results/energy_sweep_S/aggregated.csv"
 }
