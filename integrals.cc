@@ -39,7 +39,7 @@ int main() {
 
     // 1. Setup physical constants and jacobians
     ld m_p = 938.27, m_n = 939.56, m_pi0 = 134.97, m_pic = 139.57;
-    ld iso_c = std::sqrt(2.0L);
+    ld iso_c = std::sqrt(2.0);
     
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});

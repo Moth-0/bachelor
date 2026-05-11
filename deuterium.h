@@ -203,19 +203,29 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
 rvec get_channel_charges(Channel type) {
     switch (type) {
         case Channel::PN: {
-            rvec v(2); v << 1.0, 0.0; return v;
+            rvec v(2);
+            v[0] = 1.0; v[1] = 0.0;
+            return v;
         }
         case Channel::PI_0c_0f: case Channel::PI_0c_1f: case Channel::PI_0c_2f: {
-            rvec v(3); v << 1.0, 0.0, 0.0; return v;
+            rvec v(3);
+            v[0] = 1.0; v[1] = 0.0; v[2] = 0.0;
+            return v;
         }
         case Channel::PI_pc_0f: case Channel::PI_pc_1f: case Channel::PI_pc_2f: {
-            rvec v(3); v << 0.0, 0.0, 1.0; return v;
+            rvec v(3);
+            v[0] = 0.0; v[1] = 0.0; v[2] = 1.0;
+            return v;
         }
         case Channel::PI_mc_0f: case Channel::PI_mc_1f: case Channel::PI_mc_2f: {
-            rvec v(3); v << 1.0, 1.0, -1.0; return v;
+            rvec v(3);
+            v[0] = 1.0; v[1] = 1.0; v[2] = -1.0;
+            return v;
         }
         default: {
-            rvec v(2); v << 1.0, 0.0; return v;
+            rvec v(2);
+            v[0] = 1.0; v[1] = 0.0;
+            return v;
         }
     }
 }

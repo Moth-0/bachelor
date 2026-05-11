@@ -10,6 +10,7 @@
 #include "qm/gaussian.h"
 #include "qm/operators.h"
 #include "qm/solver.h"
+#include "qm/gevp_ncg_solver.h"
 
 namespace qm {
 
@@ -33,12 +34,12 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
     ld tol = 1.0-ZERO_LIMIT;
-    for (Eigen::Index i = 0; i < N.rows(); ++i) {
-        for (Eigen::Index j = i + 1; j < N.cols(); ++j) {
+    for (size_t i = 0; i < N.size1(); ++i) {
+        for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
 
             // Level 2: Pure spatial cross-channel check (expensive but necessary!)
-            if (overlap <= tol && basis[i].psi.A.rows() == basis[j].psi.A.rows()) {
+            if (overlap <= tol && basis[i].psi.A.size1() == basis[j].psi.A.size1()) {
                 BasisStateType temp = basis[j];
                 temp.type = basis[i].type; // Force channel match to strip spin/isospin orthogonality
                 ld spatial_overlap = std::abs(calc_N_elem(basis[i], temp));
@@ -54,29 +55,36 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
         }
     }
 
-    cmat L = N.cholesky();
-
-    // Total Failure Check: The matrix is explicitly not Positive-Definite
-    if (L.rows() == 0) {
+    // Convert N to Eigen for Cholesky check and then use NCG solver
+    size_t n = N.size1();
+    MatrixXcd H_eigen(n, n), N_eigen(n, n);
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            H_eigen(i, j) = std::complex<double>(H(i, j).real(), H(i, j).imag());
+            N_eigen(i, j) = std::complex<double>(N(i, j).real(), N(i, j).imag());
+        }
+    }
+    
+    // Check positive-definiteness with LLT
+    Eigen::LLT<MatrixXcd> llt(N_eigen);
+    if (llt.info() != Eigen::Success) {
         if (debug) {
             std::cerr << "  [REJECT GEVP] Overlap matrix N is not positive-definite.\n";
         }
         return 999999.0;
     }
-
-    // Near-Singularity Check (Dynamic Safety net)
-    for (Eigen::Index i = 0; i < L.rows(); ++i) {
-        ld num = std::abs(L(i, i));
-        ld thresh = ZERO_LIMIT * std::sqrt(std::abs(N(i, i)));
-        if (num < thresh) {
-            if (debug) {
-                std::cerr << "  [REJECT GEVP] Near-linear dependence at index " << num << " < " << thresh << ".\n";
-            }
-            return 999999.0;
-        }
+    
+    // Initial guess: normalized random vector
+    VectorXcd c_init(n);
+    for (size_t i = 0; i < n; ++i) {
+        c_init(i) = std::complex<double>(1.0, 0.0);
     }
-
-    return solve_ground_state_energy(H, N);
+    c_init.normalize();
+    
+    // Solve GEVP using NCG (no matrix inversions on N×N!)
+    auto ncg_result = solve_gevp_ncg(H_eigen, N_eigen, c_init, 1e-12, 2000, false);
+    
+    return ncg_result.eigenvalue;
 }
 
 SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, ld b_range, ld S,
@@ -92,7 +100,7 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, 
     
     rvec coeff(eigvec.size());
     for (size_t i = 0; i < coeff.size(); ++i) {
-        coeff[i] = abs(eigvec[i]);
+        coeff[i] = std::abs(eigvec(i));
     }
 
     // Build observable matrices
@@ -106,11 +114,11 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, 
     
     for (size_t i = 0; i < basis.size(); ++i) {
         for (size_t j = 0; j < basis.size(); ++j) {
-            r2_expectation += std::conj(eigvec[i]) * R2(i, j) * eigvec[j];
+            r2_expectation += std::conj(eigvec(i)) * R2(i, j) * eigvec(j);
             
-            t_expectation += std::conj(eigvec[i]) * T_mat(i, j) * eigvec[j];
+            t_expectation += std::conj(eigvec(i)) * T_mat(i, j) * eigvec(j);
             
-            cld overlap_term = std::conj(eigvec[i]) * N(i, j) * eigvec[j];
+            cld overlap_term = std::conj(eigvec(i)) * N(i, j) * eigvec(j);
             if (basis[i].type == Channel::PN && basis[j].type == Channel::PN) {
                 prob_bare += std::real(overlap_term);
             } 
@@ -384,8 +392,8 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                 }
 
                 // Calculate the dart's isolated diagonal elements
-                std::complex<double> H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
-                std::complex<double> N_xx = calc_N_elem(test_candidate, test_candidate);
+                cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
+                cld N_xx = calc_N_elem(test_candidate, test_candidate);
 
                 // FAST REJECTION GATE: unphysical Gaussians
                 ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;

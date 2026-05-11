@@ -204,7 +204,7 @@ ld classic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     // Convert fm^-2 to MeV^2 using (hbar*c)^2, then divide by 2*mass (MeV)
     // Result is in MeV
     ld hbarc_sq = HBARC * HBARC;
-    return M_overlap * hbarc_sq * (1.5L * inv_gamma - eta_sq) / (2.0 * mass);
+    return M_overlap * hbarc_sq * (1.5 * inv_gamma - eta_sq) / (2.0 * mass);
 }
 
 // --- Relativistic Kinetic Energy ---
@@ -350,7 +350,7 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
         
         // Map Cartesian [x, y, z] to Spherical [r^0, r^+, r^-]
         cld r_0 = cld(spatial_vec[2], 0.0); // z
-        cld r_plus = cld(spatial_vec[0], spatial_vec[1]) / std::sqrt(2.0L); // (x + iy)/sqrt(2)
+        cld r_plus = cld(spatial_vec[0], spatial_vec[1]) / std::sqrt(2.0); // (x + iy)/sqrt(2)
 
         // Apply the specific spin operator
         cld W_term = 0.0;
@@ -360,11 +360,11 @@ cld total_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunct
         } 
         else if (spin_chan == FLIP_PARTICLE_1) {
             // Flip 1: f(w^T r) * sqrt(2) * w^T r^+
-            W_term = std::sqrt(2.0L) * r_plus;
+            W_term = std::sqrt(2.0) * r_plus;
         }
         else if (spin_chan == FLIP_PARTICLE_2) {
             // Flip 2: -f(w^T r) * sqrt(2) * w^T r^+
-            W_term = -std::sqrt(2.0L) * r_plus;
+            W_term = -std::sqrt(2.0) * r_plus;
         }
 
         // Multiply by S (strength) and the isospin constant (e.g., 1 for pi^0, sqrt(2) for pi^+)
@@ -396,13 +396,13 @@ ld charge_radius_operator(const SpatialWavefunction& psi_bra, const SpatialWavef
             }
 
             // 1. Variance term: 1.5 * c^T * R * c 
-            ld r_squared = 1.5L * dot_no_conj(c_charge, R * c_charge);
+            ld r_squared = 1.5 * dot_no_conj(c_charge, R * c_charge);
 
             // 2. Shift term
             ld shift_contribution = 0.0;
             for (size_t col = 0; col < 3; ++col) {
                 rvec v = g_b.s[col] + g_k.s[col];
-                rvec x_0 = R * v * 0.5L;  // Corrected shift center
+                rvec x_0 = R * v * 0.5;  // Corrected shift center
                 
                 ld proj = dot_no_conj(c_charge, x_0);
                 shift_contribution += proj * proj;

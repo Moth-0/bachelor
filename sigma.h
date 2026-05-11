@@ -82,7 +82,7 @@ struct BasisState {
 inline cld scalar_w_coupling(const SpatialWavefunction& psi_bare, const SpatialWavefunction& psi_dressed,
                              ld b, ld S)
 {
-    ld alpha = 1.0L / (b * b);
+    ld alpha = 1.0 / (b * b);
 
     // Build A_tilde exactly as shown in Eq (25)
     rmat A_tilde = zeros<ld>(2, 2);

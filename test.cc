@@ -144,7 +144,7 @@ bool test_w_coupling() {
     // 1. Setup Parameters
     ld b_form = 1.0;
     ld S_strength = 10.0;
-    ld iso_factor = std::sqrt(2.0L); // e.g., PN -> PN + pi^+
+    ld iso_factor = std::sqrt(2.0); // e.g., PN -> PN + pi^+
 
     // 2. Setup coupling vectors (already in Jacobi space from get_internal_distance_vector)
     rvec w_piN = {0.0, 1.0};
@@ -199,7 +199,7 @@ void test_relativistic_explosion() {
 
     // 1. Setup a simple 1D-like environment
     ld mass = 938.0;
-    rmat A = eye<ld>(1) * 1.0L; // 1.0 fm width
+    rmat A = eye<ld>(1) * 1.0; // 1.0 fm width
 
     // Gaussian 1: Sitting perfectly at the origin
     Gaussian g1;
@@ -211,7 +211,7 @@ void test_relativistic_explosion() {
     g2.A = A;
     g2.s = zeros<ld>(1, 3);
 
-    rmat R = eye<ld>(1) * 0.5L; // Simple inverse matrix
+    rmat R = eye<ld>(1) * 0.5; // Simple inverse matrix
     rvec c = {1.0};            // Simple coordinate transform
     ld M_overlap = 1.0;        // Assume normalized for the test
 

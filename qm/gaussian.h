@@ -160,7 +160,7 @@ struct Gaussian {
         }
 
         // Matrix multiply to mix coordinates and generate shifts
-        SELF.s = A_new * r0 * 2.0L;
+        SELF.s = A_new * r0 * 2.0;
     }
 };
 
@@ -217,7 +217,7 @@ struct SpatialWavefunction {
         ld g_plus  = std::exp(-rAr + sr);
         ld g_minus = std::exp(-rAr - sr);
 
-        return 1/sqrt(2.0L) * (g_plus + parity_sign * g_minus);
+        return 1/sqrt(2.0) * (g_plus + parity_sign * g_minus);
     }
 };
 
@@ -252,7 +252,7 @@ auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunc
     rmat B = bra.A + ket.A;
     
     // Deduce the return type dynamically (ld or cld)
-    using RetType = decltype(operation(Gaussian(bra.A, bra.s), Gaussian(ket.A, ket.s), 0.0L, B));
+    using RetType = decltype(operation(Gaussian(bra.A, bra.s), Gaussian(ket.A, ket.s), 0.0, B));
     
     if (std::abs(B.determinant()) < ZERO_LIMIT) return RetType{0}; 
     
@@ -282,7 +282,7 @@ auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunc
     }
 
     // THE FIX: Apply the 1/sqrt(2) normalization factors!
-    ld norm_factor = 1.0L / std::sqrt(static_cast<ld>(num_bra_terms * num_ket_terms));
+    ld norm_factor = 1.0 / std::sqrt(static_cast<ld>(num_bra_terms * num_ket_terms));
 
     return norm_factor * total_value;
 }

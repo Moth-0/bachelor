@@ -85,7 +85,7 @@ namespace qm {
 // Helper function to find lowest eigenvalue and eigenvector using Eigen's Schur/QR solver
 // Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
 // This replaces the custom Jacobi method with Eigen's industry-standard solver
-std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
+std::pair<ld, Eigen::VectorXcd> jacobi_with_eigenvector(cmat& A, int max_sweeps = 50) {
     // Convert custom matrix to Eigen for efficient solving
     size_t n = A.size1();
     Eigen::MatrixXcd A_eigen(n, n);
@@ -101,7 +101,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
     
     if (solver.info() != Eigen::Success) {
         // Fallback if computation fails
-        return {999999.0, cvec()};
+        return {999999.0, Eigen::VectorXcd()};
     }
     
     // Get eigenvalues and eigenvectors
@@ -112,25 +112,19 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 50) {
     ld lowest_E = eigenvals(0);  // eigenvals are already real (double)
     Eigen::VectorXcd eigvec_eigen = eigenvecs.col(0);
     
-    // Convert eigenvector back to custom format
-    cvec eigvec(n);
-    for (size_t i = 0; i < n; ++i) {
-        eigvec[i] = std::complex<long double>(eigvec_eigen(i).real(), eigvec_eigen(i).imag());
-    }
-    
-    return {lowest_E, eigvec};
+    return {lowest_E, eigvec_eigen};
 }
 
 // A helper function to find the lowest eigenvalue of a standard Hermitian matrix
 // using Eigen's Schur/QR solver
-ld jacobi_lowest_eigenvalue(cmat A, int max_sweeps = 50) {
+ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 50) {
     return jacobi_with_eigenvector(A, max_sweeps).first;
 }
 
 
 // The Main GEVP Solver - with eigenvector
 // Uses Eigen's GeneralizedSelfAdjointEigenSolver for fast, accurate GEVP solving
-std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N) {
+std::pair<ld, Eigen::VectorXcd> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N) {
     // Convert custom matrices to Eigen for efficient solving
     size_t n = H.size1();
     Eigen::MatrixXcd H_eigen(n, n);
@@ -148,20 +142,14 @@ std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cma
     
     if (solver.info() != Eigen::Success) {
         // If solver fails, return error
-        return {999999.0, cvec()};
+        return {999999.0, Eigen::VectorXcd()};
     }
     
     // Extract ground state (lowest eigenvalue is first due to Eigen's sorting)
-    ld E0 = solver.eigenvalues()(0).real();  // eigenvalues are real
+    ld E0 = solver.eigenvalues()(0);  // eigenvalues are already real (double)
     Eigen::VectorXcd c_eigen = solver.eigenvectors().col(0);
     
-    // Convert eigenvector back to custom format
-    cvec c(n);
-    for (size_t i = 0; i < n; ++i) {
-        c[i] = std::complex<long double>(c_eigen(i).real(), c_eigen(i).imag());
-    }
-    
-    return {E0, c};
+    return {E0, c_eigen};
 }
 
 // The Main GEVP Solver - energy only (backward compatible)
@@ -172,34 +160,34 @@ ld solve_ground_state_energy(const cmat& H, const cmat& N) {
 
 
 template <typename ObjectiveFunc>
-rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
+rvec nelder_mead(const rvec& p0, const ObjectiveFunc& objective, int max_iter = 500) {
     size_t n = p0.size();
     const ld alpha = 1.0, gamma = 2.0, rho = 0.5, sigma = 0.5; // Standard NM coefficients
 
     // Adaptive tolerance: single-state optimization (n<=20) converges quickly
     ld tolerance = 1e-4;
-    const int max_no_improve = 100;
+    const int max_no_improve = 20;
 
     // 1. Initialize the Simplex (n+1 vertices)
-    std::vector<ld_vec> simplex(n + 1, ld_vec::Zero(n));
-    Eigen::VectorXd f_vals(n + 1);
+    std::vector<rvec> simplex(n + 1, rvec(n));
+    rvec f_vals(n + 1);
 
     // First vertex is the initial point
     simplex[0] = p0;
 
     // FAST SIMPLEX INITIALIZATION: No rand() calls, use deterministic pattern
-    Eigen::VectorXd scales(n);
+    rvec scales(n);
     for (size_t i = 0; i < n; ++i) {
-        ld scale = std::abs(p0(i)) * 0.30;  // 30% perturbation
-        if (scale < 0.1) scales(i) = 0.1;
-        else scales(i) = scale;
+        ld scale = std::abs(p0[i]) * 0.1;  // 30% perturbation
+        if (scale < 0.01) scales[i] = 0.01;
+        else scales[i] = scale;
     }
 
     // Create vertices with alternating +/- perturbations (faster, deterministic)
     for (size_t i = 1; i <= n; ++i) {
         simplex[i] = p0;
-        ld perturbation = (i % 2 == 1) ? scales(i - 1) : -0.7 * scales(i - 1);
-        simplex[i](i - 1) += perturbation;
+        ld perturbation = (i % 2 == 1) ? scales[i - 1] : -0.7 * scales[i - 1];
+        simplex[i][i - 1] += perturbation;
     }
 
     // Evaluate all vertices
@@ -235,18 +223,18 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
         prev_best = f_vals[best];
 
         // 3. Calculate Centroid of all vertices except the worst
-        ld_vec centroid = ld_vec::Zero(n);
+        rvec centroid(n);
         for (size_t i = 0; i < n; ++i) {
             centroid += simplex[indices[i]];
         }
-        ld n_inv = 1.0L / static_cast<ld>(n);
+        ld n_inv = 1.0 / static_cast<ld>(n);
         centroid *= n_inv;
 
         // Precompute direction from worst to centroid (optimize reflections/contractions)
-        ld_vec direction = centroid - simplex[worst];
+        rvec direction = centroid - simplex[worst];
 
         // 4. Reflection: reflected = centroid + alpha * (centroid - worst)
-        ld_vec reflected = centroid + direction * alpha;
+        rvec reflected = centroid + direction * alpha;
         ld f_ref = objective(reflected);
 
         if (f_ref >= f_vals[best] && f_ref < f_vals[second_worst]) {
@@ -257,7 +245,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
 
         // 5. Expansion
         if (f_ref < f_vals[best]) {
-            ld_vec expanded = centroid + (reflected - centroid) * gamma;
+            rvec expanded = centroid + (reflected - centroid) * gamma;
             ld f_exp = objective(expanded);
             if (f_exp < f_ref) {
                 simplex[worst] = expanded;
@@ -273,7 +261,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
         bool contracted_successfully = false;
         if (f_ref < f_vals[worst]) {
             // Outside Contraction (reflection was better than worst)
-            ld_vec contracted = centroid + (reflected - centroid) * rho;
+            rvec contracted = centroid + (reflected - centroid) * rho;
             ld f_con = objective(contracted);
             if (f_con <= f_ref) {
                 simplex[worst] = contracted;
@@ -282,7 +270,7 @@ rvec nelder_mead(rvec p0, ObjectiveFunc objective, int max_iter = 500) {
             }
         } else {
             // Inside Contraction (reflection was worse than worst)
-            ld_vec contracted = centroid - direction * rho; 
+            rvec contracted = centroid - direction * rho; 
             ld f_con = objective(contracted);
             if (f_con < f_vals[worst]) {
                 simplex[worst] = contracted;

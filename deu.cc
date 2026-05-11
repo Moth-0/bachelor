@@ -36,7 +36,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;
     ld m_pi0 = 134.97, m_pic = 139.57;
-    ld iso_c = std::sqrt(2.0L);
+    ld iso_c = std::sqrt(2.0);
 
     Jacobian jac_bare({m_p, m_n});
     Jacobian jac_dressed_0({m_p, m_n, m_pi0});
@@ -67,7 +67,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     std::vector<BasisState> bare_basis;
     std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0};
     for (ld width : deterministic_widths) {
-        rmat A_fixed = eye<ld>(1) * 1.0L / (width * width);
+        rmat A_fixed = eye<ld>(1) * 1.0 / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
         bare_basis.push_back({SpatialWavefunction(A_fixed, s_fixed, +1), Channel::PN, NO_FLIP, 1.0, jac_bare, 0.0});
     }
@@ -118,9 +118,9 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 2.5;
+    ld b_range = 2.6;
     ld b_form = 1.2;
-    ld S = 38.4;
+    ld S = 38.3;
 
     std::string file_name = "convergence.data";
     std::string output_csv = "";
@@ -153,10 +153,10 @@ int main(int argc, char* argv[]) {
                 start = end + 1;
             }
             box_strengths_input.push_back(std::stold(box_str.substr(start)));
-        } else if ((arg == "--pn-rel") && i + 1 < argc) {
-            pn_rel = (std::string(argv[++i]) == "true");
-        } else if ((arg == "--pi-rel") && i + 1 < argc) {
-            pi_rel = (std::string(argv[++i]) == "true");
+        } else if (arg == "--pn-rel") {
+            pn_rel = true;
+        } else if (arg == "--pi-rel") {
+            pi_rel = true;
         } else if (arg == "-h" || arg == "--help") {
             std::cout << "Usage: ./deu [options]\n";
             std::cout << "Options:\n";
@@ -166,9 +166,9 @@ int main(int argc, char* argv[]) {
             std::cout << "  -f, --file <string>    Convergence data file location\n";
             std::cout << "  --output-csv <path>    Write results to CSV file (includes metadata and convergence)\n";
             std::cout << "  --max-basis-size <n>   Limit maximum basis size (0=unlimited, default: 0)\n";
-            std::cout << "  -box-strengths <list> Comma-separated HO box strengths (e.g. '0.0' or '0.1,0.0' or '0.5,0.1,0.0')\n";
-            std::cout << "  --pn-rel true|false    Use relativistic PN channel (default: false)\n";
-            std::cout << "  --pi-rel true|false    Use relativistic pion channel (default: true)\n";
+            std::cout << "  -box-strengths <list>  Comma-separated HO box strengths (e.g. '0.0' or '0.1,0.0' or '0.5,0.1,0.0')\n";
+            std::cout << "  --pn-rel               Use relativistic PN channel (default: false)\n";
+            std::cout << "  --pi-rel               Use relativistic pion channel (default: false)\n";
             std::cout << "  -h, --help             Show this help message\n";
             return 0;
         }
@@ -249,11 +249,11 @@ int main(int argc, char* argv[]) {
             // Write to CSV if requested
             if (csv_writer) {
                 csv_writer->write_row({
-                    static_cast<long double>(iter),
+                    static_cast<double>(iter),
                     res.convergence_history[iter],
                     0.0,  // kinetic energy per iteration not tracked
                     0.0,  // radius per iteration not tracked
-                    static_cast<long double>(basis.size())
+                    static_cast<double>(basis.size())
                 });
             }
         }

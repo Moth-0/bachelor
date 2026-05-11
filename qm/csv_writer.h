@@ -83,8 +83,8 @@ public:
         file.flush();
     }
 
-    // Write a data row with long doubles
-    void write_row(const std::vector<long double>& values) {
+    // Write a data row with doubles
+    void write_row(const std::vector<double>& values) {
         if (!metadata_complete) {
             throw std::runtime_error("Headers not written yet");
         }
@@ -102,9 +102,9 @@ public:
     }
 
     // Write final summary row (iteration=-1)
-    void write_final_row(long double energy, long double kinetic, 
-                        long double radius, long double basis_size) {
-        std::vector<long double> final_row = {
+    void write_final_row(double energy, double kinetic, 
+                        double radius, double basis_size) {
+        std::vector<double> final_row = {
             static_cast<long double>(-1),  // iteration = -1 for FINAL marker
             energy,
             kinetic,
