@@ -1,16 +1,16 @@
 {
   "scan_type": "basis_size",
-  "timestamp": "2026-05-10T21:44:44.556613",
+  "timestamp": "2026-05-11T11:39:58.499199",
   "fixed_params": {
     "b_range": 2.5,
     "b_form": 1.2,
-    "S": 38.4
+    "S": 38.3
   },
   "sweep_params": {
     "basis_size_steps": 10
   },
   "num_jobs": 2,
-  "total_runs": 4,
-  "successful_runs": 4,
+  "total_runs": 9,
+  "successful_runs": 9,
   "aggregated_csv": "results/energy_sweep_basis_size/aggregated.csv"
 }

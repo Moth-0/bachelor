@@ -16,111 +16,52 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h qm/se
 %.o : %.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-search: deu params
-	@echo "======================================================================"
-	@echo "Step 1: Computing binding energy with b_range=$(b_range) b_form=$(b_form) S=$(S)"
-	@echo "======================================================================"
-	./deu -b_range $(b_range) -b_form $(b_form) -S $(S) 
-	@echo ""
-	@echo "======================================================================"
-	@echo "Step 2: Binary search for S with  b_range=$(b_range) b_form=$(b_form)"
-	@echo "======================================================================"
-	./params $(b_range) $(b_form)
+# ALL CONFIGURATIONS: Run all 4 kinematic configs with timestamped results
+# Default parameters (override with: make all-configs B_RANGE=2.0 B_FORM=1.5 S=40.0)
+B_RANGE ?= 2.5
+B_FORM ?= 1.2
+S ?= 38.4
 
-convergence.png: convergence.data Makefile
-	echo '\
-	set terminal pngcairo size 800,600 enhanced font "Arial,11" ;\
-	set output "convergence.png" ;\
-	set title "Convergence of SVM under Different Kinematics" ;\
-	set xlabel "SVM Iterations" ;\
-	set ylabel "Ground State Energy (MeV)" ;\
-	set grid ;\
-	set key top right box ;\
-	plot for [i=0:*] "convergence.data" index i using 1:2 with lines lw 2 title columnheader(2), \
-	     -2.224 with lines dt 2 lw 2 lc rgb "purple" title "Target (-2.224 MeV)" \
-	' | tee plot.gpi | gnuplot
+all-configs: deu
+	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
+	RESULTS_DIR="results/all_configs_$$TIMESTAMP"; \
+	mkdir -p $$RESULTS_DIR; \
+	echo "========================================"; \
+	echo "Running all 4 configurations..."; \
+	echo "Parameters: b_range=$(B_RANGE) b_form=$(B_FORM) S=$(S)"; \
+	echo "Timestamp: $$TIMESTAMP"; \
+	echo "Results: $$RESULTS_DIR"; \
+	echo "========================================"; \
+	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --output-csv $$RESULTS_DIR/PN_Cla_Pi_Cla.csv; \
+	echo "✓ Config 1/4: PN_Cla Pi_Cla"; \
+	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pi-rel --output-csv $$RESULTS_DIR/PN_Cla_Pi_Rel.csv; \
+	echo "✓ Config 2/4: PN_Cla Pi_Rel"; \
+	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pn-rel --output-csv $$RESULTS_DIR/PN_Rel_Pi_Cla.csv; \
+	echo "✓ Config 3/4: PN_Rel Pi_Cla"; \
+	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pn-rel --pi-rel --output-csv $$RESULTS_DIR/PN_Rel_Pi_Rel.csv; \
+	echo "✓ Config 4/4: PN_Rel Pi_Rel"; \
+	echo "========================================"; \
+	echo "All configurations complete!"; \
+	echo "Results saved to: $$RESULTS_DIR"; \
+	echo "========================================"
+
+
+# Parameter Sweeps 
+sweep_S : deu scripts/sweep.py script/plot_result.py Makefile
+	python3 scripts/sweep.py --scan S --S_min 35.0 --S_max 37.0 --S_steps 8
+	python3 scripts/plot_result.py energy_sweep_S
+
+sweep_b : deu scripts/sweep.py script/plot_result.py Makefile
+	python3 scripts/sweep.py --scan b_form --b_form_min 1.0 --b_form_max 1.4 --b_form_steps 4
+	python3 scripts/plot_result.py energy_sweep_S
+	python3 scripts/sweep.py --scan b_range --b_range_min 2.0 --b_range_max 3.0 --b_range_steps 5
+	python3 scripts/plot_result.py energy_sweep_S
+
+sweep_size : deu scripts/sweep.py script/plot_result.py Makefile
+	python3 scripts/sweep.py --scan basis_size 10
+	python3 scripts/plot_result.py energy_sweep_basis_size
 
 clean :
-	$(RM) *.o *.log *.dat *.gpi
+	$(RM) *.o *.log *.dat *.gpi *.out *.err
 
-# ============================================================================
-# PHASE 3: SWEEP & PLOTTING TARGETS (NEW AUTOMATED PIPELINE)
-# ============================================================================
-
-# === SWEEP TARGETS ===
-
-# Sweep b_form parameter (varies 1.0 to 2.5, 10 steps)
-sweep-b_form: deu
-	@echo "=========================================="
-	@echo "Sweeping b_form (1.0 - 2.5, 10 steps)"
-	@echo "=========================================="
-	@mkdir -p results/energy_sweep_b_form
-	python3 scripts/sweep.py --scan b_form \
-	  --b_range 2.5 --S 38.4 \
-	  --b_form_min 1.0 --b_form_max 2.5 --b_form_steps 10 \
-	  --jobs 4
-
-# Sweep S parameter (coupling strength: 20 - 100, 15 steps)
-sweep-S: deu
-	@echo "=========================================="
-	@echo "Sweeping S (20 - 100 MeV, 15 steps)"
-	@echo "=========================================="
-	@mkdir -p results/energy_sweep_S
-	python3 scripts/sweep.py --scan S \
-	  --b_range 2.5 --b_form 1.5 \
-	  --S_min 20 --S_max 100 --S_steps 15 \
-	  --jobs 4
-
-# Sweep basis size limit (10 - 60, 10 steps)
-sweep-basis-size: deu
-	@echo "=========================================="
-	@echo "Sweeping max_basis_size (10 - 60, 10 steps)"
-	@echo "=========================================="
-	@mkdir -p results/basis_size_convergence
-	python3 scripts/sweep.py --scan basis_size \
-	  --b_range 2.5 --b_form 1.5 --S 38.4 \
-	  --max_basis_size_min 10 --max_basis_size_max 60 --max_basis_size_steps 10 \
-	  --jobs 4
-
-# === PLOTTING TARGETS ===
-
-results/energy_sweep_b_form/aggregated.csv: sweep-b_form
-	@echo "Aggregated results available at: $@"
-
-results/energy_sweep_S/aggregated.csv: sweep-S
-	@echo "Aggregated results available at: $@"
-
-results/basis_size_convergence/aggregated.csv: sweep-basis-size
-	@echo "Aggregated results available at: $@"
-
-plot-energy-vs-b_form: results/energy_sweep_b_form/aggregated.csv
-	@echo "Plotting energy vs b_form..."
-	python3 scripts/plot_results.py energy_sweep_b_form
-
-plot-energy-vs-S: results/energy_sweep_S/aggregated.csv
-	@echo "Plotting energy vs S..."
-	python3 scripts/plot_results.py energy_sweep_S
-
-# === ORCHESTRATION TARGETS ===
-
-all-sweeps: sweep-b_form sweep-S sweep-basis-size
-	@echo "=========================================="
-	@echo "All parameter sweeps complete!"
-	@echo "Results in: results/energy_sweep_*/"
-	@echo "=========================================="
-
-all-plots: plot-energy-vs-b_form plot-energy-vs-S
-	@echo "=========================================="
-	@echo "All plots generated!"
-	@echo "View: results/energy_sweep_*/plot.png"
-	@echo "=========================================="
-
-full-experiment: all-sweeps all-plots
-	@echo "=========================================="
-	@echo "FULL EXPERIMENT COMPLETE"
-	@echo "=========================================="
-	@ls -lh results/*/plot.png 2>/dev/null || echo "(Plots may still be generating...)"
-	@echo "CSV results: results/energy_sweep_*/aggregated.csv"
-	@echo "=========================================="
-
-.PHONY: sweep-b_form sweep-S sweep-basis-size plot-energy-vs-b_form plot-energy-vs-S all-sweeps all-plots full-experiment
+.PHONY: all clean all-configs sweep_S sweep_b sweep_size

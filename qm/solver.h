@@ -37,8 +37,8 @@
 ║                                                                                ║
 ║   for each sweep:                                                              ║
 ║     for each off-diagonal pair (p,q):                                          ║
-║       if |H[p,q]| > tolerance:                                                 ║
-║         compute rotation angle θ from H[p,p], H[q,q], H[p,q]                   ║
+║       if |H(p,q)| > tolerance:                                                 ║
+║         compute rotation angle θ from H(p,p), H(q,q), H(p,q)                   ║
 ║         apply rotation: H ← R_θ† H R_θ                                         ║
 ║                                                                                ║
 ║   Converges when all off-diagonal elements < ZERO_LIMIT                        ║
@@ -85,33 +85,38 @@ namespace qm {
 
 // Helper function to find lowest eigenvalue and eigenvector using Jacobi diagonalization
 // Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
-std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100) {
+std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_t nvals = 0) {
     size_t n = A.size1();
-    ld tolerance = 0.1;
+    //ld tolerance = 0.1;
+
+    // If nvals is 0 or too large, sweep the whole matrix (up to n-1).
+    size_t p_max = (nvals == 0 || nvals >= n) ? n - 1 : nvals;
 
     // Initialize eigenvector matrix as identity (tracks rotations)
     cmat V = eye<cld>(n);
 
-    // 1. Setup Phase
+    // 1. Setup Phase: Only calculate average error for the rows we actually sweep!
     ld sum_off_diag = 0.0;
-    for (size_t p = 0; p < n - 1; ++p) {
+    for (size_t p = 0; p < p_max; ++p) {
         for (size_t q = p + 1; q < n; ++q) sum_off_diag += std::abs(A(p, q));
     }
-    ld threshold = sum_off_diag / (n * n);
+    // Adjust denominator to match the number of elements we checked
+    ld threshold = sum_off_diag / (p_max * n); 
     int total_rotations;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         ld max_off_diag = 0.0;
         total_rotations = 0; // Track if we actually did anything this sweep
 
-        // Standard Jacobi sweep over the upper triangle
-        for (size_t p = 0; p < n - 1; ++p) {
+        // PARTIAL Jacobi sweep: only go up to p_max
+        for (size_t p = 0; p < p_max; ++p) {
             for (size_t q = p + 1; q < n; ++q) {
                 ld off_diag_mag = std::abs(A(p, q));
                 if (off_diag_mag > max_off_diag) max_off_diag = off_diag_mag;
 
-                if (off_diag_mag > tolerance) {
+                if (off_diag_mag > threshold) {
                     total_rotations++;
+                    
                     // Calculate the rotation angles
                     ld app = std::real(A(p, p));
                     ld aqq = std::real(A(q, q));
@@ -148,6 +153,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100) {
                 }
             }
         }
+        
         // 3. Lower the threshold for the next sweep
         if (threshold > ZERO_LIMIT) {
             threshold *= 0.2; 
@@ -160,6 +166,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100) {
     }
 
     // Find the lowest eigenvalue and its index
+    // Even if we only swept row 0, we still scan the whole diagonal just in case
     ld lowest_E = std::real(A(0, 0));
     size_t min_idx = 0;
     for (size_t i = 1; i < n; ++i) {
@@ -191,7 +198,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100) {
 // A helper function to find the lowest eigenvalue of a standard Hermitian matrix
 // using the Jacobi rotation method.
 ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 50) {
-    return jacobi_with_eigenvector(A, max_sweeps).first;
+    return jacobi_with_eigenvector(A, max_sweeps, 1).first;
 }
 
 
@@ -216,7 +223,7 @@ std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cma
     cmat H_prime = L_inv * H * L_inv_dag;
 
     // 4. Diagonalize to find the ground state with eigenvector!
-    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime);
+    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, 50, 1);
 
     // 5. Transform back to original basis: c = L^{-dag} * c'
     cvec c = L_inv_dag * c_prime;

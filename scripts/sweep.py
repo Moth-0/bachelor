@@ -6,6 +6,11 @@ Runs multiple deu instances with varying parameters, collects results into
 organized CSV files by scan type, with full metadata tracking for reproducibility.
 
 Usage:
+  python3 scripts/sweep.py --scan b_range \\
+    --b_form 1.2 --S 38.4 \\
+    --b_range_min 1.5 --b_range_max 3.5 --b_range_steps 10 \\
+    [--jobs 4]
+
   python3 scripts/sweep.py --scan b_form \\
     --b_range 2.5 --S 38.4 \\
     --b_form_min 1.0 --b_form_max 2.5 --b_form_steps 10 \\
@@ -62,7 +67,23 @@ class ParameterSweep:
             num_boxes = int(self.sweep_params.get("basis_size_steps", 1))
             box_strengths = sorted(base_strengths[:num_boxes], reverse=True)
         
-        if self.scan_type == "b_form":
+        if self.scan_type == "b_range":
+            b_ranges = np.linspace(
+                self.sweep_params["b_range_min"],
+                self.sweep_params["b_range_max"],
+                self.sweep_params["b_range_steps"]
+            )
+            for b_range in b_ranges:
+                params = {
+                    "b_range": b_range,
+                    "b_form": self.fixed_params["b_form"],
+                    "S": self.fixed_params["S"]
+                }
+                if box_strengths is not None:
+                    params["box_strengths"] = box_strengths
+                combinations.append(params)
+                
+        elif self.scan_type == "b_form":
             b_forms = np.linspace(
                 self.sweep_params["b_form_min"],
                 self.sweep_params["b_form_max"],
@@ -99,7 +120,7 @@ class ParameterSweep:
             # Step 1: [0.0], Step 2: [0.1, 0.0], Step 3: [0.5, 0.1, 0.0], etc.
             num_steps = int(self.sweep_params.get("basis_size_steps", 5))
             
-            for step in range(7, num_steps + 1):
+            for step in range(2, num_steps + 1):
                 # Take 'step' number of base strengths (sorted for increasing basis)
                 step_box_strengths = sorted(base_strengths[:step], reverse=True)
                 params = dict(self.fixed_params)  # Copy all fixed params
@@ -351,18 +372,25 @@ def main():
     )
     
     parser.add_argument("--scan", required=True, 
-                       choices=["b_form", "S", "basis_size"],
+                       choices=["b_range", "b_form", "S", "basis_size"],
                        help="Parameter to sweep")
     
     # Fixed parameters
-    parser.add_argument("--b_range", type=float, required=True,
-                       help="Fixed Gaussian width search space (fm)")
+    parser.add_argument("--b_range", type=float,
+                       help="Fixed Gaussian width search space (fm) - required unless scanning b_range")
     parser.add_argument("--b_form", type=float, 
                        help="Fixed pion form factor range (fm) - required unless scanning b_form")
     parser.add_argument("--S", type=float,
                        help="Fixed pion coupling strength (MeV) - required unless scanning S")
     
     # Sweep ranges
+    parser.add_argument("--b_range_min", type=float,
+                       help="Minimum b_range value")
+    parser.add_argument("--b_range_max", type=float,
+                       help="Maximum b_range value")
+    parser.add_argument("--b_range_steps", type=int, default=10,
+                       help="Number of b_range steps (default: 10)")
+    
     parser.add_argument("--b_form_min", type=float,
                        help="Minimum b_form value")
     parser.add_argument("--b_form_max", type=float,
@@ -390,28 +418,40 @@ def main():
     args = parser.parse_args()
     
     # Validate fixed parameters
-    if args.scan == "b_form":
+    if args.scan == "b_range":
+        if not args.b_range_min or not args.b_range_max:
+            parser.error("--b_range_min and --b_range_max required for b_range sweep")
+        if not args.b_form or not args.S:
+            parser.error("--b_form and --S required for b_range sweep")
+    elif args.scan == "b_form":
         if not args.b_form_min or not args.b_form_max:
             parser.error("--b_form_min and --b_form_max required for b_form sweep")
-        if not args.S:
-            parser.error("--S required for b_form sweep")
+        if not args.b_range or not args.S:
+            parser.error("--b_range and --S required for b_form sweep")
     elif args.scan == "S":
         if not args.S_min or not args.S_max:
             parser.error("--S_min and --S_max required for S sweep")
-        if not args.b_form:
-            parser.error("--b_form required for S sweep")
+        if not args.b_range or not args.b_form:
+            parser.error("--b_range and --b_form required for S sweep")
     elif args.scan == "basis_size":
-        if not args.b_form or not args.S:
-            parser.error("--b_form and --S required for basis_size sweep")
+        if not args.b_range or not args.b_form or not args.S:
+            parser.error("--b_range, --b_form and --S required for basis_size sweep")
     
     # Prepare parameters
-    fixed_params = {
-        "b_range": args.b_range,
-    }
-    
+    fixed_params = {}
     sweep_params = {}
     
-    if args.scan == "b_form":
+    if args.scan == "b_range":
+        fixed_params["b_form"] = args.b_form
+        fixed_params["S"] = args.S
+        sweep_params = {
+            "b_range_min": args.b_range_min,
+            "b_range_max": args.b_range_max,
+            "b_range_steps": args.b_range_steps,
+            "basis_size_steps": args.basis_size_steps  # Box strengths for this scan
+        }
+    elif args.scan == "b_form":
+        fixed_params["b_range"] = args.b_range
         fixed_params["S"] = args.S
         sweep_params = {
             "b_form_min": args.b_form_min,
@@ -420,6 +460,7 @@ def main():
             "basis_size_steps": args.basis_size_steps  # Box strengths for this scan
         }
     elif args.scan == "S":
+        fixed_params["b_range"] = args.b_range
         fixed_params["b_form"] = args.b_form
         sweep_params = {
             "S_min": args.S_min,
@@ -428,6 +469,7 @@ def main():
             "basis_size_steps": args.basis_size_steps  # Box strengths for this scan
         }
     elif args.scan == "basis_size":
+        fixed_params["b_range"] = args.b_range
         fixed_params["b_form"] = args.b_form
         fixed_params["S"] = args.S
         if args.pn_rel:
