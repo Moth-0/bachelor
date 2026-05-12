@@ -269,60 +269,44 @@ bool refine_basis_state(std::vector<BasisStateType>& basis, size_t k, ld noise_s
     ld best_E = original_E;
     BasisStateType best_state = basis[k];
 
-    #pragma omp parallel
-    {
-        ld local_best_E = original_E;
-        BasisStateType local_best_state = basis[k];
+    for (int c = 0; c < cands; ++c) {
+        BasisStateType test_candidate = basis[k];
 
-        // Thread-local matrix copies
-        cmat H_test = H_full;
-        cmat N_test = N_full;
+        // Skip perturbation for bare nucleon (0-coordinate system)
+        if (basis[k].jac.masses.size() > 1) {
+            test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, false);
 
-        #pragma omp for
-        for (int c = 0; c < cands; ++c) {
-            BasisStateType test_candidate = basis[k];
+            // Check if the random kick made it unphysical
+            if (!is_physical_gaussian(test_candidate.psi)) continue;
 
-            // Skip perturbation for bare nucleon (0-coordinate system)
-            if (basis[k].jac.masses.size() > 1) {
-                test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, false);
+            // Reject candidates with negative kinetic energy
+            if (!has_positive_kinetic_energy(test_candidate, relativistic)) continue;
 
-                // Check if the random kick made it unphysical
-                if (!is_physical_gaussian(test_candidate.psi)) continue;
+            // FAST EVALUATION: Only update the k-th row and column
+            cmat H_test = H_full;
+            cmat N_test = N_full;
 
-                // Reject candidates with negative kinetic energy
-                if (!has_positive_kinetic_energy(test_candidate, relativistic)) continue;
+            for (size_t i = 0; i < basis.size(); ++i) {
+                if (i == k) continue; // Skip self
 
-                // FAST EVALUATION: Only update the k-th row and column
-                for (size_t i = 0; i < basis.size(); ++i) {
-                    if (i == k) continue; // Skip self
+                cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
+                cld n_ik = calc_N_elem(basis[i], test_candidate);
 
-                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
-                    cld n_ik = calc_N_elem(basis[i], test_candidate);
-
-                    H_test(i, k) = h_ik;
-                    N_test(i, k) = n_ik;
-                    H_test(k, i) = std::conj(h_ik);
-                    N_test(k, i) = std::conj(n_ik);
-                }
-
-                H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
-                N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
-
-                // Solve updated matrix
-                ld E_estimate = solve_ground_state_energy(H_test, N_test);
-
-                if (E_estimate < local_best_E - 1e-6) {
-                    local_best_E = E_estimate;
-                    local_best_state = test_candidate;
-                }
+                H_test(i, k) = h_ik;
+                N_test(i, k) = n_ik;
+                H_test(k, i) = std::conj(h_ik);
+                N_test(k, i) = std::conj(n_ik);
             }
-        }
 
-        #pragma omp critical
-        {
-            if (local_best_E < best_E) {
-                best_E = local_best_E;
-                best_state = local_best_state;
+            H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
+            N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
+
+            // Solve updated matrix
+            ld E_estimate = solve_ground_state_energy(H_test, N_test);
+
+            if (E_estimate < best_E - 1e-6) {
+                best_E = E_estimate;
+                best_state = test_candidate;
             }
         }
     }
@@ -355,112 +339,98 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
         ld best_E = E_core;
         bool found_valid_dart = false;
 
-        #pragma omp parallel
-        {
-            BasisStateType local_best_candidate = channel_templates[t];
-            ld local_best_E = E_core;
+        cmat H_test = zeros<cld>(K + 1, K + 1);
+        cmat N_test = zeros<cld>(K + 1, K + 1);
 
-            cmat H_test = zeros<cld>(K + 1, K + 1);
-            cmat N_test = zeros<cld>(K + 1, K + 1);
+        for (size_t i = 0; i < K; ++i) {
+            for (size_t j = 0; j < K; ++j) {
+                H_test(i, j) = H_core(i, j);
+                N_test(i, j) = N_core(i, j);
+            }
+        }
+
+        int reject_unphysical = 0, reject_energy = 0, reject_kinetic = 0, reject_singular = 0, reject_improve = 0;
+
+        for (int c = 0; c < num_candidates; ++c) {
+            BasisStateType test_candidate = channel_templates[t];
+            Gaussian g;
+            g.randomize(test_candidate.jac, b_range, b_form);
+            test_candidate.psi.set_from_gaussian(g);
+            if (!is_physical_gaussian(test_candidate.psi)) {
+                reject_unphysical++;
+                continue;
+            }
+
+            // Calculate the dart's isolated diagonal elements
+            cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
+            cld N_xx = calc_N_elem(test_candidate, test_candidate);
+
+            // FAST REJECTION GATE: unphysical Gaussians
+            ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;
+            if (isolated_energy > 5000.0 || std::real(N_xx) < 1e-10) {
+                reject_energy++;
+                continue;
+            }
+
+            // Reject candidates with negative kinetic energy
+            if (!has_positive_kinetic_energy(test_candidate, relativistic)) {
+                reject_kinetic++;
+                continue;
+            }
 
             for (size_t i = 0; i < K; ++i) {
-                for (size_t j = 0; j < K; ++j) {
-                    H_test(i, j) = H_core(i, j);
-                    N_test(i, j) = N_core(i, j);
-                }
+                cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
+                cld n_ik = calc_N_elem(basis[i], test_candidate);
+
+                H_test(i, K) = h_ik;
+                N_test(i, K) = n_ik;
+                H_test(K, i) = std::conj(h_ik);
+                N_test(K, i) = std::conj(n_ik);
             }
 
-            int reject_unphysical = 0, reject_energy = 0, reject_kinetic = 0, reject_singular = 0, reject_improve = 0;
+            H_test(K, K) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
+            N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
 
-            #pragma omp for
-            for (int c = 0; c < num_candidates; ++c) {
-                BasisStateType test_candidate = channel_templates[t];
-                Gaussian g;
-                g.randomize(test_candidate.jac, b_range, b_form);
-                test_candidate.psi.set_from_gaussian(g);
-                if (!is_physical_gaussian(test_candidate.psi)) {
-                    reject_unphysical++;
-                    continue;
-                }
-
-                // Calculate the dart's isolated diagonal elements
-                cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
-                cld N_xx = calc_N_elem(test_candidate, test_candidate);
-
-                // FAST REJECTION GATE: unphysical Gaussians
-                ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;
-                if (isolated_energy > 5000.0 || std::real(N_xx) < 1e-10) {
-                    reject_energy++;
-                    continue;
-                }
-
-                // Reject candidates with negative kinetic energy
-                if (!has_positive_kinetic_energy(test_candidate, relativistic)) {
-                    reject_kinetic++;
-                    continue;
-                }
-
-                for (size_t i = 0; i < K; ++i) {
-                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
-                    cld n_ik = calc_N_elem(basis[i], test_candidate);
-
-                    H_test(i, K) = h_ik;
-                    N_test(i, K) = n_ik;
-                    H_test(K, i) = std::conj(h_ik);
-                    N_test(K, i) = std::conj(n_ik);
-                }
-
-                H_test(K, K) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
-                N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
-
-                // SAFEGUARD: Reject linearly dependent darts
-                if (std::abs(N_test.determinant()) < ZERO_LIMIT) {
-                    reject_singular++;
-                    continue;
-                }
-
-                // CRITICAL: Check overlap tolerance (0.99) to avoid states that will be rejected later
-                ld tol = 0.95;
-                bool overlap_violation = false;
-                for (size_t i = 0; i < K; ++i) {
-                    ld overlap = std::abs(N_test(i, K)) / std::sqrt(std::abs(N_test(i, i)) * std::abs(N_test(K, K)));
-                    if (overlap > tol) {
-                        overlap_violation = true;
-                        break;
-                    }
-                }
-                if (overlap_violation) {
-                    reject_singular++;  // Reuse counter for overlap rejections
-                    continue;
-                }
-
-                // Compute E0 ONLY (no E1)
-                ld E0 = solve_ground_state_energy(H_test, N_test);
-                ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
-
-                // Strict improvement gate
-                if (E_estimate < local_best_E - 1e-6) {
-                    local_best_E = E_estimate;
-                    local_best_candidate = test_candidate;
-                } else {
-                    reject_improve++;
-                }
+            // SAFEGUARD: Reject linearly dependent darts
+            if (std::abs(N_test.determinant()) < ZERO_LIMIT) {
+                reject_singular++;
+                continue;
             }
 
-            #pragma omp critical
-            {
-                if (local_best_E < best_E) {
-                    best_E = local_best_E;
-                    best_candidate = local_best_candidate;
-                    found_valid_dart = true;
-                }
-                bool debug = false;
-                if(debug==true){
-                    std::cerr << "\r  Channel " << t << ": Unphysical=" << reject_unphysical
-                            << " BadEnergy=" << reject_energy << " NegKE=" << reject_kinetic
-                            << " Singular=" << reject_singular << " NoImprove=" << reject_improve << std::flush;
+            // CRITICAL: Check overlap tolerance (0.99) to avoid states that will be rejected later
+            ld tol = 0.95;
+            bool overlap_violation = false;
+            for (size_t i = 0; i < K; ++i) {
+                ld overlap = std::abs(N_test(i, K)) / std::sqrt(std::abs(N_test(i, i)) * std::abs(N_test(K, K)));
+                if (overlap > tol) {
+                    overlap_violation = true;
+                    break;
                 }
             }
+            if (overlap_violation) {
+                reject_singular++;  // Reuse counter for overlap rejections
+                continue;
+            }
+
+            // Compute E0 ONLY (no E1)
+            ld E0 = solve_ground_state_energy(H_test, N_test);
+            ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
+
+            // Strict improvement gate
+            if (E_estimate < best_E - 1e-6) {
+                best_E = E_estimate;
+                best_candidate = test_candidate;
+                found_valid_dart = true;
+            } else {
+                reject_improve++;
+            }
+        }
+
+        bool debug = false;
+        if(debug==true){
+            std::cerr << "\r  Channel " << t << ": Unphysical=" << reject_unphysical
+                    << " BadEnergy=" << reject_energy << " NegKE=" << reject_kinetic
+                    << " Singular=" << reject_singular << " NoImprove=" << reject_improve << std::flush;
         }
 
         // 3. LOCK AND VERIFY
@@ -582,7 +552,7 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 
 template <typename BasisStateType>
 void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic,
-                          rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0) {
+                          rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0, size_t nvals = 0) {
     int nm_max_iter = 100;
     int patience = 2;
 
@@ -596,7 +566,7 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
         auto [H_full, N_full] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
         
         // Solve for the exact baseline energy of this sweep
-        ld current_exact_E = solve_ground_state_energy(H_full, N_full);
+        ld current_exact_E = solve_ground_state_energy(H_full, N_full, nvals);
 
         // SWEEP: Optimize each state ONE AT A TIME
         for (size_t k = 0; k < basis.size(); ++k) {
@@ -630,7 +600,7 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
                 H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic, ho_k);
                 N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
 
-                return solve_ground_state_energy(H_test, N_test);
+                return solve_ground_state_energy(H_test, N_test, nvals);
             };
 
             // Run Nelder-Mead
@@ -656,7 +626,7 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
                 }
             }
 
-            ld test_E = solve_ground_state_energy(H_proposed, N_proposed);
+            ld test_E = solve_ground_state_energy(H_proposed, N_proposed, nvals);
 
             // Only accept if it mathematically lowered the energy!
             if (test_E < current_exact_E - 1e-8) {

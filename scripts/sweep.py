@@ -21,12 +21,14 @@ Usage:
     --S_min 20 --S_max 150 --S_steps 15 \\
     [--jobs 4]
 
-  python3 scripts/sweep.py --scan basis_size \\
-    --b_range 2.5 --b_form 1.5 --S 38.4 \\
-    --basis_size_steps 5 \\
-    [--pn-rel] [--pi-rel] [--jobs 4]
+  python3 scripts/sweep.py --scan calibration \\
+    --b_form 1.2 \\
+    --b_range_init 2.6 --S_init 36.87 \\
+    --slope -14.5 --step_size 0.05 --tolerance 0.01 \\
+    [--max_iterations 10]
 
-  # basis_size_steps controls convergence: generates {0.0}, {0.1,0.0}, {0.5,0.1,0.0}, etc.
+  # 1D contour following: auto-updates S based on b_range changes using slope
+  # Iteratively refines parameters to match target energy (-2.224 MeV) and radius (2.128 fm)
 """
 
 import argparse
@@ -129,6 +131,11 @@ class ParameterSweep:
                     "step": step  # For identification
                 })
                 combinations.append(params)
+        
+        elif self.scan_type == "calibration":
+            # No parameter combinations - handled iteratively by run_calibration
+            combinations = [{"placeholder": True}]
+            return combinations
         
         return combinations
     
@@ -318,6 +325,152 @@ class ParameterSweep:
         print(f"\nResults directory: {self.results_dir}")
         print("="*80 + "\n")
     
+    def run_calibration(self):
+        """Execute 1D contour following calibration with varying b_range"""
+        # Hard-coded targets (from experimental data)
+        energy_target = -2.224  # MeV
+        radius_target = 2.128   # fm
+        
+        print(f"Starting 1D calibration sweep")
+        print(f"  b_form (fixed): {self.fixed_params['b_form']}")
+        print(f"  Initial: b_range={self.sweep_params['b_range_init']}, S={self.sweep_params['S_init']}")
+        print(f"  Target: energy={energy_target} MeV, radius={radius_target} fm")
+        print(f"  Slope: {self.sweep_params['slope']} (dS/db_range)")
+        print(f"  Step size: {self.sweep_params['step_size']}, Tolerance: {self.sweep_params['tolerance']}")
+        
+        max_iterations = int(self.sweep_params.get("max_iterations", 10))
+        b_range = self.sweep_params["b_range_init"]
+        S = self.sweep_params["S_init"]
+        slope = self.sweep_params["slope"]
+        step_size = self.sweep_params["step_size"]
+        tolerance = self.sweep_params["tolerance"]
+        b_form = self.fixed_params["b_form"]
+        
+        run_results = []
+        
+        for iteration in range(max_iterations):
+            print(f"\n--- Iteration {iteration + 1}/{max_iterations} ---")
+            print(f"  b_range={b_range:.4f}, S={S:.4f}")
+            
+            # Run with current parameters
+            params = {
+                "b_range": b_range,
+                "b_form": b_form,
+                "S": S
+            }
+            
+            if "pn_rel" in self.fixed_params:
+                params["pn_rel"] = self.fixed_params["pn_rel"]
+            if "pi_rel" in self.fixed_params:
+                params["pi_rel"] = self.fixed_params["pi_rel"]
+            
+            result = self.run_deu(params)
+            run_results.append(result)
+            
+            if result["status"] != "SUCCESS":
+                print(f"  ERROR: {result['status']}")
+                if "error" in result:
+                    print(f"  {result['error']}")
+                break
+            
+            # Extract final values
+            final_row = self.extract_final_row(result["csv_path"])
+            if not final_row:
+                print(f"  ERROR: Could not extract results from CSV")
+                break
+            
+            energy = float(final_row.get("energy_mev", 0))
+            radius = float(final_row.get("radius_fm", 0))
+            
+            print(f"  Result: E={energy:.5f} MeV, r={radius:.5f} fm")
+            print(f"  Error: ΔE={energy - energy_target:.5f} MeV, Δr={radius - radius_target:.5f} fm")
+            
+            # Check convergence
+            energy_ok = abs(energy - energy_target) < tolerance
+            radius_ok = abs(radius - radius_target) < tolerance
+            
+            if energy_ok and radius_ok:
+                print(f"\n✓ CONVERGED! Both energy and radius match targets.")
+                break
+            # Adjust parameters based on radius error (energy follows automatically via slope)
+            radius_error = radius - radius_target
+            
+            # Proportional constant (small value for careful steps)
+            K = 0.3 
+
+            # Step size is exactly proportional to how badly we missed the radius
+            db_range = K * radius_error 
+
+            # Cap the maximum step so we don't accidentally jump to Jupiter
+            max_allowed_step = 0.1
+            if db_range > max_allowed_step: db_range = max_allowed_step
+            if db_range < -max_allowed_step: db_range = -max_allowed_step
+
+            # Only use slope-based contour following (remove S_correction for clean convergence)
+            dS = slope * db_range
+            
+            b_range_new = b_range + db_range
+            S_new = S + dS
+            
+            print(f"  Adjustment: Δb_range={db_range:+.4f}, ΔS={dS:+.4f}")
+            
+            b_range = b_range_new
+            S = S_new
+            
+            # Reduce step size for next iteration (bisection-like)
+            step_size *= 0.7
+        
+        # Aggregate and save results
+        print(f"\n--- Calibration Complete ---")
+        agg_path = self.aggregate_calibration_results(run_results)
+        self.print_summary(run_results)
+        
+        return agg_path
+    
+    def aggregate_calibration_results(self, run_results):
+        """Aggregate calibration results"""
+        aggregated_path = os.path.join(self.results_dir, "aggregated.csv")
+        aggregated_rows = []
+        
+        for i, result in enumerate(run_results):
+            if result["status"] != "SUCCESS":
+                continue
+            
+            csv_path = result["csv_path"]
+            if not os.path.exists(csv_path):
+                continue
+            
+            final_row = self.extract_final_row(csv_path)
+            if final_row:
+                row = {"iteration": i}
+                row.update(result["params"])
+                row.update(final_row)
+                row["iteration"] = i  # Preserve calibration iteration counter (don't let deu's -1 overwrite)
+                aggregated_rows.append(row)
+        
+        if aggregated_rows:
+            headers = list(aggregated_rows[0].keys())
+            with open(aggregated_path, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(aggregated_rows)
+            
+            print(f"\nCalibration results written to: {aggregated_path}")
+            print(f"  Iterations: {len(aggregated_rows)}")
+            
+            # Clean up individual run files
+            run_files = glob.glob(os.path.join(self.results_dir, "run_*.csv"))
+            for run_file in run_files:
+                try:
+                    os.remove(run_file)
+                except:
+                    pass
+            
+            return aggregated_path
+        else:
+            print(f"ERROR: No calibration results to aggregate!")
+            return None
+    
     def run(self):
         """Execute the complete sweep"""
         # Setup
@@ -325,6 +478,11 @@ class ParameterSweep:
         
         print(f"Starting parameter sweep: {self.scan_type}")
         print(f"  Results directory: {self.results_dir}")
+        
+        # Handle calibration specially (iterative, not parallel)
+        if self.scan_type == "calibration":
+            return self.run_calibration()
+        
         print(f"  Parallel jobs: {self.num_jobs}")
         
         # Generate combinations
@@ -372,8 +530,8 @@ def main():
     )
     
     parser.add_argument("--scan", required=True, 
-                       choices=["b_range", "b_form", "S", "basis_size"],
-                       help="Parameter to sweep")
+                       choices=["b_range", "b_form", "S", "basis_size", "calibration"],
+                       help="Parameter to sweep (calibration varies b_range with auto S update)")
     
     # Fixed parameters
     parser.add_argument("--b_range", type=float,
@@ -405,7 +563,22 @@ def main():
     parser.add_argument("--S_steps", type=int, default=10,
                        help="Number of S steps (default: 10)")
     
-    parser.add_argument("--basis_size_steps", type=int, default=1,
+    # Calibration-specific parameters
+    parser.add_argument("--b_range_init", type=float,
+                       help="Initial b_range for calibration (required for calibration scan)")
+    parser.add_argument("--S_init", type=float,
+                       help="Initial S for calibration (required for calibration scan)")
+    # Note: energy_target (-2.224 MeV) and radius_target (2.128 fm) are hardcoded in run_calibration()
+    parser.add_argument("--slope", type=float, default=-14.5,
+                       help="Slope dS/db_range for contour following (default: -14.5)")
+    parser.add_argument("--step_size", type=float, default=0.05,
+                       help="Initial step size in b_range (default: 0.05)")
+    parser.add_argument("--tolerance", type=float, default=0.01,
+                       help="Convergence tolerance for both energy and radius (default: 0.01)")
+    parser.add_argument("--max_iterations", type=int, default=10,
+                       help="Maximum iterations for calibration (default: 10)")
+    
+    parser.add_argument("--basis_size_steps", type=int, default=9,
                        help="For basis_size scan: convergence steps. For b_form/S: number of box strengths to use (default: 1)")
     parser.add_argument("--pn-rel", action="store_true", default=False,
                        help="Use relativistic PN channel (default: classical)")
@@ -436,6 +609,11 @@ def main():
     elif args.scan == "basis_size":
         if not args.b_range or not args.b_form or not args.S:
             parser.error("--b_range, --b_form and --S required for basis_size sweep")
+    elif args.scan == "calibration":
+        if not args.b_form:
+            parser.error("--b_form required for calibration sweep (fixed parameter)")
+        if not args.b_range_init or not args.S_init:
+            parser.error("--b_range_init and --S_init required for calibration sweep")
     
     # Prepare parameters
     fixed_params = {}
@@ -478,6 +656,20 @@ def main():
             fixed_params["pi_rel"] = True
         sweep_params = {
             "basis_size_steps": args.basis_size_steps
+        }
+    elif args.scan == "calibration":
+        fixed_params["b_form"] = args.b_form
+        if args.pn_rel:
+            fixed_params["pn_rel"] = True
+        if args.pi_rel:
+            fixed_params["pi_rel"] = True
+        sweep_params = {
+            "b_range_init": args.b_range_init,
+            "S_init": args.S_init,
+            "slope": args.slope,
+            "step_size": args.step_size,
+            "tolerance": args.tolerance,
+            "max_iterations": args.max_iterations
         }
     
     # Run sweep

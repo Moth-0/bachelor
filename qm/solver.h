@@ -197,13 +197,13 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
 
 // A helper function to find the lowest eigenvalue of a standard Hermitian matrix
 // using the Jacobi rotation method.
-ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 50) {
-    return jacobi_with_eigenvector(A, max_sweeps, 1).first;
+ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 50, size_t nvals=0) {
+    return jacobi_with_eigenvector(A, max_sweeps, nvals).first;
 }
 
 
 // The Main GEVP Solver - with eigenvector
-std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N) {
+std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N, size_t nvals=0) {
     // 1. Cholesky Decomposition: N = L * L^dag
     cmat L = N.cholesky();
 
@@ -223,7 +223,7 @@ std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cma
     cmat H_prime = L_inv * H * L_inv_dag;
 
     // 4. Diagonalize to find the ground state with eigenvector!
-    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, 50, 1);
+    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, 50, nvals);
 
     // 5. Transform back to original basis: c = L^{-dag} * c'
     cvec c = L_inv_dag * c_prime;
@@ -232,8 +232,8 @@ std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cma
 }
 
 // The Main GEVP Solver - energy only (backward compatible)
-ld solve_ground_state_energy(const cmat& H, const cmat& N) {
-    return solve_ground_state_with_eigenvector(H, N).first;
+ld solve_ground_state_energy(const cmat& H, const cmat& N, size_t nvals = 0) {
+    return solve_ground_state_with_eigenvector(H, N, nvals).first;
 }
 
 

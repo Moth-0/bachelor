@@ -18,9 +18,9 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h qm/se
 
 # ALL CONFIGURATIONS: Run all 4 kinematic configs with timestamped results
 # Default parameters (override with: make all-configs B_RANGE=2.0 B_FORM=1.5 S=40.0)
-B_RANGE ?= 2.5
+B_RANGE ?= 2.6
 B_FORM ?= 1.2
-S ?= 38.4
+S ?= 36.8
 
 all-configs: deu
 	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
@@ -47,19 +47,23 @@ all-configs: deu
 
 
 # Parameter Sweeps 
-sweep_S : deu scripts/sweep.py script/plot_result.py Makefile
-	python3 scripts/sweep.py --scan S --S_min 35.0 --S_max 37.0 --S_steps 8
-	python3 scripts/plot_result.py energy_sweep_S
+sweep_S : deu scripts/sweep.py scripts/plot_results.py Makefile
+	python3 scripts/sweep.py --scan S --b_range $(B_RANGE) --b_form $(B_FORM) --jobs 4 \
+	--S_min 35.0 --S_max 50.0 --S_steps 8
+	python3 scripts/plot_results.py energy_sweep_S
 
-sweep_b : deu scripts/sweep.py script/plot_result.py Makefile
-	python3 scripts/sweep.py --scan b_form --b_form_min 1.0 --b_form_max 1.4 --b_form_steps 4
-	python3 scripts/plot_result.py energy_sweep_S
-	python3 scripts/sweep.py --scan b_range --b_range_min 2.0 --b_range_max 3.0 --b_range_steps 5
-	python3 scripts/plot_result.py energy_sweep_S
+sweep_b : deu scripts/sweep.py scripts/plot_results.py Makefile
+	python3 scripts/sweep.py --scan b_form --b_range $(B_RANGE) --S $(S) --jobs 4 \
+	--b_form_min 1.2 --b_form_max 2.0 --b_form_steps 4
+	python3 scripts/plot_results.py energy_sweep_b_form
+	python3 scripts/sweep.py --scan b_range --b_form $(B_FORM) --S $(S) --jobs 5 \
+	--b_range_min 2.4 --b_range_max 4.0 --b_range_steps 5
+	python3 scripts/plot_results.py energy_sweep_b_range
 
-sweep_size : deu scripts/sweep.py script/plot_result.py Makefile
-	python3 scripts/sweep.py --scan basis_size 10
-	python3 scripts/plot_result.py energy_sweep_basis_size
+sweep_size : deu scripts/sweep.py scripts/plot_results.py Makefile
+	python3 scripts/sweep.py --scan basis_size --b_range $(B_RANGE) --b_form $(B_FORM) --S $(S) --jobs 5 \
+	--basis_size_steps 10
+	python3 scripts/plot_results.py energy_sweep_basis_size
 
 clean :
 	$(RM) *.o *.log *.dat *.gpi *.out *.err

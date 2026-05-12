@@ -1,0 +1,18 @@
+{
+  "scan_type": "b_range",
+  "timestamp": "2026-05-12T10:56:38.896427",
+  "fixed_params": {
+    "b_form": 1.1,
+    "S": 44.0
+  },
+  "sweep_params": {
+    "b_range_min": 2.4,
+    "b_range_max": 4.0,
+    "b_range_steps": 5,
+    "basis_size_steps": 1
+  },
+  "num_jobs": 4,
+  "total_runs": 5,
+  "successful_runs": 5,
+  "aggregated_csv": "results/energy_sweep_b_range/aggregated.csv"
+}

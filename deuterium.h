@@ -97,6 +97,7 @@ struct BasisState {
     Jacobian jac;
     ld pion_mass;
 };
+
 // --- NEW HELPER: Calculate a single Overlap matrix element ---
 inline cld calc_N_elem(const BasisState& state_i, const BasisState& state_j) {
     if (state_i.type == state_j.type) {
@@ -180,7 +181,6 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
     cmat H = zeros<cld>(size, size);
     cmat N = zeros<cld>(size, size);
 
-    #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
 
@@ -221,7 +221,6 @@ cmat build_r2_matrix(const std::vector<BasisState>& basis)
     size_t size = basis.size();
     cmat R2 = zeros<cld>(size, size);
 
-    #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
             if (basis[i].type == basis[j].type) {
@@ -247,7 +246,6 @@ inline cmat build_T_matrix(const std::vector<BasisState>& basis, const std::vect
     size_t size = basis.size();
     cmat T_mat = zeros<cld>(size, size);
 
-    #pragma omp parallel for schedule(dynamic)
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
             if (basis[i].type == basis[j].type) {

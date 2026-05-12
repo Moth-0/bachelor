@@ -32,9 +32,11 @@
 // Forward declarations (BasisState is global, from deuterium.h)
 struct BasisState;
 enum class Channel;
-enum class SpinChannel;
 
 namespace qm {
+
+// Forward declaration of SpinChannel (defined in operators.h)
+enum SpinChannel;
 
 // Helper to convert Channel enum to string
 inline std::string channel_to_string(int channel_id) {

@@ -1,17 +1,17 @@
 {
   "scan_type": "S",
-  "timestamp": "2026-05-11T11:46:08.963302",
+  "timestamp": "2026-05-12T11:32:26.961239",
   "fixed_params": {
     "b_range": 2.6,
     "b_form": 1.2
   },
   "sweep_params": {
     "S_min": 35.0,
-    "S_max": 37.0,
+    "S_max": 50.0,
     "S_steps": 8,
     "basis_size_steps": 9
   },
-  "num_jobs": 2,
+  "num_jobs": 4,
   "total_runs": 8,
   "successful_runs": 8,
   "aggregated_csv": "results/energy_sweep_S/aggregated.csv"

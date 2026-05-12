@@ -98,7 +98,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     // (Optional) Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 10, 1e-3, 0.0);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-3, 0.0, 3);
     // std::cout << "\n Skipped, evaluate: \n";
 
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
@@ -153,10 +153,10 @@ int main(int argc, char* argv[]) {
                 start = end + 1;
             }
             box_strengths_input.push_back(std::stold(box_str.substr(start)));
-        } else if ((arg == "--pn-rel") && i + 1 < argc) {
-            pn_rel = (std::string(argv[++i]) == "true");
-        } else if ((arg == "--pi-rel") && i + 1 < argc) {
-            pi_rel = (std::string(argv[++i]) == "true");
+        } else if ((arg == "--pn-rel")) {
+            pn_rel = true;
+        } else if ((arg == "--pi-rel")) {
+            pi_rel = true;
         } else if (arg == "-h" || arg == "--help") {
             std::cout << "Usage: ./deu [options]\n";
             std::cout << "Options:\n";
@@ -173,10 +173,6 @@ int main(int argc, char* argv[]) {
             return 0;
         }
     }
-
-    // Enable nested parallelism
-    //omp_set_nested(0);
-    //omp_set_max_active_levels(2);
 
     std::cout << "========================================\n";
     std::cout << "  DEUTERON SYSTEM (FAST COMPETITIVE SVM)\n";
