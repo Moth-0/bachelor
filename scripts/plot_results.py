@@ -307,27 +307,27 @@ def plot_basis_size_convergence(csv_file):
     
     # Plot 1: Energy convergence
     ax1 = axes[0]
-    ax1.plot(steps, energies, 'o-', linewidth=2.5, markersize=10, label='Computed', color='steelblue')
+    ax1.plot(basis_sizes, energies, 'o-', linewidth=2.5, markersize=10, label='Computed', color='steelblue')
     ax1.axhline(y=-2.224, color='r', linestyle='--', linewidth=2, label='Target (-2.224 MeV)')
-    ax1.set_xlabel('Convergence Step', fontsize=12, fontweight='bold')
+    ax1.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Energy (MeV)', fontsize=12, fontweight='bold')
     ax1.set_title('Basis Size Convergence: Ground State Energy', fontsize=14, fontweight='bold')
     ax1.grid(True, alpha=0.3, linestyle=':')
     ax1.legend(fontsize=11, loc='best')
-    ax1.set_xticks(steps)
+    ax1.set_xticks(basis_sizes)
     
     # Plot 2: Radius convergence
     if radii and any(r is not None and r > 0 for r in radii):
         ax2 = axes[1]
         radii_clean = [r if r is not None else 0 for r in radii]
-        ax2.plot(steps, radii_clean, 's-', linewidth=2.5, markersize=10, color='green', label='Computed')
+        ax2.plot(basis_sizes, radii_clean, 's-', linewidth=2.5, markersize=10, color='green', label='Computed')
         ax2.axhline(y=2.128, color='r', linestyle='--', linewidth=2, label='Target (2.128 fm)')
-        ax2.set_xlabel('Convergence Step', fontsize=12, fontweight='bold')
+        ax2.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
         ax2.set_ylabel('Charge Radius (fm)', fontsize=12, fontweight='bold')
         ax2.set_title('Basis Size Convergence: Charge Radius', fontsize=14, fontweight='bold')
         ax2.grid(True, alpha=0.3, linestyle=':')
         ax2.legend(fontsize=11, loc='best')
-        ax2.set_xticks(steps)
+        ax2.set_xticks(basis_sizes)
     
     plt.tight_layout()
     output_file = csv_file.replace('aggregated.csv', 'basis_convergence.png')

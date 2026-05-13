@@ -1,15 +1,15 @@
 {
   "scan_type": "b_form",
-  "timestamp": "2026-05-12T10:51:33.921240",
+  "timestamp": "2026-05-12T14:00:25.790988",
   "fixed_params": {
     "b_range": 2.6,
-    "S": 44.0
+    "S": 36.8
   },
   "sweep_params": {
     "b_form_min": 1.2,
     "b_form_max": 2.0,
     "b_form_steps": 4,
-    "basis_size_steps": 1
+    "basis_size_steps": 9
   },
   "num_jobs": 4,
   "total_runs": 4,

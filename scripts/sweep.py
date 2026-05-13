@@ -61,7 +61,7 @@ class ParameterSweep:
         combinations = []
         
         # Base strengths for box confinement
-        base_strengths = [0.0, 0.1, 1.0, 0.5, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0]
+        base_strengths = [0.0, 0.1, 1.0, 0.5, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0, 2.0]
         
         # Get box strengths configuration (only for non-basis_size scans)
         box_strengths = None
@@ -122,7 +122,7 @@ class ParameterSweep:
             # Step 1: [0.0], Step 2: [0.1, 0.0], Step 3: [0.5, 0.1, 0.0], etc.
             num_steps = int(self.sweep_params.get("basis_size_steps", 5))
             
-            for step in range(2, num_steps + 1):
+            for step in range(1, num_steps + 1):
                 # Take 'step' number of base strengths (sorted for increasing basis)
                 step_box_strengths = sorted(base_strengths[:step], reverse=True)
                 params = dict(self.fixed_params)  # Copy all fixed params
@@ -393,25 +393,30 @@ class ParameterSweep:
                 print(f"\n✓ CONVERGED! Both energy and radius match targets.")
                 break
             # Adjust parameters based on radius error (energy follows automatically via slope)
+            # 1. Steer based on radius (Radius too big -> decrease b_range)
             radius_error = radius - radius_target
             
-            # Proportional constant (small value for careful steps)
-            K = 0.3 
+            # Using proportional stepping so it doesn't overshoot wildly
+            K = 25
+            db_range = -K * radius_error 
+            
+            # Cap the step size so it doesn't jump into the sun
+            if db_range > step_size: db_range = step_size
+            if db_range < -step_size: db_range = -step_size
 
-            # Step size is exactly proportional to how badly we missed the radius
-            db_range = K * radius_error 
+            # 2. THE ANCHOR: Calculate how far the energy drifted off -2.224
+            energy_error = energy - energy_target 
+            
+            # Since 1 unit of S changes E by ~ -0.55 MeV:
+            # Positive energy error (e.g. -2.0 is higher than -2.2) means we need MORE S.
+            S_correction = energy_error / 0.509
 
-            # Cap the maximum step so we don't accidentally jump to Jupiter
-            max_allowed_step = 0.1
-            if db_range > max_allowed_step: db_range = max_allowed_step
-            if db_range < -max_allowed_step: db_range = -max_allowed_step
-
-            # Only use slope-based contour following (remove S_correction for clean convergence)
-            dS = slope * db_range
+            # 3. Apply slope + drift correction
+            dS = (slope * db_range) + S_correction
             
             b_range_new = b_range + db_range
             S_new = S + dS
-            
+
             print(f"  Adjustment: Δb_range={db_range:+.4f}, ΔS={dS:+.4f}")
             
             b_range = b_range_new

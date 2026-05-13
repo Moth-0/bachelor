@@ -84,10 +84,10 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
         std::vector<BasisState> local_basis;
         local_basis.insert(local_basis.end(), bare_basis.begin(), bare_basis.end());
         
-        // 1. Add 1 state per channel (10 states total)
-        competitive_search(local_basis, channel_templates, 10000, b_range, b_form, S, relativistic, ho_k);
+        // 1. Add 2 state per channel (18 states total)
+        for(int i=0; i<2; i++) competitive_search(local_basis, channel_templates, 10000, b_range, b_form, S, relativistic, ho_k);
         
-        // 2. Fast sweep on just these 10 states!
+        // 2. Fast sweep on just these states!
         sweep_optimize_basis(local_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, ho_k);
 
         // 3. Move these highly specialized states into the master pool
@@ -98,7 +98,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     // (Optional) Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-3, 0.0, 3);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, 0.0, 3);
     // std::cout << "\n Skipped, evaluate: \n";
 
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);

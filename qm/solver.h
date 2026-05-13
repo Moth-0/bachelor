@@ -168,16 +168,9 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
     // Find the lowest eigenvalue and its index
     // Even if we only swept row 0, we still scan the whole diagonal just in case
     ld lowest_E = std::real(A(0, 0));
-    size_t min_idx = 0;
-    for (size_t i = 1; i < n; ++i) {
-        if (std::real(A(i, i)) < lowest_E) {
-            lowest_E = std::real(A(i, i));
-            min_idx = i;
-        }
-    }
 
     // Extract the corresponding eigenvector from V
-    cvec eigvec = V[min_idx];
+    cvec eigvec = V[0];
 
     // Normalize the eigenvector
     cld norm = 0.0;
@@ -197,7 +190,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
 
 // A helper function to find the lowest eigenvalue of a standard Hermitian matrix
 // using the Jacobi rotation method.
-ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 50, size_t nvals=0) {
+ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 100, size_t nvals=0) {
     return jacobi_with_eigenvector(A, max_sweeps, nvals).first;
 }
 
@@ -223,7 +216,7 @@ std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cma
     cmat H_prime = L_inv * H * L_inv_dag;
 
     // 4. Diagonalize to find the ground state with eigenvector!
-    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, 50, nvals);
+    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, 2000, nvals);
 
     // 5. Transform back to original basis: c = L^{-dag} * c'
     cvec c = L_inv_dag * c_prime;
