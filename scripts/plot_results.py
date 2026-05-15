@@ -15,6 +15,87 @@ import csv
 import os
 from pathlib import Path
 
+def plot_contour_map(grid_csv_path):
+    """Plot contour map from pre-computed grid data (no need to re-run deu)"""
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        print("ERROR: matplotlib or numpy not found. Install with: pip install matplotlib numpy", file=sys.stderr)
+        return False
+    
+    # Hardcoded experimental targets
+    ENERGY_TARGET = -2.224
+    RADIUS_TARGET = 2.128
+    
+    B_plot = []
+    S_plot = []
+    E_plot = []
+    R_plot = []
+    
+    try:
+        with open(grid_csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    b_range = float(row["b_range"])
+                    S = float(row["S"])
+                    energy = float(row["energy_mev"])
+                    radius = float(row["radius_fm"])
+                    
+                    B_plot.append(b_range)
+                    S_plot.append(S)
+                    E_plot.append(energy)
+                    R_plot.append(radius)
+                except (KeyError, ValueError):
+                    pass
+    except Exception as e:
+        print(f"ERROR reading grid CSV: {e}", file=sys.stderr)
+        return False
+    
+    if not B_plot:
+        print("No data found in grid CSV", file=sys.stderr)
+        return False
+    
+    # Filter out unbound/gas states (Energy > -0.01)
+    valid_indices = [i for i, e in enumerate(E_plot) if e < -0.01]
+    B_plot = [B_plot[i] for i in valid_indices]
+    S_plot = [S_plot[i] for i in valid_indices]
+    E_plot = [E_plot[i] for i in valid_indices]
+    R_plot = [R_plot[i] for i in valid_indices]
+    
+    if not B_plot:
+        print("ERROR: No bound states found in grid data", file=sys.stderr)
+        return False
+    
+    # Generate contour plot
+    plt.figure(figsize=(8, 6))
+    
+    cs_energy = plt.tricontour(B_plot, S_plot, E_plot, levels=[ENERGY_TARGET], colors='blue', linewidths=2.5)
+    cs_radius = plt.tricontour(B_plot, S_plot, R_plot, levels=[RADIUS_TARGET], colors='red', linewidths=2.5, linestyles='dashed')
+    
+    plt.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='Blues', alpha=0.3)
+    
+    plt.title(f"Parameter Sweep contour map", fontsize=14, fontweight='bold')
+    plt.xlabel("$b_{{N}}$ (fm)", fontsize=12)
+    plt.ylabel("$S$ (MeV)", fontsize=12)
+    
+    # Create legend using custom Line2D objects
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color='blue', linewidth=2.5, label=f"Energy = {ENERGY_TARGET} MeV"),
+        Line2D([0], [0], color='red', linewidth=2.5, linestyle='--', label=f"Radius = {RADIUS_TARGET} fm")
+    ]
+    plt.legend(handles=legend_elements, loc='upper right', framealpha=0.9)
+    
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.tight_layout()
+    
+    output_file = grid_csv_path.replace('grid_data.csv', 'contour_plot.png')
+    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    print(f"Contour plot saved to: {output_file}")
+    return True
+
 def plot_energy_vs_b_form(csv_file):
     """Plot energy vs b_form"""
     try:
@@ -338,10 +419,20 @@ def plot_basis_size_convergence(csv_file):
 def main():
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} <scan_type>", file=sys.stderr)
-        print(f"  scan_type: energy_sweep_b_range | energy_sweep_b_form | energy_sweep_S | energy_sweep_basis_size | energy_sweep_calibration", file=sys.stderr)
+        print(f"  scan_type: energy_sweep_b_range | energy_sweep_b_form | energy_sweep_S | energy_sweep_basis_size | energy_sweep_calibration | contour_map", file=sys.stderr)
         return 1
     
     scan_type = sys.argv[1]
+    
+    # Special case for contour_map (uses grid_data.csv instead of aggregated.csv)
+    if scan_type == "contour_map":
+        csv_file = "results/contour_map/grid_data.csv"
+        if not os.path.exists(csv_file):
+            print(f"ERROR: Grid data file not found: {csv_file}", file=sys.stderr)
+            return 1
+        success = plot_contour_map(csv_file)
+        return 0 if success else 1
+    
     csv_file = f"results/{scan_type}/aggregated.csv"
     
     if not os.path.exists(csv_file):

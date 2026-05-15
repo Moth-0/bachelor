@@ -32,7 +32,7 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
 
     // CRITICAL: Multi-level overlap check prevents basis collapse
     // Uses the stricter tolerance (0.99) from evaluate_energy_sum for stability
-    ld tol = 0.9999;
+    ld tol = 1 - ZERO_LIMIT;
     for (size_t i = 0; i < N.size1(); ++i) {
         for (size_t j = i + 1; j < N.size2(); ++j) {
             ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
@@ -82,12 +82,6 @@ ld evaluate_basis_energy(const std::vector<BasisStateType>& basis, ld b_form, ld
 SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, ld b_range, ld S,
                                const std::vector<bool>& relativistic) {
     auto [H, N] = build_matrices(basis, b_form, b_range, S, relativistic);
-    // cld detN = N.determinant();
-    // if (std::abs(detN) < ZERO_LIMIT) {
-    //     std::cerr << "det(N) < " << ZERO_LIMIT << "\n";
-    //     return {999999.0, {}, 99999.0, 0.0, {}};
-    // }
-
     auto [E0, eigvec] = solve_ground_state_with_eigenvector(H, N);
     
     rvec coeff(eigvec.size());
@@ -103,9 +97,12 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, 
     cld t_expectation   = 0.0;
     ld prob_bare        = 0.0;
     ld prob_dressed     = 0.0;
+    cld norm_N          = 0.0;
     
     for (size_t i = 0; i < basis.size(); ++i) {
         for (size_t j = 0; j < basis.size(); ++j) {
+            norm_N += std::conj(eigvec[i]) * N(i, j) * eigvec[j];
+            
             r2_expectation += std::conj(eigvec[i]) * R2(i, j) * eigvec[j];
             
             t_expectation += std::conj(eigvec[i]) * T_mat(i, j) * eigvec[j];
@@ -120,14 +117,18 @@ SvmResult evaluate_observables(const std::vector<BasisState>& basis, ld b_form, 
         }
     }
 
-    ld r2_point = std::real(r2_expectation);
+    ld r2_point = std::real(r2_expectation / norm_N);
+    ld t_val    = std::real(t_expectation / norm_N);
+    prob_bare   = prob_bare / std::real(norm_N);
+    prob_dressed = prob_dressed / std::real(norm_N);
+
     ld r_p_sq = 0.8414 * 0.8414;  
     ld r_n_sq = -0.1161;          
 
     ld r2_total_charge = r2_point + r_p_sq + r_n_sq;
     ld charge_radius = (r2_total_charge > 0.0) ? std::sqrt(r2_total_charge) : 0.0;
 
-    return {E0, coeff, charge_radius, std::real(t_expectation), prob_bare, prob_dressed, {}};
+    return {E0, coeff, charge_radius, t_val, prob_bare, prob_dressed, {}};
 }
 
 // Check if a candidate state has positive kinetic energy (rejects unphysical states)
@@ -289,8 +290,8 @@ bool refine_basis_state(std::vector<BasisStateType>& basis, size_t k, ld noise_s
             for (size_t i = 0; i < basis.size(); ++i) {
                 if (i == k) continue; // Skip self
 
-                cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
                 cld n_ik = calc_N_elem(basis[i], test_candidate);
+                cld h_ik = calc_H_elem(basis[i], test_candidate, n_ik, b_form, b_range, S, relativistic);
 
                 H_test(i, k) = h_ik;
                 N_test(i, k) = n_ik;
@@ -298,8 +299,8 @@ bool refine_basis_state(std::vector<BasisStateType>& basis, size_t k, ld noise_s
                 N_test(k, i) = std::conj(n_ik);
             }
 
-            H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
             N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
+            H_test(k, k) = calc_H_elem(test_candidate, test_candidate, N_test, b_form, b_range, S, relativistic);
 
             // Solve updated matrix
             ld E_estimate = solve_ground_state_energy(H_test, N_test);
@@ -326,7 +327,7 @@ template <typename BasisStateType>
 inline void competitive_search(std::vector<BasisStateType>& basis,
                                const std::vector<BasisStateType>& channel_templates,
                                int num_candidates, ld b_range, ld b_form, ld S,
-                               const std::vector<bool>& relativistic, ld ho_k = 0.0)
+                               const std::vector<bool>& relativistic, ld ho_k = 0.0, size_t nvals = 0)
 {
     // 1. Get the current baseline energy (E0 only)
     ld E_core = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
@@ -362,8 +363,8 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
             }
 
             // Calculate the dart's isolated diagonal elements
-            cld H_xx = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
             cld N_xx = calc_N_elem(test_candidate, test_candidate);
+            cld H_xx = calc_H_elem(test_candidate, test_candidate, N_xx, b_form, b_range, S, relativistic);
 
             // FAST REJECTION GATE: unphysical Gaussians
             ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;
@@ -379,8 +380,8 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
             }
 
             for (size_t i = 0; i < K; ++i) {
-                cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic);
                 cld n_ik = calc_N_elem(basis[i], test_candidate);
+                cld h_ik = calc_H_elem(basis[i], test_candidate, n_ik, b_form, b_range, S, relativistic);
 
                 H_test(i, K) = h_ik;
                 N_test(i, K) = n_ik;
@@ -388,8 +389,8 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                 N_test(K, i) = std::conj(n_ik);
             }
 
-            H_test(K, K) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic);
             N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
+            H_test(K, K) = calc_H_elem(test_candidate, test_candidate, N_test(K,K), b_form, b_range, S, relativistic);
 
             // SAFEGUARD: Reject linearly dependent darts
             if (std::abs(N_test.determinant()) < ZERO_LIMIT) {
@@ -413,7 +414,7 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
             }
 
             // Compute E0 ONLY (no E1)
-            ld E0 = solve_ground_state_energy(H_test, N_test);
+            ld E0 = solve_ground_state_energy(H_test, N_test, nvals);
             ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
 
             // Strict improvement gate
@@ -553,7 +554,7 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 template <typename BasisStateType>
 void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic,
                           rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0, size_t nvals = 0) {
-    int nm_max_iter = 300;
+    int nm_max_iter = 200;
     int patience = 3;
 
     ld previous_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
@@ -573,6 +574,10 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
             bool opt_shift = (basis[k].jac.masses.size() > 1);
             rvec p0 = pack_wavefunction(basis[k].psi, opt_shift);
 
+            // Pre-allocate H_test and N_test outside lambda to reuse them
+            cmat H_test = H_full;
+            cmat N_test = N_full;
+
             auto local_objective = [&](const qm::rvec& p_test) -> qm::ld {
                 SpatialWavefunction test_psi = basis[k].psi;
                 unpack_wavefunction(test_psi, p_test, opt_shift);
@@ -585,20 +590,20 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
                 
                 if (!has_positive_kinetic_energy(test_candidate, relativistic)) return sweep_start_E + 50.0;
 
-                // Incremental Update
-                cmat H_test = H_full;
-                cmat N_test = N_full;
+                // Incremental Update (reuse pre-allocated matrices)
+                H_test = H_full;
+                N_test = N_full;
 
                 for (size_t i = 0; i < basis.size(); ++i) {
                     if (i == k) continue;
-                    cld h_ik = calc_H_elem(basis[i], test_candidate, b_form, b_range, S, relativistic, ho_k);
                     cld n_ik = calc_N_elem(basis[i], test_candidate);
+                    cld h_ik = calc_H_elem(basis[i], test_candidate, n_ik, b_form, b_range, S, relativistic, ho_k);
                     H_test(i, k) = h_ik;             N_test(i, k) = n_ik;
                     H_test(k, i) = std::conj(h_ik);  N_test(k, i) = std::conj(n_ik);
                 }
 
-                H_test(k, k) = calc_H_elem(test_candidate, test_candidate, b_form, b_range, S, relativistic, ho_k);
                 N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
+                H_test(k, k) = calc_H_elem(test_candidate, test_candidate, N_test(k,k), b_form, b_range, S, relativistic, ho_k);
 
                 return solve_ground_state_energy(H_test, N_test, nvals);
             };
@@ -616,11 +621,11 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
             
             for (size_t i = 0; i < basis.size(); ++i) {
                 if (i == k) {
-                    H_proposed(k, k) = calc_H_elem(proposed_state, proposed_state, b_form, b_range, S, relativistic, ho_k);
                     N_proposed(k, k) = calc_N_elem(proposed_state, proposed_state);
+                    H_proposed(k, k) = calc_H_elem(proposed_state, proposed_state, N_proposed(k,k), b_form, b_range, S, relativistic, ho_k);
                 } else {
-                    cld h_ik = calc_H_elem(basis[i], proposed_state, b_form, b_range, S, relativistic, ho_k);
                     cld n_ik = calc_N_elem(basis[i], proposed_state);
+                    cld h_ik = calc_H_elem(basis[i], proposed_state, n_ik, b_form, b_range, S, relativistic, ho_k);
                     H_proposed(i, k) = h_ik;             N_proposed(i, k) = n_ik;
                     H_proposed(k, i) = std::conj(h_ik);  N_proposed(k, i) = std::conj(n_ik);
                 }

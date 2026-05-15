@@ -85,10 +85,10 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
         local_basis.insert(local_basis.end(), bare_basis.begin(), bare_basis.end());
         
         // 1. Add 2 state per channel (18 states total)
-        for(int i=0; i<2; i++) competitive_search(local_basis, channel_templates, 10000, b_range, b_form, S, relativistic, ho_k);
+        for(int i=0; i<2; i++) competitive_search(local_basis, channel_templates, 5000, b_range, b_form, S, relativistic, ho_k, 3);
         
         // 2. Fast sweep on just these states!
-        sweep_optimize_basis(local_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, ho_k);
+        sweep_optimize_basis(local_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, ho_k, 3);
 
         // 3. Move these highly specialized states into the master pool
         grand_basis.insert(grand_basis.end(), local_basis.begin() + bare_basis.size(), local_basis.end());
@@ -96,10 +96,9 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     std::cout << "\n=== FINAL GEVP EVALUATION IN FREE SPACE (ho_k = 0.0) ===\n";
 
-    // (Optional) Do one final, shallow sweep of the grand basis at k=0
+    // Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
     sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, 0.0, 3);
-    // std::cout << "\n Skipped, evaluate: \n";
 
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
 
@@ -125,7 +124,7 @@ int main(int argc, char* argv[]) {
     std::string file_name = "convergence.data";
     std::string output_csv = "";
     int max_basis_size = 0;
-    std::vector<ld> box_strengths_input = {1.0, 0.5, 0.3, 0.2, 0.1, 0.0, 0.0, 0.0, 0.0};  // default: only free space
+    std::vector<ld> box_strengths_input = {1.0, 0.5, 0.2, 0.1, 0.0};  // default: only free space
     bool pn_rel = false, pi_rel = false;  // defaults: both classical
 
     // Parse command-line arguments
@@ -214,7 +213,11 @@ int main(int argc, char* argv[]) {
         csv_writer->write_headers({"iteration", "energy_mev", "kinetic_mev", "radius_fm", "basis_size"});
     }
 
-    std::ofstream outfile(file_name);
+    std::ofstream outfile;
+    if (output_csv.empty()) {
+        // Only write convergence.data when NOT using CSV output (to avoid I/O contention in parallel sweeps)
+        outfile.open(file_name);
+    }
     std::vector<SvmResult> all_results;
     std::vector<ConfigurationResult> all_configs;
 
@@ -239,10 +242,16 @@ int main(int argc, char* argv[]) {
 
         std::cout << "--> FINAL " << label << " | E: " << res.energy << " MeV, R: " << res.charge_radius << " fm\n";
 
-        outfile << "\"Iteration\"\t\"" << label << "\"\n";
+        if (outfile.is_open()) {
+            outfile << "\"Iteration\"\t\"" << label << "\"\n";
+            for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
+                outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
+            }
+            outfile << "\n\n";
+        }
+        
+        // Write convergence history to CSV (always if CSV output requested)
         for (size_t iter = 0; iter < res.convergence_history.size(); ++iter) {
-            outfile << iter << "\t" << std::fixed << std::setprecision(8) << res.convergence_history[iter] << "\n";
-            // Write to CSV if requested
             if (csv_writer) {
                 csv_writer->write_row({
                     static_cast<long double>(iter),
@@ -253,7 +262,6 @@ int main(int argc, char* argv[]) {
                 });
             }
         }
-        outfile << "\n\n";
 
         // Write final summary row to CSV
         if (csv_writer) {
@@ -293,7 +301,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm\n";
     std::cout << "========================================================================================\n";
 
-    outfile.close();
+    if (outfile.is_open()) {
+        outfile.close();
+    }
 
     // Save all configurations to file
     save_all_configurations(all_configs, "all_configurations.txt");

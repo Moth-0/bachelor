@@ -61,8 +61,8 @@ class ParameterSweep:
         combinations = []
         
         # Base strengths for box confinement
-        base_strengths = [0.0, 0.1, 1.0, 0.5, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0, 2.0]
-        
+        #base_strengths = [0.0, 0.1, 1.0, 0.5, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0, 2.0]
+        base_strengths = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         # Get box strengths configuration (only for non-basis_size scans)
         box_strengths = None
         if self.scan_type in ["b_form", "S"]:

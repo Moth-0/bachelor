@@ -54,8 +54,8 @@ all-configs: deu
 # Parameter Sweeps 
 sweep_S : deu scripts/sweep.py scripts/plot_results.py Makefile
 	python3 scripts/sweep.py --scan S --b_range $(B_RANGE) --b_form $(B_FORM) \
-	--jobs 6 --basis_size_steps 6 \
-	--S_min 34.0 --S_max 42.0 --S_steps 12
+	--jobs 6 --basis_size_steps 5 \
+	--S_min 20.0 --S_max 60.0 --S_steps 6
 	python3 scripts/plot_results.py energy_sweep_S
 
 sweep_b : deu scripts/sweep.py scripts/plot_results.py Makefile
@@ -71,7 +71,13 @@ sweep_size : deu scripts/sweep.py scripts/plot_results.py Makefile
 	--jobs 4 --basis_size_steps 8
 	python3 scripts/plot_results.py energy_sweep_basis_size
 
+calibrate : deu scripts/find_calibration.py scripts/sweep.py scripts/plot_results.py Makefile
+	python3 scripts/find_calibration.py \
+	--b_range_init $(B_RANGE) --b_form_init $(B_FORM) \
+	--S_min 10.0 --S_max 50.0 --S_steps 8 \
+	--tolerance 0.01 --max_iterations 50 --jobs 8
+
 clean :
 	$(RM) *.o *.log *.dat *.gpi *.out *.err
 
-.PHONY: all clean all-configs sweep_S sweep_b sweep_size
+.PHONY: all clean all-configs sweep_S sweep_b sweep_size calibrate

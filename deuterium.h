@@ -107,7 +107,7 @@ inline cld calc_N_elem(const BasisState& state_i, const BasisState& state_j) {
 }
 
 // --- NEW HELPER: Calculate a single Hamiltonian matrix element ---
-inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, const ld b_form, const ld b_range, const ld S,
+inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, cld n_val, const ld b_form, const ld b_range, const ld S,
                        const std::vector<bool>& relativistic, ld ho_k = 0.0, Integrator method = Integrator::SIMPSON) {
     cld h_val = 0.0;
 
@@ -120,8 +120,7 @@ inline cld calc_H_elem(const BasisState& state_i, const BasisState& state_j, con
         } else {
             // Dressed Kinetic + Rest Mass
             ld T_total = total_kinetic_energy(state_i.psi, state_j.psi, state_i.jac, relativistic, method);
-            ld n_val = static_cast<ld>(spactial_overlap(state_i.psi, state_j.psi));
-            ld rest_mass_term = state_i.pion_mass * n_val;
+            ld rest_mass_term = state_i.pion_mass * std::real(n_val);
             h_val = cld(T_total + rest_mass_term, 0.0);
         }
 
@@ -184,9 +183,9 @@ std::tuple<cmat, cmat> build_matrices(const std::vector<BasisState>& basis, cons
     for (size_t i = 0; i < size; ++i) {
         for (size_t j = i; j < size; ++j) {
 
-            cld h_val = calc_H_elem(basis[i], basis[j], b_form, b_range, S, relativistic, ho_k, method);
             cld n_val = calc_N_elem(basis[i], basis[j]);
-
+            cld h_val = calc_H_elem(basis[i], basis[j], n_val, b_form, b_range, S, relativistic, ho_k, method);
+            
             H(i, j) = h_val;
             N(i, j) = n_val;
 
