@@ -51,6 +51,14 @@ all-configs: deu
 	echo "========================================"
 
 
+# Plot wavefunction: Generate basis_final.txt, then analyze asymptotic behavior
+plot_wavefunction: deu plot_wavefunction.o scripts/plot_wavefunction.py
+	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S)
+	./plot_wavefunction basis_final.txt wavefunction.csv
+	python3 scripts/plot_wavefunction.py wavefunction.csv wavefunction_plot.png
+	@echo "✓ Wavefunction plot generated: wavefunction_plot.png"
+
+
 # Parameter Sweeps 
 sweep_S : deu scripts/sweep.py scripts/plot_results.py Makefile
 	python3 scripts/sweep.py --scan S --b_range $(B_RANGE) --b_form $(B_FORM) \
@@ -80,4 +88,4 @@ calibrate : deu scripts/find_calibration.py scripts/sweep.py scripts/plot_result
 clean :
 	$(RM) *.o *.log *.dat *.gpi *.out *.err
 
-.PHONY: all clean all-configs sweep_S sweep_b sweep_size calibrate
+.PHONY: all clean all-configs sweep_S sweep_b sweep_size calibrate plot_wavefunction
