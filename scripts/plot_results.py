@@ -32,6 +32,7 @@ def plot_contour_map(grid_csv_path):
     S_plot = []
     E_plot = []
     R_plot = []
+    P_bare = []
     
     try:
         with open(grid_csv_path, 'r') as f:
@@ -42,11 +43,13 @@ def plot_contour_map(grid_csv_path):
                     S = float(row["S"])
                     energy = float(row["energy_mev"])
                     radius = float(row["radius_fm"])
+                    prob_bare = float(row.get("prob_bare", 0.0))
                     
                     B_plot.append(b_range)
                     S_plot.append(S)
                     E_plot.append(energy)
                     R_plot.append(radius)
+                    P_bare.append(prob_bare * 100.0)  # Convert to percentage
                 except (KeyError, ValueError):
                     pass
     except Exception as e:
@@ -63,37 +66,64 @@ def plot_contour_map(grid_csv_path):
     S_plot = [S_plot[i] for i in valid_indices]
     E_plot = [E_plot[i] for i in valid_indices]
     R_plot = [R_plot[i] for i in valid_indices]
+    P_bare = [P_bare[i] for i in valid_indices]
     
     if not B_plot:
         print("ERROR: No bound states found in grid data", file=sys.stderr)
         return False
     
-    # Generate contour plot
-    plt.figure(figsize=(8, 6))
+    # Generate three side-by-side contour plots
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     
-    cs_energy = plt.tricontour(B_plot, S_plot, E_plot, levels=[ENERGY_TARGET], colors='blue', linewidths=2.5)
-    cs_radius = plt.tricontour(B_plot, S_plot, R_plot, levels=[RADIUS_TARGET], colors='red', linewidths=2.5, linestyles='dashed')
+    # Left plot: Energy contour
+    ax1 = axes[0]
+    cs_energy = ax1.tricontour(B_plot, S_plot, E_plot, levels=[ENERGY_TARGET], colors='blue', linewidths=2.5)
+    ax1.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='Blues', alpha=0.6)
+    ax1.set_title(f"Energy Contour (Target: {ENERGY_TARGET} MeV)", fontsize=12, fontweight='bold')
+    ax1.set_xlabel("$b_{{range}}$ (fm)", fontsize=11)
+    ax1.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=11)
+    ax1.grid(True, linestyle=':', alpha=0.6)
     
-    plt.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='Blues', alpha=0.3)
-    
-    plt.title(f"Parameter Sweep contour map", fontsize=14, fontweight='bold')
-    plt.xlabel("$b_{{N}}$ (fm)", fontsize=12)
-    plt.ylabel("$S$ (MeV)", fontsize=12)
-    
-    # Create legend using custom Line2D objects
+    # Add energy target line legend for left plot
     from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], color='blue', linewidth=2.5, label=f"Energy = {ENERGY_TARGET} MeV"),
-        Line2D([0], [0], color='red', linewidth=2.5, linestyle='--', label=f"Radius = {RADIUS_TARGET} fm")
+    legend_elements_energy = [
+        Line2D([0], [0], color='blue', linewidth=2.5, label=f"E = {ENERGY_TARGET} MeV")
     ]
-    plt.legend(handles=legend_elements, loc='upper right', framealpha=0.9)
+    ax1.legend(handles=legend_elements_energy, loc='upper right', framealpha=0.9)
     
-    plt.grid(True, linestyle=':', alpha=0.6)
+    # Middle plot: Radius contour
+    ax2 = axes[1]
+    cs_radius = ax2.tricontour(B_plot, S_plot, R_plot, levels=[RADIUS_TARGET], colors='red', linewidths=2.5)
+    ax2.tricontourf(B_plot, S_plot, R_plot, levels=20, cmap='Greens', alpha=0.6)
+    ax2.set_title(f"Charge Radius Contour (Target: {RADIUS_TARGET} fm)", fontsize=12, fontweight='bold')
+    ax2.set_xlabel("$b_{{range}}$ (fm)", fontsize=11)
+    ax2.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=11)
+    ax2.grid(True, linestyle=':', alpha=0.6)
+    
+    # Add radius target line legend for middle plot
+    legend_elements_radius = [
+        Line2D([0], [0], color='red', linewidth=2.5, label=f"R = {RADIUS_TARGET} fm")
+    ]
+    ax2.legend(handles=legend_elements_radius, loc='upper right', framealpha=0.9)
+    
+    # Right plot: Bare state probability
+    ax3 = axes[2]
+    tcf = ax3.tricontourf(B_plot, S_plot, P_bare, levels=20, cmap='RdYlBu_r', alpha=0.8)
+    ax3.tricontour(B_plot, S_plot, P_bare, levels=10, colors='black', linewidths=0.5, alpha=0.3)
+    ax3.set_title("Bare State Probability (%)", fontsize=12, fontweight='bold')
+    ax3.set_xlabel("$b_{{range}}$ (fm)", fontsize=11)
+    ax3.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=11)
+    ax3.grid(True, linestyle=':', alpha=0.6)
+    
+    # Add colorbar for probability
+    cbar = plt.colorbar(tcf, ax=ax3)
+    cbar.set_label("Bare State Probability (%)", fontsize=10)
+    
     plt.tight_layout()
     
     output_file = grid_csv_path.replace('grid_data.csv', 'contour_plot.png')
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
-    print(f"Contour plot saved to: {output_file}")
+    print(f"Contour plots saved to: {output_file}")
     return True
 
 def plot_energy_vs_b_form(csv_file):

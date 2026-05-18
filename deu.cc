@@ -210,7 +210,7 @@ int main(int argc, char* argv[]) {
             csv_writer->write_metadata("max_basis_size", std::to_string(max_basis_size));
         }
         csv_writer->write_timestamp();
-        csv_writer->write_headers({"iteration", "energy_mev", "kinetic_mev", "radius_fm", "basis_size"});
+        csv_writer->write_headers({"iteration", "energy_mev", "kinetic_mev", "radius_fm", "basis_size", "prob_bare", "prob_dressed"});
     }
 
     std::ofstream outfile;
@@ -258,7 +258,9 @@ int main(int argc, char* argv[]) {
                     res.convergence_history[iter],
                     0.0,  // kinetic energy per iteration not tracked
                     0.0,  // radius per iteration not tracked
-                    static_cast<long double>(basis.size())
+                    static_cast<long double>(basis.size()),
+                    res.prob_bare,
+                    res.prob_dressed
                 });
             }
         }
@@ -267,6 +269,9 @@ int main(int argc, char* argv[]) {
         if (csv_writer) {
             csv_writer->write_final_row(res.energy, res.avg_kinetic_energy, 
                                        res.charge_radius, basis.size());
+            // Write bare and dressed state probabilities to final row
+            csv_writer->write_metadata("prob_bare_final", std::to_string(res.prob_bare));
+            csv_writer->write_metadata("prob_dressed_final", std::to_string(res.prob_dressed));
         }
 
         // Collect configuration for saving

@@ -243,6 +243,23 @@ class ParameterSweep:
             print(f"Error extracting final row from {csv_path}: {e}", file=sys.stderr)
             return None
     
+    def extract_probabilities(self, csv_path):
+        """Extract bare and dressed state probabilities from CSV metadata"""
+        try:
+            with open(csv_path, 'r') as f:
+                for line in f:
+                    if line.startswith("#"):
+                        if "prob_bare" in line:
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                try:
+                                    return float(parts[2])
+                                except ValueError:
+                                    pass
+        except Exception as e:
+            print(f"Error extracting probabilities from {csv_path}: {e}", file=sys.stderr)
+        return None
+    
     def aggregate_results(self, run_results):
         """Aggregate all run results into a single CSV"""
         aggregated_path = os.path.join(self.results_dir, "aggregated.csv")
@@ -264,6 +281,25 @@ class ParameterSweep:
                 # Add parameter columns
                 row = dict(result["params"])
                 row.update(final_row)
+                
+                # Extract prob_bare and prob_dressed from CSV if present
+                if "prob_bare" not in row or not row["prob_bare"]:
+                    # Try to extract from metadata
+                    prob_bare = self.extract_probabilities(csv_path)
+                    if prob_bare is not None:
+                        row["prob_bare"] = prob_bare
+                if "prob_dressed" not in row or not row["prob_dressed"]:
+                    try:
+                        with open(csv_path, 'r') as f:
+                            for line in f:
+                                if "prob_dressed" in line and line.startswith("#"):
+                                    parts = line.split()
+                                    if len(parts) >= 3:
+                                        row["prob_dressed"] = float(parts[2])
+                                        break
+                    except:
+                        pass
+                
                 aggregated_rows.append(row)
         
         # Sort by scan parameter for readability
@@ -451,6 +487,24 @@ class ParameterSweep:
                 row.update(result["params"])
                 row.update(final_row)
                 row["iteration"] = i  # Preserve calibration iteration counter (don't let deu's -1 overwrite)
+                
+                # Extract prob_bare and prob_dressed from CSV if present
+                if "prob_bare" not in row or not row["prob_bare"]:
+                    prob_bare = self.extract_probabilities(csv_path)
+                    if prob_bare is not None:
+                        row["prob_bare"] = prob_bare
+                if "prob_dressed" not in row or not row["prob_dressed"]:
+                    try:
+                        with open(csv_path, 'r') as f:
+                            for line in f:
+                                if "prob_dressed" in line and line.startswith("#"):
+                                    parts = line.split()
+                                    if len(parts) >= 3:
+                                        row["prob_dressed"] = float(parts[2])
+                                        break
+                    except:
+                        pass
+                
                 aggregated_rows.append(row)
         
         if aggregated_rows:
