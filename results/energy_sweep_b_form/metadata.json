@@ -1,18 +1,17 @@
 {
   "scan_type": "b_form",
-  "timestamp": "2026-05-12T14:00:25.790988",
+  "timestamp": "2026-05-19T12:33:39.284195",
   "fixed_params": {
-    "b_range": 2.6,
-    "S": 36.8
+    "S": 28.0,
+    "b_range": 3.6
   },
   "sweep_params": {
-    "b_form_min": 1.2,
-    "b_form_max": 2.0,
-    "b_form_steps": 4,
-    "basis_size_steps": 9
+    "b_form_min": 0.8,
+    "b_form_max": 1.8,
+    "b_form_steps": 10
   },
-  "num_jobs": 4,
-  "total_runs": 4,
-  "successful_runs": 4,
+  "num_jobs": 10,
+  "total_runs": 10,
+  "successful_runs": 10,
   "aggregated_csv": "results/energy_sweep_b_form/aggregated.csv"
 }

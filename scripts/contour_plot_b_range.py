@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-plot_calibration_contour.py - Generates a SLANTED 2D grid by dynamically tracking the energy contour
+contour_plot_b_range.py - Generates a SLANTED 2D grid by dynamically tracking the energy contour
 
 Usage:
-  python3 scripts/plot_calibration_contour.py \
+  python3 scripts/contour_plot_b_range.py \
     --b_range_min 2.0 --b_range_max 4.0 --b_range_steps 10 \
     --S_init_anchor 47.0 --S_window 5.0 --S_steps 8 \
     --b_form 1.2 --jobs 8
@@ -33,11 +33,13 @@ def run_single_point(args):
         "-b_range", f"{b_range:.4f}",
         "-b_form", f"{b_form:.4f}",
         "-S", f"{S:.4f}",
+        "-box-strengths", "10.0,5.0,2.0,1.0",
         "--output-csv", csv_path
     ]
     
     try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Don't check exit code - if CSV was written, process it regardless
         
         with open(csv_path, 'r') as f:
             lines = [l for l in f.readlines() if not l.startswith("#")]
@@ -48,9 +50,11 @@ def run_single_point(args):
             
             energy = float(final_row.get("energy_mev", 0))
             radius = float(final_row.get("radius_fm", 0))
+            prob_bare = float(final_row.get("prob_bare", 0))
+            prob_dressed = float(final_row.get("prob_dressed", 0))
             
         os.remove(csv_path)
-        return (b_range, S, energy, radius)
+        return (b_range, S, energy, radius, prob_bare, prob_dressed)
         
     except Exception as e:
         print(f"Error at b_range={b_range}, S={S}: {e}")
@@ -72,10 +76,10 @@ def main():
     
     args = parser.parse_args()
     
-    results_dir = "results/contour_map"
+    results_dir = "results/contour_b_range"
     Path(results_dir).mkdir(parents=True, exist_ok=True)
     grid_csv_path = os.path.join(results_dir, "grid_data.csv")
-    plot_path = os.path.join(results_dir, "calibration_contour.pdf")
+    plot_path = os.path.join(results_dir, "calibration_contour.png")
     
     b_ranges = np.linspace(args.b_range_min, args.b_range_max, args.b_range_steps)
     
@@ -129,9 +133,10 @@ def main():
             
             # Fallback: If the window completely missed the -2.224 crossing
             if not crossing_found:
-                best_run = min(slice_results, key=lambda x: abs(x[2] - ENERGY_TARGET))
+                # Strategy: Find S closest to target energy (-2.224 MeV)
+                best_run = min(slice_results, key=lambda x: abs(x[2] - ENERGY_TARGET))  # Find closest to target energy
                 current_s_center = best_run[1]
-                print(f"    ⚠ Missed crossing. Snapping to closest S = {current_s_center:.4f} (E = {best_run[2]:.4f} MeV)")
+                print(f"    ⚠ Missed target crossing. Shifting to closest energy point at S = {current_s_center:.4f} (E = {best_run[2]:.4f} MeV, target = {ENERGY_TARGET})")
         else:
             print("    ⚠ Warning: Slice failed. Keeping same center for next iteration.")
             
@@ -142,7 +147,7 @@ def main():
     # ==========================================
     with open(grid_csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(["b_range", "S", "energy_mev", "radius_fm"])
+        writer.writerow(["b_range", "S", "energy_mev", "radius_fm", "prob_bare", "prob_dressed"])
         writer.writerows(all_results)
     
     # ==========================================
@@ -152,6 +157,8 @@ def main():
     S_flat = [res[1] for res in all_results]
     E_flat = [res[2] for res in all_results]
     R_flat = [res[3] for res in all_results]
+    P_bare_flat = [res[4] for res in all_results]
+    P_dressed_flat = [res[5] for res in all_results]
 
     # Filter out unbound/gas states (Energy > -0.01) so they don't ruin the plot scale
     valid_indices = [i for i, e in enumerate(E_flat) if e < -0.01]
@@ -165,31 +172,84 @@ def main():
         return
 
     # ==========================================
-    # 5. GENERATE THE CONTOUR PLOT
+    # 5. GENERATE THE CONTOUR PLOTS (2 subplots)
     # ==========================================
-    plt.figure(figsize=(8, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
-    cs_energy = plt.tricontour(B_plot, S_plot, E_plot, levels=[ENERGY_TARGET], colors='blue', linewidths=2.5)
-    cs_radius = plt.tricontour(B_plot, S_plot, R_plot, levels=[RADIUS_TARGET], colors='red', linewidths=2.5, linestyles='dashed')
+    # Plot 1: Energy contours with calibration target
+    ax = axes[0]
+    tcf_energy = ax.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='RdBu_r', alpha=0.8)
+    cs_energy = ax.tricontour(B_plot, S_plot, E_plot, levels=[ENERGY_TARGET], colors='green', linewidths=3)
+    ax.set_title(f"Ground State Energy\n($b_{{form}}$ = {args.b_form} fm)", fontsize=12, fontweight='bold')
+    ax.set_xlabel("$b_{{range}}$ (fm)", fontsize=11)
+    ax.set_ylabel("Interaction Strength $S$", fontsize=11)
+    ax.grid(True, linestyle=':', alpha=0.4)
+    cbar1 = plt.colorbar(tcf_energy, ax=ax)
+    cbar1.set_label("Energy (MeV)", fontsize=10)
     
-    plt.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='Blues', alpha=0.3)
+    # Plot 2: Radius contours with calibration target
+    ax = axes[1]
+    tcf_radius = ax.tricontourf(B_plot, S_plot, R_plot, levels=20, cmap='YlGn', alpha=0.8)
+    cs_radius = ax.tricontour(B_plot, S_plot, R_plot, levels=[RADIUS_TARGET], colors='purple', linewidths=3)
+    ax.set_title(f"Charge Radius\n($b_{{form}}$ = {args.b_form} fm)", fontsize=12, fontweight='bold')
+    ax.set_xlabel("$b_{{range}}$ (fm)", fontsize=11)
+    ax.set_ylabel("Interaction Strength $S$", fontsize=11)
+    ax.grid(True, linestyle=':', alpha=0.4)
+    cbar2 = plt.colorbar(tcf_radius, ax=ax)
+    cbar2.set_label("Radius (fm)", fontsize=10)
     
-    plt.title(f"Calibration Intersection ($b_{{form}}$ = {args.b_form} fm)", fontsize=14, fontweight='bold')
-    plt.xlabel("$b_{range}$ (fm)", fontsize=12)
-    plt.ylabel("Interaction Strength $S$", fontsize=12)
-    
-    # Create legend using custom Line2D objects
-    from matplotlib.lines import Line2D
-    legend_elements = [
-        Line2D([0], [0], color='blue', linewidth=2.5, label=f"Energy = {ENERGY_TARGET} MeV"),
-        Line2D([0], [0], color='red', linewidth=2.5, linestyle='--', label=f"Radius = {RADIUS_TARGET} fm")
-    ]
-    plt.legend(handles=legend_elements, loc='upper right', framealpha=0.9)
-    
-    plt.grid(True, linestyle=':', alpha=0.6)
     plt.tight_layout()
-    plt.savefig(plot_path, dpi=300)
-    print(f"Contour plot generated successfully: {plot_path}")
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    print(f"Contour plots generated successfully: {plot_path}")
+    
+    # ==========================================
+    # 6. FIND AND PRINT BEST CALIBRATION PARAMETERS
+    # ==========================================
+    print("\n" + "="*80)
+    print("CALIBRATION PARAMETER ANALYSIS")
+    print("="*80)
+    
+    # Find point closest to both targets
+    best_distance = float('inf')
+    best_params = None
+    
+    for b, s, e, r, p_bare, p_dressed in all_results:
+        # Distance metric: combination of energy and radius deviations
+        energy_dev = abs(e - ENERGY_TARGET)
+        radius_dev = abs(r - RADIUS_TARGET)
+        total_distance = energy_dev + radius_dev
+        
+        if total_distance < best_distance:
+            best_distance = total_distance
+            best_params = (b, s, e, r, energy_dev, radius_dev)
+    
+    if best_params:
+        b_best, s_best, e_best, r_best, e_dev, r_dev = best_params
+        print(f"\nBest Calibration Point (closest to both targets):")
+        print(f"  b_range = {b_best:.6f} fm")
+        print(f"  S       = {s_best:.6f} MeV")
+        print(f"  Energy  = {e_best:.6f} MeV (target: {ENERGY_TARGET}, error: {e_dev:.6f})")
+        print(f"  Radius  = {r_best:.6f} fm  (target: {RADIUS_TARGET}, error: {r_dev:.6f})")
+    
+    # Find best energy point
+    best_energy_idx = min(range(len(all_results)), key=lambda i: abs(all_results[i][2] - ENERGY_TARGET))
+    b_e, s_e, e_e, r_e, _, _ = all_results[best_energy_idx]
+    print(f"\nBest Energy Point:")
+    print(f"  b_range = {b_e:.6f} fm")
+    print(f"  S       = {s_e:.6f} MeV")
+    print(f"  Energy  = {e_e:.6f} MeV (error: {abs(e_e - ENERGY_TARGET):.6f})")
+    print(f"  Radius  = {r_e:.6f} fm")
+    
+    # Find best radius point
+    best_radius_idx = min(range(len(all_results)), key=lambda i: abs(all_results[i][3] - RADIUS_TARGET))
+    b_r, s_r, e_r, r_r, _, _ = all_results[best_radius_idx]
+    print(f"\nBest Radius Point:")
+    print(f"  b_range = {b_r:.6f} fm")
+    print(f"  S       = {s_r:.6f} MeV")
+    print(f"  Energy  = {e_r:.6f} MeV")
+    print(f"  Radius  = {r_r:.6f} fm (error: {abs(r_r - RADIUS_TARGET):.6f})")
+    
+    print("="*80 + "\n")
 
 if __name__ == "__main__":
     sys.exit(main())

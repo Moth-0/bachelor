@@ -51,7 +51,7 @@ inline ld random_ld(long double lo, long double hi) {
     return dist(rng);
 }
 
-// Generates the Van der Corput sequence for base 2
+// Generates the Van der Corput sequence for base 
 inline ld van_der_corput(size_t n, size_t base = 2) {
     ld q = 0.0;
     ld bk = 1.0 / base;

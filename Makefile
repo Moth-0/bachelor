@@ -18,9 +18,9 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h qm/se
 
 # ALL CONFIGURATIONS: Run all 4 kinematic configs with timestamped results
 # Default parameters (override with: make all-configs B_RANGE=2.0 B_FORM=1.5 S=40.0)
-B_RANGE ?= 2.44
-B_FORM ?= 1.2
-S ?= 39.17
+B_RANGE ?= 2.43
+B_FORM ?= 1.4
+S ?= 28.8
 
 all-configs: deu
 	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
@@ -60,32 +60,33 @@ plot_wavefunction: deu plot_wavefunction.o scripts/plot_wavefunction.py
 
 
 # Parameter Sweeps 
-sweep_S : deu scripts/sweep.py scripts/plot_results.py Makefile
-	python3 scripts/sweep.py --scan S --b_range $(B_RANGE) --b_form $(B_FORM) \
-	--jobs 6 --basis_size_steps 5 \
-	--S_min 20.0 --S_max 60.0 --S_steps 6
-	python3 scripts/plot_results.py energy_sweep_S
+sweep_S : deu scripts/sweep_S.py Makefile
+	python3 scripts/sweep_S.py --b_range $(B_RANGE) --b_form $(B_FORM) \
+	--S_min 20.0 --S_max 40.0 --S_steps 10 --jobs 10
 
-sweep_b : deu scripts/sweep.py scripts/plot_results.py Makefile
-	python3 scripts/sweep.py --scan b_form --b_range $(B_RANGE) --S $(S) --jobs 3 \
-	--b_form_min 0.8 --b_form_max 1.4 --b_form_steps 6
-	python3 scripts/plot_results.py energy_sweep_b_form
-	python3 scripts/sweep.py --scan b_range --b_form $(B_FORM) --S $(S) --jobs 3 \
-	--b_range_min 1.6 --b_range_max 2.8 --b_range_steps 6
-	python3 scripts/plot_results.py energy_sweep_b_range
+sweep_b_range : deu scripts/sweep_b_range.py Makefile
+	python3 scripts/sweep_b_range.py --S $(S) --b_form $(B_FORM) \
+	--b_range_min 2.0 --b_range_max 6.0 --b_range_steps 10 --jobs 10
 
-sweep_size : deu scripts/sweep.py scripts/plot_results.py Makefile
-	python3 scripts/sweep.py --scan basis_size --b_range $(B_RANGE) --b_form $(B_FORM) --S $(S) \
-	--jobs 4 --basis_size_steps 8
-	python3 scripts/plot_results.py energy_sweep_basis_size
+sweep_b_form : deu scripts/sweep_b_form.py Makefile
+	python3 scripts/sweep_b_form.py --S $(S) --b_range $(B_RANGE) \
+	--b_form_min 0.8 --b_form_max 1.8 --b_form_steps 10 --jobs 10
 
-calibrate : deu scripts/find_calibration.py scripts/sweep.py scripts/plot_results.py Makefile
-	python3 scripts/find_calibration.py \
-	--b_range_init $(B_RANGE) --b_form_init $(B_FORM) \
-	--S_min 10.0 --S_max 50.0 --S_steps 8 \
-	--tolerance 0.01 --max_iterations 50 --jobs 8
+sweep_size : deu scripts/sweep_basis_size.py Makefile
+	python3 scripts/sweep_basis_size.py --b_range $(B_RANGE) --b_form $(B_FORM) --S $(S) \
+	--basis_size_steps 8 --jobs 4
+
+contour_b_range : deu scripts/contour_plot_b_range.py Makefile
+	python3 scripts/contour_plot_b_range.py --b_range_min 2.0 --b_range_max 3.0 --b_range_steps 20 \
+	--S_init_anchor 40.0 --S_window 5.0 \
+	--b_form $(B_FORM) --S_steps 5 --jobs 20
+
+contour_b_form : deu scripts/contour_plot_b_form.py Makefile
+	python3 scripts/contour_plot_b_form.py --b_form_min 1.0 --b_form_max 1.6 --b_form_steps 6 \
+	--S_init_anchor 100.0 --S_window 10.0 \
+	--b_range $(B_RANGE) --S_steps 10 --jobs 10
 
 clean :
 	$(RM) *.o *.log *.dat *.gpi *.out *.err
 
-.PHONY: all clean all-configs sweep_S sweep_b sweep_size calibrate plot_wavefunction
+.PHONY: all clean all-configs sweep_S sweep_b_range sweep_b_form sweep_size plot_wavefunction contour_b_range contour_b_form

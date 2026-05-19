@@ -65,7 +65,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
     std::vector<BasisState> bare_basis;
-    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0};
+    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0, 20.0, 100.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0 / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -104,8 +104,8 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     result.convergence_history = convergence_energies;
 
-    // print_basis_details(grand_basis, result.coefficients);
-    // std::cout << "\n";
+    print_basis_details(grand_basis, result.coefficients);
+    std::cout << "\n";
 
     // Save final basis state for analysis (keep this for individual inspection)
     save_basis_state(grand_basis, result.coefficients, result.energy, result.charge_radius,
@@ -117,9 +117,9 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 2.6;
+    ld b_range = 2.44;
     ld b_form = 1.2;
-    ld S = 36.87;
+    ld S = 39.17;
 
     std::string file_name = "convergence.data";
     std::string output_csv = "";
@@ -268,10 +268,8 @@ int main(int argc, char* argv[]) {
         // Write final summary row to CSV
         if (csv_writer) {
             csv_writer->write_final_row(res.energy, res.avg_kinetic_energy, 
-                                       res.charge_radius, basis.size());
-            // Write bare and dressed state probabilities to final row
-            csv_writer->write_metadata("prob_bare_final", std::to_string(res.prob_bare));
-            csv_writer->write_metadata("prob_dressed_final", std::to_string(res.prob_dressed));
+                                       res.charge_radius, basis.size(),
+                                       res.prob_bare, res.prob_dressed);
         }
 
         // Collect configuration for saving
