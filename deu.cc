@@ -17,6 +17,7 @@
 #include <memory>
 #include <omp.h>
 #include <string>
+#include <chrono>
 
 #include "qm/matrix.h"
 #include "qm/gaussian.h"
@@ -33,6 +34,7 @@ using namespace qm;
 // Run two-phase SVM: skeleton (Phase 1) + competitive growth (Phase 2)
 // Returns pair of (basis, result) for saving all configurations
 std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector<bool>& relativistic, ld b_range, ld b_form, ld S, const std::vector<ld>& box_strengths) {
+    auto start_time = std::chrono::high_resolution_clock::now();
     // Physical Constants
     ld m_p = 938.27, m_n = 939.56;
     ld m_pi0 = 134.97, m_pic = 139.57;
@@ -65,7 +67,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
     std::vector<BasisState> bare_basis;
-    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0, 20.0, 100.0};
+    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0, 10.0, 20.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0 / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -85,7 +87,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
         local_basis.insert(local_basis.end(), bare_basis.begin(), bare_basis.end());
         
         // 1. Add 2 state per channel (18 states total)
-        for(int i=0; i<2; i++) competitive_search(local_basis, channel_templates, 5000, b_range, b_form, S, relativistic, ho_k, 3);
+        for(int i=0; i<2; i++) competitive_search(local_basis, channel_templates, 10000, b_range, b_form, S, relativistic, ho_k, 3);
         
         // 2. Fast sweep on just these states!
         sweep_optimize_basis(local_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, ho_k, 3);
@@ -103,9 +105,14 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
 
     result.convergence_history = convergence_energies;
+    
+    // Calculate execution time
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    result.execution_time = duration.count() / 1000.0;  // convert to seconds
 
-    print_basis_details(grand_basis, result.coefficients);
-    std::cout << "\n";
+    // print_basis_details(grand_basis, result.coefficients);
+    // std::cout << "\n";
 
     // Save final basis state for analysis (keep this for individual inspection)
     save_basis_state(grand_basis, result.coefficients, result.energy, result.charge_radius,
@@ -117,14 +124,14 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
 int main(int argc, char* argv[]) {
     // Default values
-    ld b_range = 2.44;
-    ld b_form = 1.2;
-    ld S = 39.17;
+    ld b_range = 2.24;
+    ld b_form = 1.4;
+    ld S = 31.29;
 
     std::string file_name = "convergence.data";
     std::string output_csv = "";
     int max_basis_size = 0;
-    std::vector<ld> box_strengths_input = {1.0, 0.5, 0.2, 0.1, 0.0};  // default: only free space
+    std::vector<ld> box_strengths_input = {0, 0, 0, 0, 0, 0};  // default: only free space
     bool pn_rel = false, pi_rel = false;  // defaults: both classical
 
     // Parse command-line arguments
@@ -210,7 +217,7 @@ int main(int argc, char* argv[]) {
             csv_writer->write_metadata("max_basis_size", std::to_string(max_basis_size));
         }
         csv_writer->write_timestamp();
-        csv_writer->write_headers({"iteration", "energy_mev", "kinetic_mev", "radius_fm", "basis_size", "prob_bare", "prob_dressed"});
+        csv_writer->write_headers({"iteration", "energy_mev", "kinetic_mev", "radius_fm", "basis_size", "prob_bare", "prob_dressed", "execution_time_s"});
     }
 
     std::ofstream outfile;
@@ -260,7 +267,8 @@ int main(int argc, char* argv[]) {
                     0.0,  // radius per iteration not tracked
                     static_cast<long double>(basis.size()),
                     res.prob_bare,
-                    res.prob_dressed
+                    res.prob_dressed,
+                    0.0   // execution time not tracked per iteration
                 });
             }
         }
@@ -269,7 +277,7 @@ int main(int argc, char* argv[]) {
         if (csv_writer) {
             csv_writer->write_final_row(res.energy, res.avg_kinetic_energy, 
                                        res.charge_radius, basis.size(),
-                                       res.prob_bare, res.prob_dressed);
+                                       res.prob_bare, res.prob_dressed, res.execution_time);
         }
 
         // Collect configuration for saving
@@ -286,9 +294,9 @@ int main(int argc, char* argv[]) {
     }
 
     // Print final summary comparison table
-    std::cout << "\n========================================================================================\n";
-    std::cout << "                                  FINAL RESULTS SUMMARY                                 \n";
-    std::cout << "========================================================================================\n";
+    std::cout << "\n======================================================================================================================================\n";
+    std::cout << "                                  FINAL RESULTS SUMMARY                                   \n";
+    std::cout << "======================================================================================================================================\n";
     std::cout << std::fixed << std::setprecision(5);
 
     for (size_t i = 0; i < configurations.size(); ++i) {
@@ -297,12 +305,13 @@ int main(int argc, char* argv[]) {
                   << " | R: "       << all_results[i].charge_radius         << " fm"
                   << " | <T>: "     << all_results[i].avg_kinetic_energy    << " MeV"
                   << " | PN: "      << (all_results[i].prob_bare * 100.0)   << " %"
-                  << " | PN+pi: "   << (all_results[i].prob_dressed * 100.0)<< " %\n";
+                  << " | PN+pi: "   << (all_results[i].prob_dressed * 100.0)<< " %"
+                  << " | Time: "    << std::fixed << std::setprecision(3) << all_results[i].execution_time << " s\n";
     }
 
-    std::cout << "----------------------------------------------------------------------------------------\n";
+    std::cout << "--------------------------------------------------------------------------------------------------------------------------------------\n";
     std::cout << "Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm\n";
-    std::cout << "========================================================================================\n";
+    std::cout << "======================================================================================================================================\n";
 
     if (outfile.is_open()) {
         outfile.close();

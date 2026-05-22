@@ -82,14 +82,22 @@ def plot_contour_b_range(grid_csv_path, b_form):
     grid_B, grid_S = np.meshgrid(grid_b, grid_s)
     
     # Define 2D polynomial fitting function: f(x,y) = c0 + c1*x + c2*y + c3*x*y + c4*x^2 + c5*y^2
-    def poly2d(xy, c0, c1, c2, c3, c4):
+    def poly2d(xy, c0, c1, c2, c3, c4, c5):
         x, y = xy
-        return c0 + c1*x + c2*y + c3*x*y + c4*x**2
+        return c0 + c1*x + c2*y + c3*x*y + c4*x**2 + c5*y**2
     
     # Fit polynomials to the data
     xy_data = np.column_stack([B_array, S_array])
     popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, maxfev=10000)
-    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, maxfev=10000)
+
+    # Radius is only reliable near the correct (bound-state) energy.
+    # Down-weight off-target energies so large-radius points don't distort the R fit.
+    dE = np.abs(E_array - ENERGY_TARGET)
+    sigma_E = 0.5  # MeV; controls how aggressively we ignore off-target points
+    w = np.exp(-(dE / sigma_E) ** 2)
+    w = np.clip(w, 1e-6, 1.0)
+    sigma_R = 1.0 / np.sqrt(w)
+    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R, maxfev=20000)
     
     # Evaluate fitted polynomials on the mesh grid
     grid_E = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_E).reshape(grid_B.shape)
@@ -256,7 +264,13 @@ def plot_contour_b_form(grid_csv_path, b_range):
     # Fit polynomials to the data
     xy_data = np.column_stack([B_array, S_array])
     popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, maxfev=10000)
-    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, maxfev=10000)
+
+    dE = np.abs(E_array - ENERGY_TARGET)
+    sigma_E = 0.5  # MeV
+    w = np.exp(-(dE / sigma_E) ** 2)
+    w = np.clip(w, 1e-6, 1.0)
+    sigma_R = 1.0 / np.sqrt(w)
+    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R, maxfev=20000)
     
     # Evaluate fitted polynomials on the mesh grid
     grid_E = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_E).reshape(grid_B.shape)
@@ -424,7 +438,13 @@ def plot_contour_map(grid_csv_path):
     # Fit polynomials to the data
     xy_data = np.column_stack([B_array, S_array])
     popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, maxfev=10000)
-    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, maxfev=10000)
+
+    dE = np.abs(E_array - ENERGY_TARGET)
+    sigma_E = 0.5  # MeV
+    w = np.exp(-(dE / sigma_E) ** 2)
+    w = np.clip(w, 1e-6, 1.0)
+    sigma_R = 1.0 / np.sqrt(w)
+    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R, maxfev=20000)
     
     # Evaluate fitted polynomials on the mesh grid
     grid_E = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_E).reshape(grid_B.shape)

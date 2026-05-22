@@ -1,7 +1,5 @@
 /.gemini
 /.vscode
 *.o
-*.log
 *.tex
 *.pdf
-*.csv

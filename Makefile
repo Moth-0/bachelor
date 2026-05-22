@@ -18,9 +18,9 @@ HEADERS = qm/matrix.h qm/gaussian.h qm/operators.h qm/jacobi.h qm/solver.h qm/se
 
 # ALL CONFIGURATIONS: Run all 4 kinematic configs with timestamped results
 # Default parameters (override with: make all-configs B_RANGE=2.0 B_FORM=1.5 S=40.0)
-B_RANGE ?= 2.43
+B_RANGE ?= 2.24
 B_FORM ?= 1.4
-S ?= 28.8
+S ?= 31.29
 
 all-configs: deu
 	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
@@ -32,24 +32,20 @@ all-configs: deu
 	echo "Timestamp: $$TIMESTAMP"; \
 	echo "Results: $$RESULTS_DIR"; \
 	echo "========================================"; \
-	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --output-csv $$RESULTS_DIR/PN_Cla_Pi_Cla.csv & \
+	( ./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --output-csv $$RESULTS_DIR/PN_Cla_Pi_Cla.csv > $$RESULTS_DIR/PN_Cla_Pi_Cla.log 2>&1; echo "✓ Config 1/4 (PN_Cla Pi_Cla) finished!" ) & \
 	PID1=$$!; \
-	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pi-rel --output-csv $$RESULTS_DIR/PN_Cla_Pi_Rel.csv & \
+	( ./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pi-rel --output-csv $$RESULTS_DIR/PN_Cla_Pi_Rel.csv > $$RESULTS_DIR/PN_Cla_Pi_Rel.log 2>&1; echo "✓ Config 2/4 (PN_Cla Pi_Rel) finished!" ) & \
 	PID2=$$!; \
-	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pn-rel --output-csv $$RESULTS_DIR/PN_Rel_Pi_Cla.csv & \
+	( ./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pn-rel --output-csv $$RESULTS_DIR/PN_Rel_Pi_Cla.csv > $$RESULTS_DIR/PN_Rel_Pi_Cla.log 2>&1; echo "✓ Config 3/4 (PN_Rel Pi_Cla) finished!" ) & \
 	PID3=$$!; \
-	./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pn-rel --pi-rel --output-csv $$RESULTS_DIR/PN_Rel_Pi_Rel.csv & \
+	( ./deu -b_range $(B_RANGE) -b_form $(B_FORM) -S $(S) --pn-rel --pi-rel --output-csv $$RESULTS_DIR/PN_Rel_Pi_Rel.csv > $$RESULTS_DIR/PN_Rel_Pi_Rel.log 2>&1; echo "✓ Config 4/4 (PN_Rel Pi_Rel) finished!" ) & \
 	PID4=$$!; \
 	wait $$PID1 $$PID2 $$PID3 $$PID4; \
-	echo "✓ Config 1/4: PN_Cla Pi_Cla"; \
-	echo "✓ Config 2/4: PN_Cla Pi_Rel"; \
-	echo "✓ Config 3/4: PN_Rel Pi_Cla"; \
-	echo "✓ Config 4/4: PN_Rel Pi_Rel"; \
 	echo "========================================"; \
 	echo "All configurations complete!"; \
-	echo "Results saved to: $$RESULTS_DIR"; \
+	echo "Results and logs saved to: $$RESULTS_DIR"; \
 	echo "========================================"
-
+	
 
 # Plot wavefunction: Generate basis_final.txt, then analyze asymptotic behavior
 plot_wavefunction: deu plot_wavefunction.o scripts/plot_wavefunction.py
@@ -74,16 +70,16 @@ sweep_b_form : deu scripts/sweep_b_form.py Makefile
 
 sweep_size : deu scripts/sweep_basis_size.py Makefile
 	python3 scripts/sweep_basis_size.py --b_range $(B_RANGE) --b_form $(B_FORM) --S $(S) \
-	--basis_size_steps 8 --jobs 4
+	--basis_size_steps 6 --jobs 6
 
 contour_b_range : deu scripts/contour_plot_b_range.py Makefile
-	python3 scripts/contour_plot_b_range.py --b_range_min 2.0 --b_range_max 3.0 --b_range_steps 20 \
-	--S_init_anchor 40.0 --S_window 5.0 \
+	python3 scripts/contour_plot_b_range.py --b_range_min 2.0 --b_range_max 4.0 --b_range_steps 20 \
+	--S_init_anchor 35.0 --S_window 5.0 \
 	--b_form $(B_FORM) --S_steps 5 --jobs 20
 
 contour_b_form : deu scripts/contour_plot_b_form.py Makefile
 	python3 scripts/contour_plot_b_form.py --b_form_min 1.0 --b_form_max 1.6 --b_form_steps 6 \
-	--S_init_anchor 100.0 --S_window 10.0 \
+	--S_init_anchor 40.0 --S_window 10.0 \
 	--b_range $(B_RANGE) --S_steps 10 --jobs 10
 
 clean :

@@ -40,7 +40,7 @@ class BasisSizeSweep:
         base_strengths = [5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.01]
         combinations = []
         
-        for step in range(1, self.num_steps + 1):
+        for step in range(2, self.num_steps + 1):
             step_box_strengths = sorted(base_strengths[:step], reverse=True)
             params = dict(self.fixed_params)
             params.update({
@@ -185,14 +185,14 @@ class BasisSizeSweep:
         print("="*80 + "\n")
     
     def plot_basis_size_convergence(self, csv_file):
-        """Plot energy and radius convergence vs box strengths count"""
+        """Plot energy, radius, and execution time convergence vs basis size"""
         try:
             import matplotlib.pyplot as plt
         except ImportError:
             print("ERROR: matplotlib not found. Install with: pip install matplotlib", file=sys.stderr)
             return False
         
-        data = {"step": [], "num_boxes": [], "energy": [], "basis_size": [], "radius": []}
+        data = {"step": [], "num_boxes": [], "energy": [], "basis_size": [], "radius": [], "execution_time": []}
         
         try:
             with open(csv_file, 'r') as f:
@@ -211,6 +211,10 @@ class BasisSizeSweep:
                             data["radius"].append(float(row["radius_fm"]))
                         except (KeyError, ValueError):
                             data["radius"].append(None)
+                        try:
+                            data["execution_time"].append(float(row.get("execution_time_s", 0)))
+                        except (KeyError, ValueError):
+                            data["execution_time"].append(0)
                     except (ValueError, TypeError):
                         pass
         except Exception as e:
@@ -221,10 +225,10 @@ class BasisSizeSweep:
             print("No basis_size convergence data found in CSV", file=sys.stderr)
             return False
         
-        sorted_data = sorted(zip(data["step"], data["num_boxes"], data["energy"], data["basis_size"], data["radius"]))
-        steps, num_boxes, energies, basis_sizes, radii = zip(*sorted_data)
+        sorted_data = sorted(zip(data["step"], data["num_boxes"], data["energy"], data["basis_size"], data["radius"], data["execution_time"]))
+        steps, num_boxes, energies, basis_sizes, radii, exec_times = zip(*sorted_data)
         
-        fig, axes = plt.subplots(2, 1, figsize=(11, 8))
+        fig, axes = plt.subplots(3, 1, figsize=(11, 10))
         
         ax1 = axes[0]
         ax1.plot(basis_sizes, energies, 'o-', linewidth=2.5, markersize=10, label='Computed', color='steelblue')
@@ -247,6 +251,16 @@ class BasisSizeSweep:
             ax2.grid(True, alpha=0.3, linestyle=':')
             ax2.legend(fontsize=11, loc='best')
             ax2.set_xticks(basis_sizes)
+        
+        if exec_times and any(t > 0 for t in exec_times):
+            ax3 = axes[2]
+            ax3.plot(basis_sizes, exec_times, '^-', linewidth=2.5, markersize=10, color='darkorange', label='Execution Time')
+            ax3.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
+            ax3.set_ylabel('Execution Time (seconds)', fontsize=12, fontweight='bold')
+            ax3.set_title('Basis Size Convergence: Execution Time', fontsize=14, fontweight='bold')
+            ax3.grid(True, alpha=0.3, linestyle=':')
+            ax3.legend(fontsize=11, loc='best')
+            ax3.set_xticks(basis_sizes)
         
         plt.tight_layout()
         output_file = csv_file.replace('aggregated.csv', 'basis_convergence.png')

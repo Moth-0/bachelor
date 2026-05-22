@@ -104,7 +104,8 @@ public:
     // Write final summary row (iteration=-1)
     void write_final_row(long double energy, long double kinetic, 
                         long double radius, long double basis_size,
-                        long double prob_bare = 0.0, long double prob_dressed = 0.0) {
+                        long double prob_bare = 0.0, long double prob_dressed = 0.0,
+                        long double execution_time = 0.0) {
         std::vector<long double> final_row = {
             static_cast<long double>(-1),  // iteration = -1 for FINAL marker
             energy,
@@ -112,7 +113,8 @@ public:
             radius,
             basis_size,
             prob_bare,
-            prob_dressed
+            prob_dressed,
+            execution_time
         };
         write_row(final_row);
     }

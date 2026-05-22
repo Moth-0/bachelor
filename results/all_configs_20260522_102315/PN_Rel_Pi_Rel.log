@@ -1,0 +1,73 @@
+========================================
+  DEUTERON SYSTEM (FAST COMPETITIVE SVM)
+========================================
+Parameters:
+  b_range = 2.24 fm
+  b_form  = 1.4 fm
+  S       = 31.3 MeV
+  PN Treatment: Rel, Pion Treatment: Rel
+  Box Strengths: 0, 0, 0, 0, 0, 0
+========================================
+
+
+>>>>>>>> RUNNING CONFIGURATION: PN_{Rel} Pi_{Rel} <<<<<<<<
+--- 1. Planting Geometric PN Grid & Pion Seeds ---
+--- 2. Competitive Growth inside widening HO Box ---
+
+=== Generating Basis for ho_k = 0 ===
+Added State 6 (Ch 1) -> E0 = 130.62693 MeV    Added State 7 (Ch 2) -> E0 = 129.02760 MeV    Added State 8 (Ch 3) -> E0 = 126.98670 MeV    Added State 9 (Ch 4) -> E0 = 126.64311 MeV    Added State 10 (Ch 5) -> E0 = 123.28022 MeV    Added State 11 (Ch 6) -> E0 = 120.17535 MeV    Added State 12 (Ch 7) -> E0 = 119.87899 MeV    Added State 13 (Ch 8) -> E0 = 116.64281 MeV    Added State 14 (Ch 9) -> E0 = 113.45547 MeV    
+Added State 15 (Ch 1) -> E0 = 113.34829 MeV    Added State 16 (Ch 2) -> E0 = 112.04500 MeV    Added State 17 (Ch 3) -> E0 = 110.91244 MeV    Added State 18 (Ch 4) -> E0 = 110.60101 MeV    Added State 19 (Ch 5) -> E0 = 107.93036 MeV    Added State 20 (Ch 6) -> E0 = 105.45402 MeV    Added State 21 (Ch 7) -> E0 = 105.33602 MeV    Added State 22 (Ch 8) -> E0 = 103.01861 MeV    Added State 23 (Ch 9) -> E0 = 100.64861 MeV    
+Sweep 1 (Basis=23): E0 = 0.10998 MeV  (ΔE = 100.53863)     Sweep 2 (Basis=23): E0 = -6.61910 MeV  (ΔE = 6.72907)     Sweep 3 (Basis=23): E0 = -7.33763 MeV  (ΔE = 0.71853)     Sweep 4 (Basis=23): E0 = -7.39722 MeV  (ΔE = 0.05958)     Sweep 5 (Basis=23): E0 = -7.40788 MeV  (ΔE = 0.01067)     Sweep 6 (Basis=23): E0 = -7.41340 MeV  (ΔE = 0.00552)     Sweep 7 (Basis=23): E0 = -7.42474 MeV  (ΔE = 0.01134)     Sweep 8 (Basis=23): E0 = -7.42644 MeV  (ΔE = 0.00170)     Sweep 9 (Basis=23): E0 = -7.42705 MeV  (ΔE = 0.00061)     Sweep 10 (Basis=23): E0 = -7.42709 MeV  (ΔE = 0.00003)     Sweep 11 (Basis=23): E0 = -7.42785 MeV  (ΔE = 0.00077)     Sweep 12 (Basis=23): E0 = -7.42823 MeV  (ΔE = 0.00038)     Sweep 13 (Basis=23): E0 = -7.42862 MeV  (ΔE = 0.00039)     Sweep 14 (Basis=23): E0 = 2.01737 MeV  (ΔE = -9.44600)     Sweep 15 (Basis=23): E0 = 2.00516 MeV  (ΔE = 0.01221)     Sweep 16 (Basis=23): E0 = 1.99996 MeV  (ΔE = 0.00521)     Sweep 17 (Basis=23): E0 = 1.99750 MeV  (ΔE = 0.00246)     Sweep 18 (Basis=23): E0 = 1.99752 MeV  (ΔE = -0.00002)     Sweep 19 (Basis=23): E0 = 1.99753 MeV  (ΔE = -0.00001)     Sweep 20 (Basis=23): E0 = 1.99753 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+
+=== Generating Basis for ho_k = 0.00000 ===
+Added State 6 (Ch 1) -> E0 = 130.59782 MeV    Added State 7 (Ch 2) -> E0 = 128.46976 MeV    Added State 8 (Ch 3) -> E0 = 126.79262 MeV    Added State 9 (Ch 4) -> E0 = 126.45038 MeV    Added State 10 (Ch 5) -> E0 = 122.53241 MeV    Added State 11 (Ch 6) -> E0 = 118.71150 MeV    Added State 12 (Ch 7) -> E0 = 118.44361 MeV    Added State 13 (Ch 8) -> E0 = 115.11163 MeV    Added State 14 (Ch 9) -> E0 = 111.94691 MeV    
+Added State 15 (Ch 1) -> E0 = 111.85006 MeV    Added State 16 (Ch 2) -> E0 = 110.47605 MeV    Added State 17 (Ch 3) -> E0 = 109.02174 MeV    Added State 18 (Ch 4) -> E0 = 108.79876 MeV    Added State 19 (Ch 5) -> E0 = 106.65603 MeV    Added State 20 (Ch 6) -> E0 = 103.63839 MeV    Added State 21 (Ch 7) -> E0 = 103.45218 MeV    Added State 22 (Ch 8) -> E0 = 100.60506 MeV    Added State 23 (Ch 9) -> E0 = 98.06065 MeV    
+Sweep 1 (Basis=23): E0 = 0.07425 MeV  (ΔE = 97.98639)     Sweep 2 (Basis=23): E0 = -6.73898 MeV  (ΔE = 6.81323)     Sweep 3 (Basis=23): E0 = -7.32733 MeV  (ΔE = 0.58835)     Sweep 4 (Basis=23): E0 = -7.39768 MeV  (ΔE = 0.07035)     Sweep 5 (Basis=23): E0 = -7.42281 MeV  (ΔE = 0.02514)     Sweep 6 (Basis=23): E0 = -7.42521 MeV  (ΔE = 0.00240)     Sweep 7 (Basis=23): E0 = -7.42654 MeV  (ΔE = 0.00133)     Sweep 8 (Basis=23): E0 = -7.42780 MeV  (ΔE = 0.00126)     Sweep 9 (Basis=23): E0 = -7.42872 MeV  (ΔE = 0.00092)     Sweep 10 (Basis=23): E0 = -7.42937 MeV  (ΔE = 0.00065)     Sweep 11 (Basis=23): E0 = -7.42950 MeV  (ΔE = 0.00013)     Sweep 12 (Basis=23): E0 = -7.42950 MeV  (ΔE = 0.00000)     Sweep 13 (Basis=23): E0 = -7.42950 MeV  (ΔE = 0.00000)     Sweep 14 (Basis=23): E0 = -7.42950 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+
+=== Generating Basis for ho_k = 0.00000 ===
+Added State 6 (Ch 1) -> E0 = 130.59540 MeV    Added State 7 (Ch 2) -> E0 = 128.85506 MeV    Added State 8 (Ch 3) -> E0 = 127.03630 MeV    Added State 9 (Ch 4) -> E0 = 126.70561 MeV    Added State 10 (Ch 5) -> E0 = 122.72750 MeV    Added State 11 (Ch 6) -> E0 = 118.73605 MeV    Added State 12 (Ch 7) -> E0 = 118.42223 MeV    Added State 13 (Ch 8) -> E0 = 115.54657 MeV    Added State 14 (Ch 9) -> E0 = 112.60138 MeV    
+Added State 15 (Ch 1) -> E0 = 112.50170 MeV    Added State 16 (Ch 2) -> E0 = 111.05937 MeV    Added State 17 (Ch 3) -> E0 = 109.82054 MeV    Added State 18 (Ch 4) -> E0 = 109.58185 MeV    Added State 19 (Ch 5) -> E0 = 107.04686 MeV    Added State 20 (Ch 6) -> E0 = 104.19594 MeV    Added State 21 (Ch 7) -> E0 = 104.07052 MeV    Added State 22 (Ch 8) -> E0 = 101.92714 MeV    Added State 23 (Ch 9) -> E0 = 99.46975 MeV    
+Sweep 1 (Basis=23): E0 = 0.09622 MeV  (ΔE = 99.37353)     Sweep 2 (Basis=23): E0 = -0.42746 MeV  (ΔE = 0.52368)     Sweep 3 (Basis=23): E0 = -0.49624 MeV  (ΔE = 0.06878)     Sweep 4 (Basis=23): E0 = -0.69085 MeV  (ΔE = 0.19460)     Sweep 5 (Basis=23): E0 = -0.69126 MeV  (ΔE = 0.00041)     Sweep 6 (Basis=23): E0 = -0.69139 MeV  (ΔE = 0.00013)     Sweep 7 (Basis=23): E0 = -0.69141 MeV  (ΔE = 0.00002)     Sweep 8 (Basis=23): E0 = -0.69169 MeV  (ΔE = 0.00028)     Sweep 9 (Basis=23): E0 = -0.69172 MeV  (ΔE = 0.00004)     Sweep 10 (Basis=23): E0 = -0.69176 MeV  (ΔE = 0.00004)     Sweep 11 (Basis=23): E0 = -0.69179 MeV  (ΔE = 0.00003)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+
+=== Generating Basis for ho_k = 0.00000 ===
+Added State 6 (Ch 1) -> E0 = 130.62595 MeV    Added State 7 (Ch 2) -> E0 = 128.63312 MeV    Added State 8 (Ch 3) -> E0 = 127.13162 MeV    Added State 9 (Ch 4) -> E0 = 126.84854 MeV    Added State 10 (Ch 5) -> E0 = 122.76424 MeV    Added State 11 (Ch 6) -> E0 = 119.17963 MeV    Added State 12 (Ch 7) -> E0 = 118.91571 MeV    Added State 13 (Ch 8) -> E0 = 115.48656 MeV    Added State 14 (Ch 9) -> E0 = 112.55754 MeV    
+Added State 15 (Ch 1) -> E0 = 112.48042 MeV    Added State 16 (Ch 2) -> E0 = 111.00621 MeV    Added State 17 (Ch 3) -> E0 = 109.54945 MeV    Added State 18 (Ch 4) -> E0 = 109.39246 MeV    Added State 19 (Ch 5) -> E0 = 106.33342 MeV    Added State 20 (Ch 6) -> E0 = 103.95246 MeV    Added State 21 (Ch 7) -> E0 = 103.75947 MeV    Added State 22 (Ch 8) -> E0 = 101.56758 MeV    Added State 23 (Ch 9) -> E0 = 99.48323 MeV    
+Sweep 1 (Basis=23): E0 = 0.32038 MeV  (ΔE = 99.16284)     Sweep 2 (Basis=23): E0 = -6.56217 MeV  (ΔE = 6.88256)     Sweep 3 (Basis=23): E0 = -7.33579 MeV  (ΔE = 0.77362)     Sweep 4 (Basis=23): E0 = -7.39964 MeV  (ΔE = 0.06385)     Sweep 5 (Basis=23): E0 = -7.42526 MeV  (ΔE = 0.02562)     Sweep 6 (Basis=23): E0 = -7.43101 MeV  (ΔE = 0.00575)     Sweep 7 (Basis=23): E0 = -7.43278 MeV  (ΔE = 0.00177)     Sweep 8 (Basis=23): E0 = -7.43320 MeV  (ΔE = 0.00043)     Sweep 9 (Basis=23): E0 = -7.43371 MeV  (ΔE = 0.00051)     Sweep 10 (Basis=23): E0 = -7.43425 MeV  (ΔE = 0.00054)     Sweep 11 (Basis=23): E0 = -7.43465 MeV  (ΔE = 0.00040)     Sweep 12 (Basis=23): E0 = -7.43507 MeV  (ΔE = 0.00042)     Sweep 13 (Basis=23): E0 = -7.43528 MeV  (ΔE = 0.00021)     Sweep 14 (Basis=23): E0 = -7.43528 MeV  (ΔE = 0.00000)     Sweep 15 (Basis=23): E0 = -7.43528 MeV  (ΔE = 0.00000)     Sweep 16 (Basis=23): E0 = -7.43528 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+
+=== Generating Basis for ho_k = 0.00000 ===
+Added State 6 (Ch 1) -> E0 = 130.59106 MeV    Added State 7 (Ch 2) -> E0 = 128.76925 MeV    Added State 8 (Ch 3) -> E0 = 126.97960 MeV    Added State 9 (Ch 4) -> E0 = 126.68157 MeV    Added State 10 (Ch 5) -> E0 = 123.40075 MeV    Added State 11 (Ch 6) -> E0 = 119.81234 MeV    Added State 12 (Ch 7) -> E0 = 119.53866 MeV    Added State 13 (Ch 8) -> E0 = 116.79391 MeV    Added State 14 (Ch 9) -> E0 = 114.32749 MeV    
+Added State 15 (Ch 1) -> E0 = 114.26143 MeV    Added State 16 (Ch 2) -> E0 = 112.67821 MeV    Added State 17 (Ch 3) -> E0 = 111.10716 MeV    Added State 18 (Ch 4) -> E0 = 110.99386 MeV    Added State 19 (Ch 5) -> E0 = 108.27697 MeV    Added State 20 (Ch 6) -> E0 = 105.92200 MeV    Added State 21 (Ch 7) -> E0 = 105.73433 MeV    Added State 22 (Ch 8) -> E0 = 103.21440 MeV    Added State 23 (Ch 9) -> E0 = 101.28021 MeV    
+Sweep 1 (Basis=23): E0 = -0.05286 MeV  (ΔE = 101.33307)     Sweep 2 (Basis=23): E0 = -0.43855 MeV  (ΔE = 0.38569)     Sweep 3 (Basis=23): E0 = -0.82030 MeV  (ΔE = 0.38175)     Sweep 4 (Basis=23): E0 = -6.61720 MeV  (ΔE = 5.79690)     Sweep 5 (Basis=23): E0 = -7.35114 MeV  (ΔE = 0.73394)     Sweep 6 (Basis=23): E0 = -7.40905 MeV  (ΔE = 0.05791)     Sweep 7 (Basis=23): E0 = -7.42067 MeV  (ΔE = 0.01161)     Sweep 8 (Basis=23): E0 = -7.42963 MeV  (ΔE = 0.00896)     Sweep 9 (Basis=23): E0 = -7.42987 MeV  (ΔE = 0.00025)     Sweep 10 (Basis=23): E0 = -7.43002 MeV  (ΔE = 0.00015)     Sweep 11 (Basis=23): E0 = -7.43007 MeV  (ΔE = 0.00005)     Sweep 12 (Basis=23): E0 = -7.43019 MeV  (ΔE = 0.00012)     Sweep 13 (Basis=23): E0 = -7.43029 MeV  (ΔE = 0.00010)     Sweep 14 (Basis=23): E0 = -7.43030 MeV  (ΔE = 0.00001)     Sweep 15 (Basis=23): E0 = -7.43030 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+
+=== Generating Basis for ho_k = 0.00000 ===
+Added State 6 (Ch 1) -> E0 = 130.62897 MeV    Added State 7 (Ch 2) -> E0 = 128.93017 MeV    Added State 8 (Ch 3) -> E0 = 126.71495 MeV    Added State 9 (Ch 4) -> E0 = 126.37603 MeV    Added State 10 (Ch 5) -> E0 = 121.75218 MeV    Added State 11 (Ch 6) -> E0 = 118.06147 MeV    Added State 12 (Ch 7) -> E0 = 117.78773 MeV    Added State 13 (Ch 8) -> E0 = 114.71136 MeV    Added State 14 (Ch 9) -> E0 = 112.12865 MeV    
+Added State 15 (Ch 1) -> E0 = 112.02924 MeV    Added State 16 (Ch 2) -> E0 = 110.64953 MeV    Added State 17 (Ch 3) -> E0 = 109.51486 MeV    Added State 18 (Ch 4) -> E0 = 109.37126 MeV    Added State 19 (Ch 5) -> E0 = 106.31657 MeV    Added State 20 (Ch 6) -> E0 = 103.11345 MeV    Added State 21 (Ch 7) -> E0 = 102.86066 MeV    Added State 22 (Ch 8) -> E0 = 100.27430 MeV    Added State 23 (Ch 9) -> E0 = 97.82360 MeV    
+Sweep 1 (Basis=23): E0 = -0.10162 MeV  (ΔE = 97.92523)     Sweep 2 (Basis=23): E0 = -6.46864 MeV  (ΔE = 6.36701)     Sweep 3 (Basis=23): E0 = 0.42454 MeV  (ΔE = -6.89318)     Sweep 4 (Basis=23): E0 = 46.86501 MeV  (ΔE = -46.44047)     Sweep 5 (Basis=23): E0 = -7.42068 MeV  (ΔE = 54.28570)     Sweep 6 (Basis=23): E0 = -7.42379 MeV  (ΔE = 0.00311)     Sweep 7 (Basis=23): E0 = -7.42416 MeV  (ΔE = 0.00037)     Sweep 8 (Basis=23): E0 = -7.42441 MeV  (ΔE = 0.00025)     Sweep 9 (Basis=23): E0 = -7.42462 MeV  (ΔE = 0.00022)     Sweep 10 (Basis=23): E0 = -7.42488 MeV  (ΔE = 0.00025)     Sweep 11 (Basis=23): E0 = -7.42494 MeV  (ΔE = 0.00006)     Sweep 12 (Basis=23): E0 = -7.42510 MeV  (ΔE = 0.00015)     Sweep 13 (Basis=23): E0 = -7.42510 MeV  (ΔE = 0.00000)     Sweep 14 (Basis=23): E0 = -7.42510 MeV  (ΔE = 0.00000)     Sweep 15 (Basis=23): E0 = -7.42510 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+
+=== FINAL GEVP EVALUATION IN FREE SPACE (ho_k = 0.0) ===
+Sweep 1 (Basis=113): E0 = -7.31383 MeV  (ΔE = 100.59982)     Sweep 2 (Basis=113): E0 = -7.55383 MeV  (ΔE = 0.24000)     Sweep 3 (Basis=113): E0 = -7.56780 MeV  (ΔE = 0.01397)     Sweep 4 (Basis=113): E0 = -7.57497 MeV  (ΔE = 0.00717)     Sweep 5 (Basis=113): E0 = -7.57624 MeV  (ΔE = 0.00128)     Sweep 6 (Basis=113): E0 = -7.57713 MeV  (ΔE = 0.00089)     Sweep 7 (Basis=113): E0 = -7.59028 MeV  (ΔE = 0.01314)     Sweep 8 (Basis=113): E0 = -7.59533 MeV  (ΔE = 0.00505)     Sweep 9 (Basis=113): E0 = -7.59577 MeV  (ΔE = 0.00044)     Sweep 10 (Basis=113): E0 = -7.59630 MeV  (ΔE = 0.00053)     Sweep 11 (Basis=113): E0 = -7.59641 MeV  (ΔE = 0.00011)     Sweep 12 (Basis=113): E0 = -7.59647 MeV  (ΔE = 0.00006)     Sweep 13 (Basis=113): E0 = -7.59651 MeV  (ΔE = 0.00004)     Sweep 14 (Basis=113): E0 = -7.59657 MeV  (ΔE = 0.00005)     
+  - Converged: improvement < 0.00010 MeV for 3 sweeps
+
+Saved basis state to basis_final.txt
+--> FINAL PN_{Rel} Pi_{Rel} | E: -7.59657 MeV, R: 1.48134 fm
+
+======================================================================================================================================
+                                  FINAL RESULTS SUMMARY                                   
+======================================================================================================================================
+PN_{Rel} Pi_{Rel}        | E: -7.59657 MeV | R: 1.48134 fm | <T>: 29.53818 MeV | PN: 93.76625 % | PN+pi: 6.23375 % | Time: 1686.677 s
+--------------------------------------------------------------------------------------------------------------------------------------
+Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm
+======================================================================================================================================
+Saved all configurations to all_configurations.txt

@@ -21,6 +21,7 @@ struct SvmResult {
     ld prob_bare;
     ld prob_dressed;
     rvec convergence_history;
+    ld execution_time;  // in seconds
 };
 
 // Template: Evaluate energy: build H,N and solve GEVP for E0 only
@@ -399,7 +400,7 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
             }
 
             // CRITICAL: Check overlap tolerance (0.99) to avoid states that will be rejected later
-            ld tol = 0.95;
+            ld tol = 0.99;
             bool overlap_violation = false;
             for (size_t i = 0; i < K; ++i) {
                 ld overlap = std::abs(N_test(i, K)) / std::sqrt(std::abs(N_test(i, i)) * std::abs(N_test(K, K)));
@@ -413,7 +414,7 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                 continue;
             }
 
-            // Compute E0 ONLY (no E1)
+            // Compute E0 
             ld E0 = solve_ground_state_energy(H_test, N_test, nvals);
             ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
 
