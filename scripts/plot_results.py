@@ -8,12 +8,75 @@ Usage:
   python3 scripts/plot_results.py energy_sweep_S
   python3 scripts/plot_results.py energy_sweep_basis_size
   python3 scripts/plot_results.py energy_sweep_calibration
+  python3 scripts/plot_results.py smart_contour
 """
 
 import sys
 import csv
 import os
 from pathlib import Path
+
+def plot_smart_contour(csv_file):
+    """Plot adaptive mesh search results for charge radius contour"""
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.lines as mlines
+        import numpy as np
+    except ImportError:
+        print("ERROR: matplotlib or numpy not found. Install with: pip install matplotlib numpy", file=sys.stderr)
+        return False
+
+    br_final, bf_final, r_final = [], [], []
+    try:
+        with open(csv_file, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                br_final.append(float(row["b_range"]))
+                bf_final.append(float(row["b_form"]))
+                r_final.append(float(row["radius_fm"]))
+    except Exception as e:
+        print(f"ERROR reading CSV: {e}", file=sys.stderr)
+        return False
+
+    if not br_final:
+        print("No data found in CSV", file=sys.stderr)
+        return False
+
+    RADIUS_TARGET = 2.128
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    # Plot the evaluated points
+    ax.scatter(br_final, bf_final, c='black', s=10, alpha=0.5, label='Evaluated Points')
+
+    try:
+        # Interpolated surface
+        tcf = ax.tricontourf(br_final, bf_final, r_final, levels=20, cmap='viridis', alpha=0.8)
+        plt.colorbar(tcf, ax=ax, label="Charge Radius (fm)")
+
+        # Target contour line
+        ax.tricontour(br_final, bf_final, r_final, levels=[RADIUS_TARGET], colors='red', linewidths=3)
+    except Exception as e:
+        print(f"Triangulation error (you might need more data points): {e}", file=sys.stderr)
+        return False
+
+    # Safe legend implementation
+    target_line = mlines.Line2D([], [], color='red', linewidth=3, label=f'Target R = {RADIUS_TARGET} fm')
+    ax.legend(handles=[target_line], loc="upper right")
+
+    ax.set_title("Adaptive Mesh Search: Charge Radius Contour", fontweight='bold')
+    ax.set_xlabel("$b_{range}$ (fm)")
+    ax.set_ylabel("$b_{form}$ (fm)")
+    ax.grid(True, linestyle=':', alpha=0.4)
+
+    plt.tight_layout()
+    output_file = csv_file.replace('smart_grid_data.csv', 'adaptive_radius_contour.png')
+    if output_file == csv_file:
+        output_file = csv_file.replace('.csv', '.png')
+        
+    plt.savefig(output_file, dpi=150)
+    print(f"Smart contour plot saved to: {output_file}")
+    return True
 
 def plot_contour_b_range(grid_csv_path, b_form):
     """Plot contour map for b_range sweep (from pre-computed grid data)"""
@@ -595,6 +658,7 @@ def plot_energy_vs_b_form(csv_file):
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
     return True
+
 def plot_energy_vs_b_range(csv_file):
     """Plot energy vs b_range"""
     try:
@@ -653,6 +717,7 @@ def plot_energy_vs_b_range(csv_file):
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
     return True
+
 def plot_energy_vs_S(csv_file):
     """Plot energy vs S (coupling strength)"""
     try:
@@ -860,7 +925,7 @@ def plot_basis_size_convergence(csv_file):
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <scan_type> [fixed_param]", file=sys.stderr)
-        print(f"  scan_type: energy_sweep_b_range | energy_sweep_b_form | energy_sweep_S | energy_sweep_basis_size | energy_sweep_calibration | contour_map | contour_b_range | contour_b_form", file=sys.stderr)
+        print(f"  scan_type: energy_sweep_b_range | energy_sweep_b_form | energy_sweep_S | energy_sweep_basis_size | energy_sweep_calibration | contour_map | contour_b_range | contour_b_form | smart_contour", file=sys.stderr)
         print(f"  fixed_param: for contour_b_range, pass b_form value; for contour_b_form, pass b_range value", file=sys.stderr)
         return 1
     
@@ -873,6 +938,14 @@ def main():
             print(f"ERROR: Grid data file not found: {csv_file}", file=sys.stderr)
             return 1
         success = plot_contour_map(csv_file)
+        return 0 if success else 1
+        
+    if scan_type == "smart_contour":
+        csv_file = "results/smart_contour/smart_grid_data.csv"
+        if not os.path.exists(csv_file):
+            print(f"ERROR: Grid data file not found: {csv_file}", file=sys.stderr)
+            return 1
+        success = plot_smart_contour(csv_file)
         return 0 if success else 1
     
     if scan_type == "contour_b_range":

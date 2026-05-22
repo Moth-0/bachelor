@@ -203,16 +203,14 @@ def main():
     tcf = plt.tricontourf(br_final, bf_final, r_final, levels=20, cmap='viridis', alpha=0.8)
     plt.colorbar(tcf, label="Charge Radius (fm)")
     
-    # Draw the specific target line
-    cs = plt.tricontour(br_final, bf_final, r_final, levels=[RADIUS_TARGET], colors='red', linewidths=3)
-    
-    # Add a custom legend entry for the contour line
-    cs.collections[0].set_label(f'Target R = {RADIUS_TARGET} fm')
-    
+    plt.tricontour(br_final, bf_final, r_final, levels=[RADIUS_TARGET], colors='red', linewidths=3)
+    import matplotlib.lines as mlines
+    target_line = mlines.Line2D([], [], color='red', linewidth=3, label=f'Target R = {RADIUS_TARGET} fm')
+
     plt.title("Adaptive Mesh Search: Charge Radius Contour", fontweight='bold')
     plt.xlabel("$b_{range}$ (fm)")
     plt.ylabel("$b_{form}$ (fm)")
-    plt.legend(loc="upper right")
+    plt.legend(handles=[target_line], loc="upper right")
     plt.grid(True, linestyle=':', alpha=0.4)
     
     plt.tight_layout()

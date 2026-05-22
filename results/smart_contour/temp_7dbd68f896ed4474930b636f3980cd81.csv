@@ -1,6 +1,0 @@
-# METADATA: b_range=3.333300
-# METADATA: b_form=1.200000
-# METADATA: S=42.000000
-# METADATA: box_strengths=10.000000,5.000000,2.000000,1.000000
-# METADATA: timestamp=2026-05-22T08:58:59
-iteration,energy_mev,kinetic_mev,radius_fm,basis_size,prob_bare,prob_dressed,execution_time_s
