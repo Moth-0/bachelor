@@ -122,7 +122,7 @@ def plot_contour_b_range(grid_csv_path, b_form):
         return False
     
     # Filter out unbound states
-    valid_indices = [i for i, e in enumerate(E_plot) if e < -0.01]
+    valid_indices = [i for i, e in enumerate(E_plot) if e < 0]
     B_plot = [B_plot[i] for i in valid_indices]
     S_plot = [S_plot[i] for i in valid_indices]
     E_plot = [E_plot[i] for i in valid_indices]
@@ -156,7 +156,7 @@ def plot_contour_b_range(grid_csv_path, b_form):
     # Radius is only reliable near the correct (bound-state) energy.
     # Down-weight off-target energies so large-radius points don't distort the R fit.
     dE = np.abs(E_array - ENERGY_TARGET)
-    sigma_E = 0.5  # MeV; controls how aggressively we ignore off-target points
+    sigma_E = 0.005  # MeV; controls how aggressively we ignore off-target points
     w = np.exp(-(dE / sigma_E) ** 2)
     w = np.clip(w, 1e-6, 1.0)
     sigma_R = 1.0 / np.sqrt(w)

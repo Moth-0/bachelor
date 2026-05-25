@@ -1,13 +1,13 @@
 {
   "scan_type": "S",
-  "timestamp": "2026-05-22T08:43:58.398732",
+  "timestamp": "2026-05-25T11:43:56.032097",
   "fixed_params": {
-    "b_range": 3.6,
-    "b_form": 1.5
+    "b_range": 2.25,
+    "b_form": 1.0
   },
   "sweep_params": {
-    "S_min": 20.0,
-    "S_max": 40.0,
+    "S_min": 60.0,
+    "S_max": 62.0,
     "S_steps": 10
   },
   "num_jobs": 10,
