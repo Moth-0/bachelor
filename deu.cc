@@ -67,7 +67,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     std::cout << "--- 1. Planting Geometric PN Grid & Pion Seeds ---\n";
     
     std::vector<BasisState> bare_basis;
-    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0, 10.0, 20.0};
+    std::vector<ld> deterministic_widths = {1.0, 3.0, 8.0, 20.0, 100.0};
     for (ld width : deterministic_widths) {
         rmat A_fixed = eye<ld>(1) * 1.0 / (width * width);
         rmat s_fixed = zeros<ld>(1, 3);
@@ -100,8 +100,9 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     // Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, 0.0, 3);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 50, 1e-4, 0.0, 3);
 
+    
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
 
     result.convergence_history = convergence_energies;
@@ -111,8 +112,8 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     result.execution_time = duration.count() / 1000.0;  // convert to seconds
 
-    // print_basis_details(grand_basis, result.coefficients);
-    // std::cout << "\n";
+    print_basis_details(grand_basis, result.coefficients);
+    std::cout << "\n";
 
     // Save final basis state for analysis (keep this for individual inspection)
     save_basis_state(grand_basis, result.coefficients, result.energy, result.charge_radius,
@@ -131,7 +132,7 @@ int main(int argc, char* argv[]) {
     std::string file_name = "convergence.data";
     std::string output_csv = "";
     int max_basis_size = 0;
-    std::vector<ld> box_strengths_input = {0, 0, 0, 0, 0, 0};  // default: only free space
+    std::vector<ld> box_strengths_input = {5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.01};  // default 
     bool pn_rel = false, pi_rel = false;  // defaults: both classical
 
     // Parse command-line arguments

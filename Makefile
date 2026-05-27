@@ -58,7 +58,7 @@ plot_wavefunction: deu plot_wavefunction.o scripts/plot_wavefunction.py
 # Parameter Sweeps 
 sweep_S : deu scripts/sweep_S.py Makefile
 	python3 scripts/sweep_S.py --b_range $(B_RANGE) --b_form $(B_FORM) \
-	--S_min 60.0 --S_max 62.0 --S_steps 10 --jobs 10
+	--S_min 30.8 --S_max 31.1 --S_steps 10 --jobs 10
 
 sweep_b_range : deu scripts/sweep_b_range.py Makefile
 	python3 scripts/sweep_b_range.py --S $(S) --b_form $(B_FORM) \
@@ -70,7 +70,7 @@ sweep_b_form : deu scripts/sweep_b_form.py Makefile
 
 sweep_size : deu scripts/sweep_basis_size.py Makefile
 	python3 scripts/sweep_basis_size.py --b_range $(B_RANGE) --b_form $(B_FORM) --S $(S) \
-	--basis_size_steps 6 --jobs 6
+	--basis_size_steps 8 --jobs 8
 
 contour_b_range : deu scripts/contour_plot_b_range.py Makefile
 	python3 scripts/contour_plot_b_range.py --b_range_min 2.0 --b_range_max 2.5 --b_range_steps 10 \

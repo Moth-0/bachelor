@@ -151,7 +151,7 @@ def plot_contour_b_range(grid_csv_path, b_form):
     
     # Fit polynomials to the data
     xy_data = np.column_stack([B_array, S_array])
-    popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, maxfev=10000)
+    popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, maxfev=1000)
 
     # Radius is only reliable near the correct (bound-state) energy.
     # Down-weight off-target energies so large-radius points don't distort the R fit.
@@ -160,7 +160,7 @@ def plot_contour_b_range(grid_csv_path, b_form):
     w = np.exp(-(dE / sigma_E) ** 2)
     w = np.clip(w, 1e-6, 1.0)
     sigma_R = 1.0 / np.sqrt(w)
-    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R, maxfev=20000)
+    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R, maxfev=1000)
     
     # Evaluate fitted polynomials on the mesh grid
     grid_E = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_E).reshape(grid_B.shape)
