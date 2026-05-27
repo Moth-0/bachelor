@@ -230,9 +230,17 @@ class BasisSizeSweep:
         
         fig, axes = plt.subplots(3, 1, figsize=(11, 10))
         
+        # Target values and tolerance
+        ENERGY_TARGET = -2.224
+        RADIUS_TARGET = 2.128
+        TOLERANCE_PERCENT = 0.001  # ±0.1%
+        
         ax1 = axes[0]
+        energy_tolerance = abs(ENERGY_TARGET * TOLERANCE_PERCENT)
         ax1.plot(basis_sizes, energies, 'o-', linewidth=2.5, markersize=10, label='Computed', color='steelblue')
-        ax1.axhline(y=-2.224, color='r', linestyle='--', linewidth=2, label='Target (-2.224 MeV)')
+        ax1.axhline(y=ENERGY_TARGET, color='r', linestyle='--', linewidth=2, label=f'Target ({ENERGY_TARGET} MeV)')
+        ax1.fill_between(basis_sizes, ENERGY_TARGET - energy_tolerance, ENERGY_TARGET + energy_tolerance,
+                        alpha=0.2, color='red', label='±0.1% Target Band')
         ax1.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
         ax1.set_ylabel('Energy (MeV)', fontsize=12, fontweight='bold')
         ax1.set_title('Basis Size Convergence: Ground State Energy', fontsize=14, fontweight='bold')
@@ -243,8 +251,11 @@ class BasisSizeSweep:
         if radii and any(r is not None and r > 0 for r in radii):
             ax2 = axes[1]
             radii_clean = [r if r is not None else 0 for r in radii]
+            radius_tolerance = RADIUS_TARGET * TOLERANCE_PERCENT
             ax2.plot(basis_sizes, radii_clean, 's-', linewidth=2.5, markersize=10, color='green', label='Computed')
-            ax2.axhline(y=2.128, color='r', linestyle='--', linewidth=2, label='Target (2.128 fm)')
+            ax2.axhline(y=RADIUS_TARGET, color='r', linestyle='--', linewidth=2, label=f'Target ({RADIUS_TARGET} fm)')
+            ax2.fill_between(basis_sizes, RADIUS_TARGET - radius_tolerance, RADIUS_TARGET + radius_tolerance,
+                            alpha=0.2, color='red', label='±0.1% Target Band')
             ax2.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
             ax2.set_ylabel('Charge Radius (fm)', fontsize=12, fontweight='bold')
             ax2.set_title('Basis Size Convergence: Charge Radius', fontsize=14, fontweight='bold')
