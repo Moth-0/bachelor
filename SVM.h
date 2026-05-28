@@ -555,7 +555,7 @@ void unpack_all_basis_states(std::vector<BasisState>& basis, const rvec& p, bool
 template <typename BasisStateType>
 void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic,
                           rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0, size_t nvals = 0) {
-    int nm_max_iter = 200;
+    int nm_max_iter = 500;
     int patience = 3;
 
     ld previous_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);

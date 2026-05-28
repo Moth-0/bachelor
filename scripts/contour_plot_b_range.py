@@ -33,7 +33,6 @@ def run_single_point(args):
         "-b_range", f"{b_range:.4f}",
         "-b_form", f"{b_form:.4f}",
         "-S", f"{S:.4f}",
-        "-box-strengths", "0.0,0.0,0.0,0.0,0.0",
         "--output-csv", csv_path
     ]
     
@@ -115,7 +114,7 @@ def main():
     plot_path = os.path.join(results_dir, "calibration_contour.png")
     
     b_ranges = np.linspace(args.b_range_min, args.b_range_max, args.b_range_steps)
-    b_ranges = np.array([2.0, 2.1, 2.15, 2.20, 2.21, 2.23, 2.25, 2.27, 2.3, 2.4, 2.5, 2.8, 3.0, 3.2, 3.4, 3.6, 4.0])
+    b_ranges = np.array([2.0, 2.1, 2.15, 2.20, 2.23, 2.24, 2.25, 2.27, 2.3, 2.4, 2.5, 2.8, 3.0, 3.2, 3.4, 3.6])
     
     print(f"Starting Dynamic Grid Calculation ({args.b_range_steps} slices of {args.S_steps} runs)")
     print(f"Using {args.jobs} CPU cores...\n")
