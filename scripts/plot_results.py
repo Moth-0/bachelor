@@ -122,7 +122,7 @@ def plot_contour_b_range(grid_csv_path, b_form):
         return False
     
     # Filter out unbound states
-    valid_indices = [i for i, e in enumerate(E_plot) if e < 0]
+    valid_indices = [i for i, e in enumerate(E_plot) if e < -0.1]
     B_plot = [B_plot[i] for i in valid_indices]
     S_plot = [S_plot[i] for i in valid_indices]
     E_plot = [E_plot[i] for i in valid_indices]

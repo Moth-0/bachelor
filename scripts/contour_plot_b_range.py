@@ -77,7 +77,7 @@ def run_single_point(args):
         "-b_range", f"{b_range:.4f}",
         "-b_form", f"{b_form:.4f}",
         "-S", f"{S:.4f}",
-        "-box-strengths", "5.0,2.0,1.0,0.5,0.2,0.0",
+        "-box-strengths", "2.0,1.0,0.5,0.2,0.0",
         "--output-csv", csv_path
     ]
     
@@ -215,6 +215,7 @@ def main():
     all_job_args = []
     slice_boundaries = {}  # Track which indices belong to which slice
     s_centers = [args.S_init_anchor] * args.b_range_steps
+    job_to_slice = {}  # Map run_id to (slice_index, b_value)
     
     for i, b in enumerate(b_ranges):
         if s_anchors is not None:
@@ -223,8 +224,9 @@ def main():
         s_vals = np.linspace(s_centers[i] - args.S_window, s_centers[i] + args.S_window, args.S_steps)
         start_idx = len(all_job_args)
         
-        for s in s_vals:
+        for j, s in enumerate(s_vals):
             all_job_args.append((b, s, args.b_form, run_id, results_dir))
+            job_to_slice[run_id] = (i, b)  # Track which slice this job belongs to
             run_id += 1
         
         slice_boundaries[i] = (start_idx, len(all_job_args), list(s_vals))
@@ -235,9 +237,18 @@ def main():
     # ==========================================
     # 2. RUN ALL JOBS WITH CONTINUOUS POOL
     # ==========================================
+    slice_results_dict = {i: [] for i in range(args.b_range_steps)}  # Collect results by slice
+    
     def callback(res):
         write_result_to_csv(grid_csv_path, res)
-        all_results.append(res)
+        if res:
+            all_results.append(res)
+            # Figure out which slice this result belongs to by matching b_range
+            b_range_val = res[0]
+            for i, b in enumerate(b_ranges):
+                if abs(b - b_range_val) < 1e-6:
+                    slice_results_dict[i].append(res)
+                    break
     
     run_jobs_with_pool(
         all_job_args,
@@ -253,8 +264,7 @@ def main():
     # ==========================================
     if s_anchors is None:
         for i, b in enumerate(b_ranges):
-            start_idx, end_idx, s_vals = slice_boundaries[i]
-            slice_results = all_results[start_idx:end_idx]
+            slice_results = slice_results_dict[i]
             
             if not slice_results:
                 print(f"⚠ Slice {i+1} (b={b:.4f}) had no valid results")
@@ -296,11 +306,21 @@ def main():
     # ==========================================
 
     def _secant_or_bisect(s_lo, e_lo, s_hi, e_hi):
+        """Guaranteed to stay within bracket bounds using bisection fallback."""
         if abs(e_hi - e_lo) < 1e-14:
             return 0.5 * (s_lo + s_hi)
+        
+        # Try secant method
         s_next = s_lo + (s_hi - s_lo) * (ENERGY_TARGET - e_lo) / (e_hi - e_lo)
+        
+        # Safeguard: if secant goes outside bracket, use bisection
         if not (min(s_lo, s_hi) <= s_next <= max(s_lo, s_hi)):
             s_next = 0.5 * (s_lo + s_hi)
+            
+        # Extra safety: slightly narrow away from endpoints to avoid edge issues
+        margin = 0.001 * abs(s_hi - s_lo)
+        s_next = max(min(s_lo, s_hi) + margin, min(s_next, max(s_lo, s_hi) - margin))
+        
         return float(s_next)
 
     if args.refine_iters > 0 and pending_refine:
@@ -318,6 +338,12 @@ def main():
             for entry in active:
                 s_next = _secant_or_bisect(entry["s_lo"], entry["e_lo"], entry["s_hi"], entry["e_hi"])
                 entry["s_next"] = s_next
+                
+                # DEBUG: Show bracket and next point
+                if it == 0:  # First iteration only
+                    bracket_str = f"[{entry['s_lo']:.2f},{entry['e_lo']:.3f}] to [{entry['s_hi']:.2f},{entry['e_hi']:.3f}]"
+                    print(f"  b={entry['b']:.4f}: Bracket {bracket_str} → next S={s_next:.2f}")
+                
                 batch_args.append((entry["b"], s_next, args.b_form, run_id, results_dir))
                 run_id += 1
 
@@ -356,23 +382,15 @@ def main():
                 f_new = e_val - ENERGY_TARGET
 
                 if f_lo * f_new <= 0:
+                    # New point brackets with lower bound
                     entry["s_hi"], entry["e_hi"] = float(s_val), float(e_val)
                 elif f_new * f_hi <= 0:
+                    # New point brackets with upper bound
                     entry["s_lo"], entry["e_lo"] = float(s_val), float(e_val)
                 else:
-                    candidates = [
-                        (entry["s_lo"], entry["e_lo"]),
-                        (entry["s_hi"], entry["e_hi"]),
-                        (float(s_val), float(e_val)),
-                    ]
-                    candidates.sort(key=lambda se: abs(se[1] - ENERGY_TARGET))
-                    (s_a, e_a), (s_b, e_b) = candidates[0], candidates[1]
-                    if s_a < s_b:
-                        entry["s_lo"], entry["e_lo"] = s_a, e_a
-                        entry["s_hi"], entry["e_hi"] = s_b, e_b
-                    else:
-                        entry["s_lo"], entry["e_lo"] = s_b, e_b
-                        entry["s_hi"], entry["e_hi"] = s_a, e_a
+                    # Point doesn't bracket - keep original bracket unchanged
+                    # (secant method failed, try again with same bracket)
+                    pass
 
                 new_active.append(entry)
 

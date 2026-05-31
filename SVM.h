@@ -564,9 +564,6 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
 
     for (int sweep = 1; sweep < max_sweeps+1; ++sweep) {
         ld sweep_start_E = previous_E;
-        
-        // SAFETY: Save basis in case sweep makes things worse
-        std::vector<BasisStateType> basis_backup = basis;
 
         // 1. BUILD CACHE STRICTLY ONCE PER SWEEP
         auto [H_full, N_full] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
@@ -655,15 +652,7 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
 
         ld improvement = sweep_start_E - current_E;
         
-        // REVERT SWEEP if it made energy worse (ΔE < 0)
-        if (improvement < 0.0) {
-            std::cout << "\n[REVERT] Sweep " << sweep << " made energy worse (ΔE = " << improvement 
-                      << "), reverting to basis_backup\n";
-            basis = basis_backup;
-            current_E = sweep_start_E;
-            improvement = 0.0;
-            no_improve_count++;
-        } else if (improvement < threshold) {
+        if (improvement < threshold) {
             no_improve_count++;
         } else {
             no_improve_count = 0;
