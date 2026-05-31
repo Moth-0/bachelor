@@ -153,6 +153,7 @@ bool has_positive_kinetic_energy(const BasisStateType& state, const std::vector<
     if (overlap < ZERO_LIMIT) return false;
 
     ld kinetic_expectation = kinetic / overlap;
+    // Allow states with slightly negative kinetic energy due to numerical precision
     return kinetic_expectation > -1e-6;
 }
 
@@ -556,13 +557,16 @@ template <typename BasisStateType>
 void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic,
                           rvec& convergence_energies, int max_sweeps = 100, ld threshold = 1e-4, ld ho_k = 0.0, size_t nvals = 0) {
     int nm_max_iter = 500;
-    int patience = 3;
+    int patience = 2;
 
     ld previous_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
     int no_improve_count = 0;
 
     for (int sweep = 1; sweep < max_sweeps+1; ++sweep) {
         ld sweep_start_E = previous_E;
+        
+        // SAFETY: Save basis in case sweep makes things worse
+        std::vector<BasisStateType> basis_backup = basis;
 
         // 1. BUILD CACHE STRICTLY ONCE PER SWEEP
         auto [H_full, N_full] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
@@ -584,12 +588,12 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
                 unpack_wavefunction(test_psi, p_test, opt_shift);
 
                 // SOFT PENALTIES: Prevent simplex shattering
-                if (!is_physical_gaussian(test_psi)) return sweep_start_E + 50.0; 
+                if (!is_physical_gaussian(test_psi)) return 99999.0; 
 
                 BasisStateType test_candidate = basis[k];
                 test_candidate.psi = test_psi;
                 
-                if (!has_positive_kinetic_energy(test_candidate, relativistic)) return sweep_start_E + 50.0;
+                if (!has_positive_kinetic_energy(test_candidate, relativistic)) return 99999.0;
 
                 // Incremental Update (reuse pre-allocated matrices)
                 H_test = H_full;
@@ -634,12 +638,15 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
 
             ld test_E = solve_ground_state_energy(H_proposed, N_proposed, nvals);
 
-            // Only accept if it mathematically lowered the energy!
             if (test_E < current_exact_E - 1e-8) {
-                basis[k] = proposed_state;  // Accept the new shape
-                H_full = H_proposed;        // Permanently update the sweep cache!
-                N_full = N_proposed;
-                current_exact_E = test_E;   // Update our new baseline
+                // Quick check: can we actually solve the GEVP?
+                cmat L = N_proposed.cholesky();
+                if (L.size1() > 0) {  // Cholesky succeeded
+                    basis[k] = proposed_state;
+                    H_full = H_proposed;
+                    N_full = N_proposed;
+                    current_exact_E = test_E;
+                }
             }
         }
 
@@ -647,7 +654,16 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
         convergence_energies.push_back(current_E);
 
         ld improvement = sweep_start_E - current_E;
-        if (improvement < threshold) {
+        
+        // REVERT SWEEP if it made energy worse (ΔE < 0)
+        if (improvement < 0.0) {
+            std::cout << "\n[REVERT] Sweep " << sweep << " made energy worse (ΔE = " << improvement 
+                      << "), reverting to basis_backup\n";
+            basis = basis_backup;
+            current_E = sweep_start_E;
+            improvement = 0.0;
+            no_improve_count++;
+        } else if (improvement < threshold) {
             no_improve_count++;
         } else {
             no_improve_count = 0;

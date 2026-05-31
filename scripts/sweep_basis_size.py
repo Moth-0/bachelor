@@ -40,7 +40,7 @@ class BasisSizeSweep:
         base_strengths = [0.0, 1.0, 0.1, 0.2, 0.5, 2.0, 0.01, 5.0, 3.0]
         combinations = []
         
-        for step in range(2, self.num_steps + 1):
+        for step in range(3, self.num_steps + 1):
             step_box_strengths = sorted(base_strengths[:step], reverse=True)
             params = dict(self.fixed_params)
             params.update({

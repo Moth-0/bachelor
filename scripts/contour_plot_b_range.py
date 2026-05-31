@@ -6,7 +6,7 @@ Usage:
   python3 scripts/contour_plot_b_range.py \
     --b_range_min 2.0 --b_range_max 4.0 --b_range_steps 10 \
     --S_init_anchor 47.0 --S_window 5.0 --S_steps 8 \
-    --b_form 1.2 --jobs 8
+    --b_form 1.2 --jobs 10
 """
 
 import sys
@@ -16,12 +16,56 @@ import subprocess
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path
+import threading
 
 # Hardcoded experimental targets
 ENERGY_TARGET = -2.224
 RADIUS_TARGET = 2.128
+
+# Lock for thread-safe CSV writing
+csv_lock = threading.Lock()
+
+def run_jobs_with_pool(job_args, max_workers, write_callback=None, progress_prefix=""):
+    """
+    Execute jobs maintaining a continuous pool of workers.
+    Submits new jobs as workers complete, keeping max_workers busy until all work is done.
+    """
+    from collections import deque
+    pending = deque(job_args)
+    futures = {}
+    completed_count = 0
+    results = []
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit initial batch
+        while len(futures) < max_workers and pending:
+            arg = pending.popleft()
+            future = executor.submit(run_single_point, arg)
+            futures[future] = arg
+        
+        # Process completions and maintain queue
+        while futures:
+            done, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                res = future.result()
+                completed_count += 1
+                
+                del futures[future]
+                
+                if res:
+                    results.append(res)
+                    if write_callback:
+                        write_callback(res)
+                
+                # Submit next pending job if available
+                if pending:
+                    arg = pending.popleft()
+                    new_future = executor.submit(run_single_point, arg)
+                    futures[new_future] = arg
+    
+    return results, completed_count
 
 def run_single_point(args):
     """Executes the deu binary for a single (b_range, S) coordinate"""
@@ -33,31 +77,71 @@ def run_single_point(args):
         "-b_range", f"{b_range:.4f}",
         "-b_form", f"{b_form:.4f}",
         "-S", f"{S:.4f}",
+        "-box-strengths", "5.0,2.0,1.0,0.5,0.2,0.0",
         "--output-csv", csv_path
     ]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
-        # Don't check exit code - if CSV was written, process it regardless
+        
+        if result.returncode != 0:
+            print(f"ERROR: b_range={b_range:.4f}, S={S:.4f}: Exit code {result.returncode}", file=sys.stderr)
+            if os.path.exists(csv_path):
+                try:
+                    os.remove(csv_path)
+                except:
+                    pass
+            return None
+        
+        if not os.path.exists(csv_path):
+            print(f"ERROR: b_range={b_range:.4f}, S={S:.4f}: CSV not created", file=sys.stderr)
+            return None
         
         with open(csv_path, 'r') as f:
             lines = [l for l in f.readlines() if not l.startswith("#")]
-            if len(lines) < 2: return None
+            if len(lines) < 2:
+                print(f"ERROR: b_range={b_range:.4f}, S={S:.4f}: Insufficient data rows", file=sys.stderr)
+                os.remove(csv_path)
+                return None
             
             reader = csv.DictReader(lines)
             final_row = list(reader)[-1]
             
-            energy = float(final_row.get("energy_mev", 0))
-            radius = float(final_row.get("radius_fm", 0))
-            prob_bare = float(final_row.get("prob_bare", 0))
-            prob_dressed = float(final_row.get("prob_dressed", 0))
+            try:
+                energy = float(final_row.get("energy_mev", 0))
+                radius = float(final_row.get("radius_fm", 0))
+                prob_bare = float(final_row.get("prob_bare", 0))
+                prob_dressed = float(final_row.get("prob_dressed", 0))
+            except (ValueError, KeyError) as e:
+                print(f"ERROR: b_range={b_range:.4f}, S={S:.4f}: Failed to parse CSV: {e}", file=sys.stderr)
+                os.remove(csv_path)
+                return None
             
         os.remove(csv_path)
         return (b_range, S, energy, radius, prob_bare, prob_dressed)
         
     except Exception as e:
-        print(f"Error at b_range={b_range}, S={S}: {e}")
+        print(f"ERROR: b_range={b_range:.4f}, S={S:.4f}: {e}", file=sys.stderr)
         return None
+
+def write_result_to_csv(csv_path, result):
+    """Thread-safe append to CSV file"""
+    if result is None:
+        return False
+    
+    with csv_lock:
+        try:
+            file_exists = os.path.exists(csv_path) and os.path.getsize(csv_path) > 0
+            with open(csv_path, 'a', newline='') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    # Write header
+                    writer.writerow(["b_range", "S", "energy_mev", "radius_fm", "prob_bare", "prob_dressed"])
+                writer.writerow(result)
+            return True
+        except Exception as e:
+            print(f"ERROR writing to CSV: {e}", file=sys.stderr)
+            return False
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Dynamic Slanted 2D Contour Plot")
@@ -90,7 +174,7 @@ def main():
     )
     
     parser.add_argument("--b_form", type=float, default=1.2)
-    parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--jobs", type=int, default=10)
     
     args = parser.parse_args()
 
@@ -115,100 +199,103 @@ def main():
     
     b_ranges = np.linspace(args.b_range_min, args.b_range_max, args.b_range_steps)
     b_ranges = np.array([2.0, 2.1, 2.15, 2.20, 2.23, 2.24, 2.25, 2.27, 2.3, 2.4, 2.5, 2.8, 3.0, 3.2, 3.4, 3.6])
+    args.b_range_steps = len(b_ranges)
     
     print(f"Starting Dynamic Grid Calculation ({args.b_range_steps} slices of {args.S_steps} runs)")
-    print(f"Using {args.jobs} CPU cores...\n")
+    print(f"Maintaining {args.jobs} concurrent jobs...")
+    print(f"Results will be written incrementally to: {grid_csv_path}\n")
     
     all_results = []
-    # Each entry stores a bracket (S_lo,E_lo)-(S_hi,E_hi) that straddles ENERGY_TARGET.
-    # We'll refine each bracket toward the root with a few extra runs, executed in parallel batches.
-    pending_refine = []  # list[dict]
+    pending_refine = []
     run_id = 0
-    current_s_center = args.S_init_anchor
     
     # ==========================================
-    # 1. PROCESS SLICE BY SLICE
+    # 1. BUILD ALL JOBS UPFRONT
     # ==========================================
+    all_job_args = []
+    slice_boundaries = {}  # Track which indices belong to which slice
+    s_centers = [args.S_init_anchor] * args.b_range_steps
+    
     for i, b in enumerate(b_ranges):
-        print(f"--- Slice {i+1}/{args.b_range_steps}: b_range = {b:.4f} ---")
-
         if s_anchors is not None:
-            current_s_center = s_anchors[i]
-            print(f"    Using provided S anchor: {current_s_center:.4f}")
-
-        print(f"    Searching S window: [{current_s_center - args.S_window:.2f} to {current_s_center + args.S_window:.2f}]")
+            s_centers[i] = s_anchors[i]
         
-        s_vals = np.linspace(current_s_center - args.S_window, current_s_center + args.S_window, args.S_steps)
-        slice_args = [(b, s, args.b_form, run_id + j, results_dir) for j, s in enumerate(s_vals)]
-        run_id += len(s_vals)
+        s_vals = np.linspace(s_centers[i] - args.S_window, s_centers[i] + args.S_window, args.S_steps)
+        start_idx = len(all_job_args)
         
-        slice_results = []
+        for s in s_vals:
+            all_job_args.append((b, s, args.b_form, run_id, results_dir))
+            run_id += 1
         
-        # Run this specific slice in parallel
-        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
-            for res in executor.map(run_single_point, slice_args):
-                if res:
-                    slice_results.append(res)
-                    all_results.append(res)
-                    
-        # ==========================================
-        # 2. DYNAMIC UPDATER (Linear Interpolation)
-        #    + IMPORTANT FIX: If we find a crossing between two sampled S points,
-        #      also run the interpolated S so the radius is evaluated on-energy.
-        # ==========================================
-        if slice_results:
-            slice_results.sort(key=lambda x: x[1])
-
-            if s_anchors is None:
-                crossing_found = False
-                for k in range(len(slice_results) - 1):
-                    s1, e1 = slice_results[k][1], slice_results[k][2]
-                    s2, e2 = slice_results[k + 1][1], slice_results[k + 1][2]
-
-                    # Check if the target falls between these two energies
-                    if (e1 - ENERGY_TARGET) * (e2 - ENERGY_TARGET) <= 0:
-                        if abs(e2 - e1) < 1e-14:
-                            exact_s = 0.5 * (s1 + s2)
-                        else:
-                            exact_s = s1 + (s2 - s1) * (ENERGY_TARGET - e1) / (e2 - e1)
-
-                        # Save the bracket so we can refine toward ENERGY_TARGET using additional runs.
-                        s_lo, e_lo, s_hi, e_hi = (s1, e1, s2, e2) if s1 < s2 else (s2, e2, s1, e1)
-                        pending_refine.append(
-                            {
-                                "b": b,
-                                "s_lo": float(s_lo),
-                                "e_lo": float(e_lo),
-                                "s_hi": float(s_hi),
-                                "e_hi": float(e_hi),
-                            }
-                        )
-                        print(
-                            f"    ✓ Crossing bracketed; queued refinement near S ≈ {exact_s:.4f} (will run in parallel batches)"
-                        )
-
-                        current_s_center = exact_s
-                        crossing_found = True
-                        print(f"    ✓ Next center interpolated to S = {current_s_center:.4f}")
-                        break
-
-                if not crossing_found:
-                    best_run = min(slice_results, key=lambda x: abs(x[2] - ENERGY_TARGET))
-                    current_s_center = best_run[1]
-                    print(
-                        f"    ⚠ Missed target crossing. Shifting to closest energy point at S = {current_s_center:.4f} (E = {best_run[2]:.4f} MeV, target = {ENERGY_TARGET})"
-                    )
-        else:
-            print("    ⚠ Warning: Slice failed. Keeping same center for next iteration.")
+        slice_boundaries[i] = (start_idx, len(all_job_args), list(s_vals))
+    
+    print(f"Starting Dynamic Grid Calculation ({args.b_range_steps} slices × {args.S_steps} runs = {len(all_job_args)} total)")
+    print(f"Maintaining {args.jobs} concurrent jobs across all slices...\n")
+    
+    # ==========================================
+    # 2. RUN ALL JOBS WITH CONTINUOUS POOL
+    # ==========================================
+    def callback(res):
+        write_result_to_csv(grid_csv_path, res)
+        all_results.append(res)
+    
+    run_jobs_with_pool(
+        all_job_args,
+        max_workers=args.jobs,
+        write_callback=callback,
+        progress_prefix=""
+    )
+    
+    print(f"\n✓ Completed {len(all_results)} jobs")
+    
+    # ==========================================
+    # 3. ANALYZE RESULTS & DETECT CROSSINGS
+    # ==========================================
+    if s_anchors is None:
+        for i, b in enumerate(b_ranges):
+            start_idx, end_idx, s_vals = slice_boundaries[i]
+            slice_results = all_results[start_idx:end_idx]
             
-        print() # Empty line for readability
+            if not slice_results:
+                print(f"⚠ Slice {i+1} (b={b:.4f}) had no valid results")
+                continue
+            
+            slice_results_sorted = sorted(slice_results, key=lambda x: x[1])
+            
+            crossing_found = False
+            for k in range(len(slice_results_sorted) - 1):
+                s1, e1 = slice_results_sorted[k][1], slice_results_sorted[k][2]
+                s2, e2 = slice_results_sorted[k + 1][1], slice_results_sorted[k + 1][2]
+
+                if (e1 - ENERGY_TARGET) * (e2 - ENERGY_TARGET) <= 0:
+                    if abs(e2 - e1) < 1e-14:
+                        exact_s = 0.5 * (s1 + s2)
+                    else:
+                        exact_s = s1 + (s2 - s1) * (ENERGY_TARGET - e1) / (e2 - e1)
+
+                    s_lo, e_lo, s_hi, e_hi = (s1, e1, s2, e2) if s1 < s2 else (s2, e2, s1, e1)
+                    pending_refine.append(
+                        {
+                            "b": b,
+                            "s_lo": float(s_lo),
+                            "e_lo": float(e_lo),
+                            "s_hi": float(s_hi),
+                            "e_hi": float(e_hi),
+                        }
+                    )
+                    print(f"Slice {i+1} (b={b:.4f}): ✓ Crossing detected near S ≈ {exact_s:.4f}")
+                    crossing_found = True
+                    break
+
+            if not crossing_found:
+                best_run = min(slice_results_sorted, key=lambda x: abs(x[2] - ENERGY_TARGET))
+                print(f"Slice {i+1} (b={b:.4f}): ⚠ No crossing found, best E = {best_run[2]:.4f} at S = {best_run[1]:.4f}")
                 
     # ==========================================
-    # 3. SAVE RAW GRID TO CSV
+    # 3. REFINEMENT PHASE WITH CONTINUOUS JOB POOL
     # ==========================================
 
     def _secant_or_bisect(s_lo, e_lo, s_hi, e_hi):
-        # Secant step; fallback to bisection if slope is tiny or step is out of bracket.
         if abs(e_hi - e_lo) < 1e-14:
             return 0.5 * (s_lo + s_hi)
         s_next = s_lo + (s_hi - s_lo) * (ENERGY_TARGET - e_lo) / (e_hi - e_lo)
@@ -216,7 +303,6 @@ def main():
             s_next = 0.5 * (s_lo + s_hi)
         return float(s_next)
 
-    # Refine each bracket toward ENERGY_TARGET with a few parallel iterations.
     if args.refine_iters > 0 and pending_refine:
         active = pending_refine
         print("=" * 80)
@@ -227,25 +313,28 @@ def main():
         print("=" * 80)
 
         for it in range(args.refine_iters):
-            # Build one batch of proposals.
-            proposals = []
+            # Build refinement batch
+            batch_args = []
             for entry in active:
                 s_next = _secant_or_bisect(entry["s_lo"], entry["e_lo"], entry["s_hi"], entry["e_hi"])
                 entry["s_next"] = s_next
-                proposals.append((entry["b"], s_next, args.b_form, None, results_dir))
-
-            # Assign unique run ids.
-            batch_args = []
-            for (b, s_next, b_form, _rid, resdir) in proposals:
-                batch_args.append((b, s_next, b_form, run_id, resdir))
+                batch_args.append((entry["b"], s_next, args.b_form, run_id, results_dir))
                 run_id += 1
 
             batch_results = []
-            with ProcessPoolExecutor(max_workers=args.jobs) as executor:
-                for res in executor.map(run_single_point, batch_args):
-                    batch_results.append(res)
+            
+            # Run with continuous job pool
+            batch_results, completed_count = run_jobs_with_pool(
+                batch_args,
+                max_workers=args.jobs,
+                write_callback=callback,
+                progress_prefix=""
+            )
+            
+            print(f"  Refine {it+1}: [{completed_count}/{len(batch_args)}] Complete")
 
-            # Update brackets.
+
+            # Update brackets
             new_active = []
             added = 0
             converged = 0
@@ -255,14 +344,13 @@ def main():
                     continue
 
                 b_val, s_val, e_val, r_val, p_bare, p_dressed = res
-                all_results.append(res)
                 added += 1
 
                 if abs(e_val - ENERGY_TARGET) < args.refine_tol:
                     converged += 1
                     continue
 
-                # Maintain a bracket if possible.
+                # Maintain bracket
                 f_lo = entry["e_lo"] - ENERGY_TARGET
                 f_hi = entry["e_hi"] - ENERGY_TARGET
                 f_new = e_val - ENERGY_TARGET
@@ -272,7 +360,6 @@ def main():
                 elif f_new * f_hi <= 0:
                     entry["s_lo"], entry["e_lo"] = float(s_val), float(e_val)
                 else:
-                    # If we lost bracketing (non-monotonic), shrink toward best two points.
                     candidates = [
                         (entry["s_lo"], entry["e_lo"]),
                         (entry["s_hi"], entry["e_hi"]),
@@ -289,23 +376,36 @@ def main():
 
                 new_active.append(entry)
 
-            print(f"Refine iter {it+1}/{args.refine_iters}: added={added}, converged={converged}")
-
+            print(f"  Iter {it+1}/{args.refine_iters}: added={added}, converged={converged}")
             active = new_active
             if not active:
                 break
         print("=" * 80)
 
-    # Sort output for readability (and to keep refined points next to their slices)
-    all_results.sort(key=lambda x: (x[0], x[1]))
-
-    with open(grid_csv_path, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["b_range", "S", "energy_mev", "radius_fm", "prob_bare", "prob_dressed"])
-        writer.writerows(all_results)
+    # ==========================================
+    # 4. LOAD GRID DATA FROM CSV (incremental writes already done)
+    # ==========================================
+    print(f"\nLoading results from {grid_csv_path}...")
+    all_results.clear()
+    
+    with open(grid_csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                b_range = float(row["b_range"])
+                S = float(row["S"])
+                energy = float(row["energy_mev"])
+                radius = float(row["radius_fm"])
+                prob_bare = float(row["prob_bare"])
+                prob_dressed = float(row["prob_dressed"])
+                all_results.append((b_range, S, energy, radius, prob_bare, prob_dressed))
+            except (ValueError, KeyError):
+                pass
+    
+    print(f"Loaded {len(all_results)} results from CSV")
     
     # ==========================================
-    # 4. PREPARE 1D DATA FOR TRICONTOUR
+    # 5. PREPARE 1D DATA FOR TRICONTOUR
     # ==========================================
     B_flat = [res[0] for res in all_results]
     S_flat = [res[1] for res in all_results]
@@ -314,7 +414,6 @@ def main():
     P_bare_flat = [res[4] for res in all_results]
     P_dressed_flat = [res[5] for res in all_results]
 
-    # Filter out unbound/gas states (Energy > -0.01) so they don't ruin the plot scale
     valid_indices = [i for i, e in enumerate(E_flat) if e < -0.01]
     B_plot = [B_flat[i] for i in valid_indices]
     S_plot = [S_flat[i] for i in valid_indices]
@@ -325,8 +424,7 @@ def main():
         print("ERROR: No bound states found. The plot cannot be generated. Check your S_anchor!")
         return
 
-    # Build smoothed surfaces for stable target lines.
-    # (Radius is energy-sensitive; weight points near the target energy.)
+    # Build smoothed surfaces
     try:
         from scipy.optimize import curve_fit
     except Exception:
@@ -351,7 +449,7 @@ def main():
         popt_E, _ = curve_fit(poly2d, xy.T, E_arr, maxfev=20000)
 
         dE = np.abs(E_arr - ENERGY_TARGET)
-        sigma_E = 0.5  # MeV
+        sigma_E = 0.5
         w = np.exp(-(dE / sigma_E) ** 2)
         w = np.clip(w, 1e-6, 1.0)
         sigma_R = 1.0 / np.sqrt(w)
@@ -361,11 +459,10 @@ def main():
         grid_R = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_R).reshape(grid_B.shape)
 
     # ==========================================
-    # 5. GENERATE THE CONTOUR PLOTS (2 subplots)
+    # 6. GENERATE CONTOUR PLOTS
     # ==========================================
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
-    # Plot 1: Energy contours with calibration target
     ax = axes[0]
     tcf_energy = ax.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='RdBu_r', alpha=0.8)
     if grid_E is not None:
@@ -379,7 +476,6 @@ def main():
     cbar1 = plt.colorbar(tcf_energy, ax=ax)
     cbar1.set_label("Energy (MeV)", fontsize=10)
     
-    # Plot 2: Radius contours with calibration target
     ax = axes[1]
     tcf_radius = ax.tricontourf(B_plot, S_plot, R_plot, levels=20, cmap='YlGn', alpha=0.8)
     if grid_R is not None:
@@ -395,21 +491,19 @@ def main():
     
     plt.tight_layout()
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    print(f"Contour plots generated successfully: {plot_path}")
+    print(f"\nContour plots generated: {plot_path}")
     
     # ==========================================
-    # 6. FIND AND PRINT BEST CALIBRATION PARAMETERS
+    # 7. ANALYSIS
     # ==========================================
     print("\n" + "="*80)
     print("CALIBRATION PARAMETER ANALYSIS")
     print("="*80)
     
-    # Find point closest to both targets
     best_distance = float('inf')
     best_params = None
     
     for b, s, e, r, p_bare, p_dressed in all_results:
-        # Distance metric: combination of energy and radius deviations
         energy_dev = abs(e - ENERGY_TARGET)
         radius_dev = abs(r - RADIUS_TARGET)
         total_distance = energy_dev + radius_dev
@@ -420,13 +514,12 @@ def main():
     
     if best_params:
         b_best, s_best, e_best, r_best, e_dev, r_dev = best_params
-        print(f"\nBest Calibration Point (closest to both targets):")
+        print(f"\nBest Calibration Point:")
         print(f"  b_range = {b_best:.6f} fm")
         print(f"  S       = {s_best:.6f} MeV")
         print(f"  Energy  = {e_best:.6f} MeV (target: {ENERGY_TARGET}, error: {e_dev:.6f})")
         print(f"  Radius  = {r_best:.6f} fm  (target: {RADIUS_TARGET}, error: {r_dev:.6f})")
     
-    # Find best energy point
     best_energy_idx = min(range(len(all_results)), key=lambda i: abs(all_results[i][2] - ENERGY_TARGET))
     b_e, s_e, e_e, r_e, _, _ = all_results[best_energy_idx]
     print(f"\nBest Energy Point:")
@@ -435,7 +528,6 @@ def main():
     print(f"  Energy  = {e_e:.6f} MeV (error: {abs(e_e - ENERGY_TARGET):.6f})")
     print(f"  Radius  = {r_e:.6f} fm")
     
-    # Find best radius point
     best_radius_idx = min(range(len(all_results)), key=lambda i: abs(all_results[i][3] - RADIUS_TARGET))
     b_r, s_r, e_r, r_r, _, _ = all_results[best_radius_idx]
     print(f"\nBest Radius Point:")
@@ -445,6 +537,7 @@ def main():
     print(f"  Radius  = {r_r:.6f} fm (error: {abs(r_r - RADIUS_TARGET):.6f})")
     
     print("="*80 + "\n")
+    print(f"✓ Complete! Results saved to {grid_csv_path}")
 
 if __name__ == "__main__":
     sys.exit(main())

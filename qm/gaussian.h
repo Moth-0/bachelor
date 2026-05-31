@@ -142,7 +142,7 @@ struct Gaussian {
                 if (u < ZERO_LIMIT) u = ZERO_LIMIT;
                 if (u > 1.0 - ZERO_LIMIT) u = 1.0 - ZERO_LIMIT;
 
-                ld b_ij = -std::log(u) * 4.0;
+                ld b_ij = -std::log(u) * 3.0;
                 ld b2 = b_ij * b_ij;
 
                 A_new += outer / b2;
