@@ -262,19 +262,19 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                                int num_candidates, ld b_range, ld b_form, ld S,
                                const std::vector<bool>& relativistic, ld ho_k = 0.0, size_t nvals = 0)
 {
-    // 1. Get the current baseline energy (E0 only)
     ld E_core = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
     size_t K = basis.size();
     auto [H_core, N_core] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
+
+    const size_t MAX_TEST_SIZE = 300;
+    cmat H_test = zeros<cld>(MAX_TEST_SIZE, MAX_TEST_SIZE);
+    cmat N_test = zeros<cld>(MAX_TEST_SIZE, MAX_TEST_SIZE);
 
     for (size_t t = 1; t < channel_templates.size(); ++t) {
         BasisStateType best_candidate = channel_templates[t];
 
         ld best_E = E_core;
         bool found_valid_dart = false;
-
-        cmat H_test = zeros<cld>(K + 1, K + 1);
-        cmat N_test = zeros<cld>(K + 1, K + 1);
 
         for (size_t i = 0; i < K; ++i) {
             for (size_t j = 0; j < K; ++j) {
@@ -295,18 +295,15 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                 continue;
             }
 
-            // Calculate the dart's isolated diagonal elements
             cld N_xx = calc_N_elem(test_candidate, test_candidate);
             cld H_xx = calc_H_elem(test_candidate, test_candidate, N_xx, b_form, b_range, S, relativistic);
 
-            // FAST REJECTION GATE: unphysical Gaussians
             ld isolated_energy = (std::real(N_xx) > 1e-15) ? std::real(H_xx) / std::real(N_xx) : 999999.0;
             if (isolated_energy > 5000.0 || std::real(N_xx) < 1e-10) {
                 reject_energy++;
                 continue;
             }
 
-            // Reject candidates with negative kinetic energy
             if (!has_positive_kinetic_energy(test_candidate, relativistic)) {
                 reject_kinetic++;
                 continue;
@@ -325,13 +322,11 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
             N_test(K, K) = calc_N_elem(test_candidate, test_candidate);
             H_test(K, K) = calc_H_elem(test_candidate, test_candidate, N_test(K,K), b_form, b_range, S, relativistic);
 
-            // SAFEGUARD: Reject linearly dependent darts
             if (std::abs(N_test.determinant()) < ZERO_LIMIT) {
                 reject_singular++;
                 continue;
             }
 
-            // CRITICAL: Check overlap tolerance (0.99) to avoid states that will be rejected later
             ld tol = 0.99;
             bool overlap_violation = false;
             for (size_t i = 0; i < K; ++i) {
@@ -342,11 +337,10 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                 }
             }
             if (overlap_violation) {
-                reject_singular++;  // Reuse counter for overlap rejections
+                reject_singular++;
                 continue;
             }
 
-            // Compute E0 
             ld E0 = solve_ground_state_energy(H_test, N_test, nvals);
             ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
 

@@ -224,15 +224,15 @@ struct SpatialWavefunction {
 // 1. Primitive Overlap: <A1, s1 | A2, s2>
 inline ld gaussian_overlap(const rmat& A1, const rmat& s1, const rmat& A2, const rmat& s2) {
     rmat B = A1 + A2;
-    rmat v = s1 + s2; // matrix.h natively adds the (N-1)x3 matrices!
+    rmat v = s1 + s2;
     size_t dim = B.size1();
-
+    
     ld detB = B.determinant();
-    if (std::abs(detB) < 1e-25) return 0.0; // Singular, reject
-
+    if (std::abs(detB) < 1e-25) return 0.0;
+    
     ld pi_to_d = std::pow(M_PI, dim);
     ld prefactor = std::pow(pi_to_d / detB, 1.5);
-
+    
     rmat B_inv = B.inverse();
     ld vBv = 0.0;
 
@@ -240,7 +240,6 @@ inline ld gaussian_overlap(const rmat& A1, const rmat& s1, const rmat& A2, const
     for (size_t c = 0; c < 3; ++c) {
         vBv += dot_no_conj(v[c], B_inv * v[c]);
     }
-
     return prefactor * std::exp(0.25 * vBv);
 }
 
@@ -251,7 +250,6 @@ template <typename Func>
 auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunction& ket, Func operation) {
     rmat B = bra.A + ket.A;
     
-    // Deduce the return type dynamically (ld or cld)
     using RetType = decltype(operation(Gaussian(bra.A, bra.s), Gaussian(ket.A, ket.s), 0.0L, B));
     
     if (std::abs(B.determinant()) < ZERO_LIMIT) return RetType{0}; 
@@ -267,21 +265,25 @@ auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunc
 
     RetType total_value{0};
 
+    int parity_factor[2][2];
     for (int i = 0; i < num_bra_terms; ++i) {
         for (int j = 0; j < num_ket_terms; ++j) {
-            int parity_factor = p_bra[i] * p_ket[j];
-            Gaussian g_b(bra.A, s_bra[i]);
-            Gaussian g_k(ket.A, s_ket[j]);
-            ld M_term = gaussian_overlap(g_b.A, g_b.s, g_k.A, g_k.s);
+            parity_factor[i][j] = p_bra[i] * p_ket[j];
+        }
+    }
+
+    for (int i = 0; i < num_bra_terms; ++i) {
+        for (int j = 0; j < num_ket_terms; ++j) {
+            ld M_term = gaussian_overlap(bra.A, s_bra[i], ket.A, s_ket[j]);
             
             if (std::abs(M_term) > 1e-25) {
-                // Multiply the scalar parity_factor by the RetType result
-                total_value += static_cast<ld>(parity_factor) * operation(g_b, g_k, M_term, R);
+                Gaussian g_b(bra.A, s_bra[i]);
+                Gaussian g_k(ket.A, s_ket[j]);
+                total_value += static_cast<ld>(parity_factor[i][j]) * operation(g_b, g_k, M_term, R);
             }
         }
     }
 
-    // THE FIX: Apply the 1/sqrt(2) normalization factors!
     ld norm_factor = 1.0L / std::sqrt(static_cast<ld>(num_bra_terms * num_ket_terms));
 
     return norm_factor * total_value;

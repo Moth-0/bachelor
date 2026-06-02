@@ -281,10 +281,25 @@ struct matrix {
     T determinant() const {
         size_t n = size1();
         assert(n == size2());
+        
+        if (n == 1) {
+            return SELF(0, 0);
+        }
+        else if (n == 2) {
+            T a = SELF(0, 0), b = SELF(0, 1);
+            T c = SELF(1, 0), d = SELF(1, 1);
+            return a * d - b * c;
+        }
+        else if (n == 3) {
+            T a = SELF(0,0), b = SELF(0,1), c = SELF(0,2);
+            T d = SELF(1,0), e = SELF(1,1), f = SELF(1,2);
+            T g = SELF(2,0), h = SELF(2,1), i = SELF(2,2);
+            return a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
+        }
+        
         matrix tmp = SELF;
         T det{1};
         for (size_t i = 0; i < n; i++) {
-            // Partial pivot: find row with largest |element|
             size_t pivot = i;
             auto best = scalar_abs2(tmp(i,i));
             for (size_t row = i+1; row < n; row++) {
@@ -311,32 +326,75 @@ struct matrix {
     matrix inverse() const {
         size_t n = size1();
         assert(n == size2());
+        
+        if (n == 1) {
+            T det = SELF(0, 0);
+            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(0,0);
+            matrix inv(1, 1);
+            inv(0, 0) = T{1} / det;
+            return inv;
+        }
+        else if (n == 2) {
+            T a = SELF(0, 0), b = SELF(0, 1);
+            T c = SELF(1, 0), d = SELF(1, 1);
+            T det = a * d - b * c;
+            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(0,0);
+            matrix inv(2, 2);
+            T inv_det = T{1} / det;
+            inv(0, 0) =  d * inv_det;
+            inv(0, 1) = -b * inv_det;
+            inv(1, 0) = -c * inv_det;
+            inv(1, 1) =  a * inv_det;
+            return inv;
+        }
+        else if (n == 3) {
+            T a = SELF(0,0), b = SELF(0,1), c = SELF(0,2);
+            T d = SELF(1,0), e = SELF(1,1), f = SELF(1,2);
+            T g = SELF(2,0), h = SELF(2,1), i = SELF(2,2);
+            
+            T det = a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
+            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(0,0);
+            
+            matrix inv(3, 3);
+            T inv_det = T{1} / det;
+            inv(0,0) = (e*i - f*h) * inv_det;
+            inv(0,1) = (c*h - b*i) * inv_det;
+            inv(0,2) = (b*f - c*e) * inv_det;
+            inv(1,0) = (f*g - d*i) * inv_det;
+            inv(1,1) = (a*i - c*g) * inv_det;
+            inv(1,2) = (c*d - a*f) * inv_det;
+            inv(2,0) = (d*h - e*g) * inv_det;
+            inv(2,1) = (b*g - a*h) * inv_det;
+            inv(2,2) = (a*e - b*d) * inv_det;
+            return inv;
+        }
+        
+        size_t n_dim = size1();
         matrix tmp = SELF;
-        matrix res(n,n);
+        matrix res(n_dim, n_dim);
         res.setid();
-        for (size_t i = 0; i < n; i++) {
-            // Partial pivot
+        for (size_t i = 0; i < n_dim; i++) {
             size_t pivot = i;
             auto best = scalar_abs2(tmp(i,i));
-            for (size_t row = i+1; row < n; row++) {
+            for (size_t row = i+1; row < n_dim; row++) {
                 auto val = scalar_abs2(tmp(row,i));
                 if (val > best) { best = val; pivot = row; }
             }
             if (pivot != i)
-                for (size_t k = 0; k < n; k++) {
+                for (size_t k = 0; k < n_dim; k++) {
                     std::swap(tmp(i,k), tmp(pivot,k));
                     std::swap(res(i,k), res(pivot,k));
                 }
             T d = tmp(i,i);
             if (scalar_abs2(d) < 1e-28) {
                 std::cerr << "[matrix::inverse] singular matrix\n";
-                return matrix(n,n); // return zero matrix on failure
+                return matrix(n_dim,n_dim);
             }
-            for (size_t k = 0; k < n; k++) { tmp(i,k) /= d; res(i,k) /= d; }
-            for (size_t row = 0; row < n; row++) {
+            for (size_t k = 0; k < n_dim; k++) { tmp(i,k) /= d; res(i,k) /= d; }
+            for (size_t row = 0; row < n_dim; row++) {
                 if (row == i) continue;
                 T f = tmp(row,i);
-                for (size_t k = 0; k < n; k++) {
+                for (size_t k = 0; k < n_dim; k++) {
                     tmp(row,k) -= f * tmp(i,k);
                     res(row,k) -= f * res(i,k);
                 }
