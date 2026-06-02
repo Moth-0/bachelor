@@ -63,7 +63,7 @@ Where:
 
 1. **Classical (non-relativistic)**:
    ```
-   T_classical = ℏ²/2μ × <ψ | ∇² | ψ'>
+   T_classical = ℏ²/2μ × <ψ | p² | ψ'>
    ```
    Analytical for Gaussians; fast computation
 
@@ -71,7 +71,7 @@ Where:
    ```
    T_rel = <ψ | (√(p² + m²) - m) | ψ'>
    ```
-   Computed via 32-point Gauss-Legendre quadrature in momentum space
+   Computed via Simpsons in momentum space
 
 ### Pion Coupling (W-operator)
 
@@ -142,27 +142,12 @@ bachelor/
 
 ## Algorithm Workflow
 
-### Core SVM Algorithm: Two Phases
+### Core SVM Algorithm:
 
-**Phase 1: Skeleton Basis Construction** (14 initial states)
-```
-1. Bare nucleon (PN) basis:
-   - 5 geometric widths: {1.0, 3.0, 8.0, 20.0, 100.0} fm⁻¹
-   - Covers short-range to long-range correlations
-   
-2. Pion dressed seeds:
-   - 9 random states (one per channel: π⁰/π⁺/π⁻ × 3 flips)
-   - Initialized via quasi-random Gaussian parameters
-   
-3. Initial optimization:
-   - Nelder-Mead sweep of all 14 state parameters
-   - Goal: Quick localization to reasonable energy
-```
-
-**Phase 2: Competitive SVM Growth** (inside widening HO box)
+**Competitive SVM Growth** (inside widening HO box)
 ```
 For each harmonic oscillator box strength (K):
-  For each of 10 pion channels:
+  Twice for each of 9 pion channels:
     - Generate ~1000 random candidate states
     - Evaluate each via GEVP solve
     - Lock the best (lowest energy) into basis
@@ -171,9 +156,10 @@ For each harmonic oscillator box strength (K):
 Then: Move specialized states to master pool
 ```
 
-**Phase 3: Final Free-Space Refinement** (ho_k = 0)
+**Final Free-Space Refinement** (ho_k = 0)
 ```
 - Single shallow sweep at box strength 0
+- Optmize all basis states
 - Allows core/pocket/tail states to equilibrate
 - Compute final observables (energy, radius, kinetic energy)
 ```
