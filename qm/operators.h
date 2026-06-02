@@ -273,12 +273,6 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     return result;
 }
 
-// Global function to trigger final print (will be called at program end)
-inline void trigger_final_relativistic_print() {
-    // Dummy call just to trigger the print at end of program
-    // The static counters will print automatically when this is reached
-}
-
 ld total_kinetic_energy(const SpatialWavefunction& psi_bra, const SpatialWavefunction& psi_ket,
                         const Jacobian& jac, const std::vector<bool>& relativistic,
                         Integrator method=Integrator::SIMPSON) 

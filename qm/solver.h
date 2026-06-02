@@ -188,13 +188,6 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
     return {lowest_E, eigvec};
 }
 
-// A helper function to find the lowest eigenvalue of a standard Hermitian matrix
-// using the Jacobi rotation method.
-ld jacobi_lowest_eigenvalue(cmat& A, int max_sweeps = 100, size_t nvals=0) {
-    return jacobi_with_eigenvector(A, max_sweeps, nvals).first;
-}
-
-
 // The Main GEVP Solver - with eigenvector
 std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cmat& N, size_t nvals=0) {
     // 1. Cholesky Decomposition: N = L * L^dag

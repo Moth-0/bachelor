@@ -189,11 +189,6 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
             if (debug) std::cerr << "  [REJECT] Shift too large: " << physical_shift_fm << " fm > " << limit <<" fm\n";
             return false; 
         }
-
-        // if (psi.parity_sign == -1 && i > 0 && total_shift < ZERO_LIMIT) {
-        //     if (debug) std::cerr << "  [REJECT] Odd-parity shift too small (collapsed state).\n";
-        //     return false;
-        // }
     }
 
     // Positive definiteness check
@@ -256,70 +251,6 @@ SpatialWavefunction perturb_wavefunction(const SpatialWavefunction& original, ld
         }
     }
     return perturbed;
-}
-
-// Refine a single basis state using fast Matrix Caching and Micro-Darts
-// TEMPLATE VERSION: Works with any BasisState type
-template <typename BasisStateType>
-bool refine_basis_state(std::vector<BasisStateType>& basis, size_t k, ld noise_scale,
-                        ld b_form, ld b_range, ld S, const std::vector<bool>& relativistic)
-{
-    // CACHING: Build the full matrix once
-    auto [H_full, N_full] = build_matrices(basis, b_form, b_range, S, relativistic);
-    ld original_E = solve_ground_state_energy(H_full, N_full);
-
-    int cands = 200; // Micro-dart cloud size
-    ld best_E = original_E;
-    BasisStateType best_state = basis[k];
-
-    for (int c = 0; c < cands; ++c) {
-        BasisStateType test_candidate = basis[k];
-
-        // Skip perturbation for bare nucleon (0-coordinate system)
-        if (basis[k].jac.masses.size() > 1) {
-            test_candidate.psi = perturb_wavefunction(basis[k].psi, noise_scale, false);
-
-            // Check if the random kick made it unphysical
-            if (!is_physical_gaussian(test_candidate.psi)) continue;
-
-            // Reject candidates with negative kinetic energy
-            if (!has_positive_kinetic_energy(test_candidate, relativistic)) continue;
-
-            // FAST EVALUATION: Only update the k-th row and column
-            cmat H_test = H_full;
-            cmat N_test = N_full;
-
-            for (size_t i = 0; i < basis.size(); ++i) {
-                if (i == k) continue; // Skip self
-
-                cld n_ik = calc_N_elem(basis[i], test_candidate);
-                cld h_ik = calc_H_elem(basis[i], test_candidate, n_ik, b_form, b_range, S, relativistic);
-
-                H_test(i, k) = h_ik;
-                N_test(i, k) = n_ik;
-                H_test(k, i) = std::conj(h_ik);
-                N_test(k, i) = std::conj(n_ik);
-            }
-
-            N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
-            H_test(k, k) = calc_H_elem(test_candidate, test_candidate, N_test, b_form, b_range, S, relativistic);
-
-            // Solve updated matrix
-            ld E_estimate = solve_ground_state_energy(H_test, N_test);
-
-            if (E_estimate < best_E - 1e-6) {
-                best_E = E_estimate;
-                best_state = test_candidate;
-            }
-        }
-    }
-
-    // Apply the best micro-dart
-    if (best_E < original_E) {
-        basis[k] = best_state;
-        return true;
-    }
-    return false;
 }
 
 // Performs one full cycle of competitive basis growth using ROBUST Matrix Caching
@@ -450,56 +381,6 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
         }
     }
     std::cout << "\n";
-}
-
-// Prune near-duplicate states from basis (states with overlap > tolerance)
-template <typename BasisStateType>
-void prune_near_duplicates(std::vector<BasisStateType>& basis, ld overlap_tol = 0.95) {
-    if (basis.size() <= 1) return;
-
-    auto [H, N] = build_matrices(basis, 1.4, 100.0, 0.0, std::vector<bool>(1, false)); // dummy params for matrix build
-
-    std::vector<bool> keep(basis.size(), true);
-
-    for (size_t i = 0; i < basis.size(); ++i) {
-        if (!keep[i]) continue;
-
-        for (size_t j = i + 1; j < basis.size(); ++j) {
-            if (!keep[j]) continue;
-
-            // Check overlap between states i and j
-            ld overlap = std::abs(N(i, j)) / std::sqrt(std::abs(N(i, i)) * std::abs(N(j, j)));
-            if (overlap > overlap_tol) {
-                // Keep the one with lower energy, remove the other
-                cld H_ii = H(i, i), H_jj = H(j, j);
-                cld N_ii = N(i, i), N_jj = N(j, j);
-                ld E_i = std::real(H_ii) / std::real(N_ii);
-                ld E_j = std::real(H_jj) / std::real(N_jj);
-
-                if (E_i < E_j) {
-                    keep[j] = false;
-                } else {
-                    keep[i] = false;
-                    break;  // Move to next i
-                }
-            }
-        }
-    }
-
-    // Build pruned basis
-    std::vector<BasisStateType> pruned;
-    for (size_t i = 0; i < basis.size(); ++i) {
-        if (keep[i]) {
-            pruned.push_back(basis[i]);
-        }
-    }
-
-    size_t removed = basis.size() - pruned.size();
-    if (removed > 0) {
-        std::cout << "Pruned " << removed << " near-duplicate states (overlap > "
-                  << overlap_tol << "), kept " << pruned.size() << " unique states\n";
-    }
-    basis = pruned;
 }
 
 // Pack ALL basis states into a single vector for global Nelder-Mead optimization

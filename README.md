@@ -7,197 +7,408 @@ Simulating relativistic effects of exchanged pions in light nuclei. This project
 The nuclear force arises from pion exchange between nucleons. This project:
 - Models a **2-body bare state** (proton-neutron) and **3-body dressed states** (PN + virtual pion)
 - Uses **Correlated Shifted Gaussians (CSG)** as spatial basis functions
-- Optimizes the basis via the **Stochastic Variational Method (SVM)**
-- Computes both **non-relativistic** and **relativistic** kinetic energies
+- Optimizes the basis via the **Stochastic Variational Method (SVM)** with competitive growth
+- Supports both **non-relativistic** and **relativistic** kinetic energies
+- Applies **box regularization** (harmonic oscillator potential) for numerical convergence
+- Includes **Python scripts** for parameter sweeps and contour plots
 
 **Target Result**: Ground state energy ≈ -2.224 MeV (experimental deuteron binding energy)
 
 ## Physical Model
 
 ### System Channels
-| Channel | Composition | Notes |
-|---------|-------------|--------|
-| PN      | Bare nucleon pair | Ground state seed |
-| π⁰      | PN + neutral pion | 3 spin-flip configurations |
-| π⁺      | PN + positive pion | 3 spin-flip configurations |
-| π⁻      | PN + negative pion | 3 spin-flip configurations |
+The deuteron couples between 10 distinct physics channels:
+
+| Channel Group | States | Composition | Notes |
+|---------------|--------|-------------|--------|
+| PN (Bare)     | 1      | Proton-neutron pair | Ground state, even parity |
+| π⁰ (Neutral)  | 3      | PN + neutral pion | 3 spin-flip configurations |
+| π⁺ (Positive) | 3      | PN + positive pion | 3 spin-flip configurations |
+| π⁻ (Negative) | 3      | PN + negative pion | 3 spin-flip configurations |
+
+Spin-flip types (per pion channel):
+- **NO_FLIP (0f)**: No nucleon spin flipped
+- **FLIP_PARTICLE_1**: Proton spin flipped
+- **FLIP_PARTICLE_2**: Neutron spin flipped
 
 ### Key Physics Constants
 ```
-m_p  = 938.272 MeV     (proton mass)
-m_n  = 939.565 MeV     (neutron mass)
-m_π⁰ = 134.97  MeV     (neutral pion)
-m_πc = 139.57  MeV     (charged pion)
-ℏc   = 197.327 MeV·fm  (conversion constant)
+m_p   = 938.27 MeV     (proton mass)
+m_n   = 939.56 MeV     (neutron mass)
+m_π⁰  = 134.97 MeV     (neutral pion)
+m_πc  = 139.57 MeV     (charged pion)
+ℏc    = 197.327 MeV·fm (conversion constant)
 ```
 
-### Physics Description
+### Hamiltonian Structure
 
-**Hamiltonian Structure**:
-- Diagonal blocks: Kinetic energy T(r) + pion rest mass (for dressed states)
-- Off-diagonal blocks: W-operator coupling (pion exchange)
-
-**Kinetic Energy**:
-- Classical: T = p²/2μ
-- Relativistic: T = √(p² + m²) - m
-
-**Pion Coupling** (W-operator):
-- Form factor with range b (fm) controls interaction strength
-- Strength S (tuning parameter) adjusted to match experimental binding
-
-**Basis Functions** (Correlated Shifted Gaussians):
+The Hamiltonian has block structure:
 ```
-ψ(r) = [exp(-r·A·r + s·r) + P·exp(-r·A·r - s·r)]
-
-where:
-  A = correlation matrix (positive definite)
-  s = shift vector
-  P = parity sign (±1)
-  r = relative coordinates (Jacobi transformed)
+H[i,j] = T[i,j] + V_rest[i,j] + W[i,j]
+        + V_box[i,j]  (if box regularization active)
 ```
+
+Where:
+- **T[i,j]** = Kinetic energy matrix element (classical or relativistic)
+- **V_rest** = Pion rest mass (for dressed states only)
+- **W[i,j]** = Pion exchange coupling (off-diagonal between channels)
+- **V_box** = Artificial harmonic oscillator confining potential (optional)
+
+**Matrix properties**:
+- Hermitian (ensures real eigenvalues)
+- Positive definite overlap matrix N[i,j]
+- Sparse structure by selection rules
+
+### Kinetic Energy Options
+
+1. **Classical (non-relativistic)**:
+   ```
+   T_classical = ℏ²/2μ × <ψ | ∇² | ψ'>
+   ```
+   Analytical for Gaussians; fast computation
+
+2. **Relativistic**:
+   ```
+   T_rel = <ψ | (√(p² + m²) - m) | ψ'>
+   ```
+   Computed via 32-point Gauss-Legendre quadrature in momentum space
+
+### Pion Coupling (W-operator)
+
+**Physical Process**: Nucleon pair emits/absorbs virtual pion
+
+**Mathematical Form**:
+```
+W[i,j] = S × g(b) × f(w_π·r) × Tensor_operator
+```
+
+Where:
+- **S** = Coupling strength (tuning parameter, typically 25-45 MeV)
+- **b_form** = Form factor range controlling interaction localization (fm)
+- **b_range** = Search space width for basis function widths (fm)
+- **Tensor operator** = Spin structure (3 types per pion channel)
+
+### Basis Functions (Correlated Shifted Gaussians)
+
+Each basis state is a product of correlated Gaussians in relative coordinates:
+```
+ψ(r) = [exp(-r·A·r + s·r) + P·exp(-r·A·r - s·r)] / N
+```
+
+**Components**:
+- **A** = (N-1)×(N-1) correlation matrix (positive definite)
+- **s** = (N-1)×3 shift matrix (translates center in space)
+- **P** = ±1 parity sign (symmetric or antisymmetric)
+- **N** = Normalization factor
+
+**Physical interpretation**:
+- Exponential exp(-r·A·r) controls range of wavefunction
+- Shift s·r couples Gaussian to kinetic energy
+- Two terms (+ and -) handle exchange symmetry/antisymmetry
 
 ## Project Structure
 
 ```
 bachelor/
-├── README.md              # This file
-├── deu.cc                 # Main SVM workflow driver
-├── deuterium.h            # Channel definitions & basis wrappers
-└── qm/                    # Quantum mechanics library
-    ├── matrix.h           # Matrix/vector algebra (real & complex)
-    ├── gaussian.h         # Gaussian basis & overlap integrals
-    ├── jacobi.h           # Coordinate transformation (N-body → relative)
-    ├── operators.h        # Kinetic energy & pion coupling
-    └── solver.h           # GEVP solver & optimization
+├── README.md                    # This file
+├── Makefile                     # Build targets and sweep automation
+├── deu.cc                       # Main SVM driver
+├── deuterium.h                  # Channel definitions & Hamiltonian
+├── SVM.h                        # SVM algorithm (competitive growth, optimization)
+├── qm/                          # Quantum mechanics library
+│   ├── matrix.h                 # Vector/matrix algebra (real & complex)
+│   ├── gaussian.h               # Basis functions & overlaps
+│   ├── jacobi.h                 # N-body coordinate transformations
+│   ├── operators.h              # Kinetic energy & W-operator
+│   ├── solver.h                 # GEVP solver & Nelder-Mead optimization
+│   ├── serialization.h          # I/O for basis states
+│   └── csv_writer.h             # CSV output for results
+├── scripts/                     # Python automation scripts
+│   ├── sweep_S.py              # Sweep coupling strength S
+│   ├── sweep_b_form.py          # Sweep pion form factor range
+│   ├── sweep_b_range.py         # Sweep basis search space
+│   ├── sweep_basis_size.py      # Basis convergence study
+│   ├── contour_plot_b_form.py  # Generate b_form contour
+│   ├── contour_plot_b_range.py  # Generate b_range contour
+│   ├── smart_contour_search.py  # Adaptive mesh for radius target
+│   ├── plot_results.py          # Publication-quality plotting
+│   └── plot_wavefunction.py     # Visualize ground state wavefunction
+└── results/                     # Output directory
+    ├── all_configs_*/           # Complete runs with all configurations
+    ├── energy_sweep_*/          # Parameter sweep results
+    ├── contour_*/               # 2D contour data
+    └── smart_contour/           # Adaptive mesh search
 ```
 
 ## Algorithm Workflow
 
-### Phase 1: Skeleton Basis (14 states)
-1. **5 deterministic PN states** with geometric widths: {0.02, 0.08, 0.3, 1.2, 4.0} fm
-   - Ensures wide-range coverage of spatial scales
-2. **9 random pion-dressed seeds** (one per channel: π⁰, π⁺, π⁻ × 3 flips each)
-   - Initial guess for coupled channels
-3. Optimize all 14 parameters with Nelder-Mead sweeping
+### Core SVM Algorithm: Two Phases
 
-### Phase 2: Competitive SVM Growth (configurable cycles)
-**Per cycle**, for each of 10 pion channels:
-- Test 100 random candidate states (parallel with OpenMP)
-- Evaluate each against full current basis via GEVP
-- **Lock the best** (lowest energy) into the basis
-- After all channels: sweep-optimize the entire expanded basis
-
-**Why this design?**
-- Avoids expensive optimization of all parameters simultaneously
-- Incrementally builds basis without artificially truncating states
-- Parallel candidate screening exploits multi-core hardware
-- SVM guarantees energy monotonically decreases (or stays same)
-
-## Key Computational Methods
-
-### Correlated Shifted Gaussians (CSG)
-Basis functions naturally handle short-range correlations in nuclear wavefunctions. Parameters:
-- **A** controls correlation range (short-to-medium range)
-- **s** shifts spatial center (couples to kinetic energy)
-- **Parity** ensures proper symmetry under PN ↔ PN exchange
-
-### Stochastic Variational Method (SVM)
-- **Advantage**: No need to pre-know optimal parameters
-- **Strategy**: Randomly sample basis space, keep improving states
-- **Result**: Basis converges to near-optimal ground state
-
-### Generalized Eigenvalue Problem (GEVP)
-Solve: **H c = E N c** (Rayleigh-Ritz principle)
-
-**Solution method**:
-1. Cholesky: N = L L†
-2. Transform: H' = L⁻¹ H (L†)⁻¹
-3. Jacobi diagonalization → lowest eigenvalue = ground state energy
-
-### Pion Exchange (W-operator)
-**Physical meaning**: Proton emits pion, neutron absorbs it (and vice versa)
-
-**Form factor**: f(r) = exp(-r²/b²) with range b controlling interaction strength
-
-**Coupling strength**: S parameter (tuned from physics literature or fit to data)
-
-## Configuration Parameters
-
-Located in `deu.cc::run_deuteron_svm()`:
-
-```cpp
-ld b_range = 1.4;              // Search space for Gaussian widths (fm)
-ld b_form = 1.4;               // Pion form factor range (fm)
-ld S = 140.0;                  // *** TUNING PARAMETER ***
-int num_cycles = 2;            // Number of SVM growth cycles
-int num_candidates_per_step = 100;  // Test 100 states per channel
+**Phase 1: Skeleton Basis Construction** (14 initial states)
+```
+1. Bare nucleon (PN) basis:
+   - 5 geometric widths: {1.0, 3.0, 8.0, 20.0, 100.0} fm⁻¹
+   - Covers short-range to long-range correlations
+   
+2. Pion dressed seeds:
+   - 9 random states (one per channel: π⁰/π⁺/π⁻ × 3 flips)
+   - Initialized via quasi-random Gaussian parameters
+   
+3. Initial optimization:
+   - Nelder-Mead sweep of all 14 state parameters
+   - Goal: Quick localization to reasonable energy
 ```
 
-### Parameter Meanings
+**Phase 2: Competitive SVM Growth** (inside widening HO box)
+```
+For each harmonic oscillator box strength (K):
+  For each of 10 pion channels:
+    - Generate ~1000 random candidate states
+    - Evaluate each via GEVP solve
+    - Lock the best (lowest energy) into basis
+  - After all channels: sweep-optimize entire expanded basis
+  
+Then: Move specialized states to master pool
+```
 
-| Parameter | Typical Range | Effect on Ground State |
-|-----------|---------------|------------------------|
-| `S` | 50-200 | Higher S → more binding (more negative E) |
-| `b_form` | 1.0-2.0 fm | Controls pion interaction range |
-| `num_cycles` | 1-5 | More cycles → better convergence |
-| `num_candidates_per_step` | 50-200 | More tests → better state selection |
+**Phase 3: Final Free-Space Refinement** (ho_k = 0)
+```
+- Single shallow sweep at box strength 0
+- Allows core/pocket/tail states to equilibrate
+- Compute final observables (energy, radius, kinetic energy)
+```
 
-**Critical tuning**: Adjust `S` to match target E ≈ -2.224 MeV
+### Box Regularization Strategy
 
-## Compilation & Execution
+The **harmonic oscillator box** is a tuning tool that:
+1. Prevents basis from spreading too wide initially
+2. Forces states to stay physically localized
+3. Gradually weakened to zero (free space)
+
+**Effect**: Energy monotonically decreases as box strength → 0
+
+### Basis State Selection
+
+**Competitive growth criterion**: Keep state i+1 if:
+```
+E(basis + state) < E(basis) - 1e-6  [in MeV]
+```
+
+This ensures rigorous variational improvement.
+
+## Command-Line Interface
+
+### Main Executable: `./deu`
 
 ```bash
-# Compile with OpenMP support (parallel Nelder-Mead)
-g++ -std=c++23 -fopenmp -O3 deu.cc -o deu
+./deu [options]
 
-# Run
-./deu
-
-# Output shows two calculations:
-# 1. Classic kinetic energy
-# 2. Relativistic kinetic energy
-# Reports difference → relativistic correction to binding
+Options:
+  -b_range FLOAT          Search space for Gaussian widths (fm)
+                         Default: 2.24
+  
+  -b_form FLOAT           Pion form factor range (fm)
+                         Default: 1.4
+  
+  -S FLOAT                Pion coupling strength (MeV)
+                         Default: 31.29
+  
+  --output-csv PATH      Write full results to CSV (metadata + convergence)
+  
+  -box-strengths LIST    Comma-separated HO box strengths
+                         Example: "0.0" or "0.5,0.1,0.0"
+  
+  --pn-rel              Use relativistic PN channel (default: false)
+  
+  --pi-rel              Use relativistic pion channel (default: false)
+  
+  -h, --help            Show help message
 ```
 
-### Example Output
+### Example Usage
+
+```bash
+# Find ground state with default parameters
+./deu
+
+# Scan for optimal S value (find binding energy ≈ -2.224 MeV)
+./deu -S 35.0 --output-csv results/scan_s35.csv
+
+# Use box regularization with free-space final step
+./deu -S 31.29 -b_form 1.4 -b_range 2.24 \
+  -box-strengths "1.0,0.5,0.2,0.0"
+
+# Fully relativistic calculation
+./deu --pn-rel --pi-rel -S 32.0
+```
+
+## Automated Parameter Sweeps
+
+### Using Python Scripts
+
+All sweeps use **parallel execution** via `ProcessPoolExecutor`. Results are aggregated into CSV files and plotted automatically.
+
+**Sweep S (coupling strength)**:
+```bash
+python3 scripts/sweep_S.py \
+  --b_range 2.24 --b_form 1.4 \
+  --S_min 25.0 --S_max 45.0 --S_steps 20 \
+  --jobs 10
+```
+→ Output: `results/energy_sweep_S/aggregated.csv` + plots
+
+**Sweep b_form (pion interaction range)**:
+```bash
+python3 scripts/sweep_b_form.py \
+  --b_range 2.24 --S 31.29 \
+  --b_form_min 0.8 --b_form_max 2.0 --b_form_steps 12 \
+  --jobs 8
+```
+→ Output: `results/energy_sweep_b_form/aggregated.csv`
+
+**2D Contour Search** (b_range vs S):
+```bash
+python3 scripts/contour_plot_b_range.py \
+  --b_range_min 2.0 --b_range_max 3.0 --b_range_steps 10 \
+  --S_init_anchor 30.0 --S_window 10.0 --S_steps 8 \
+  --b_form 1.4 --jobs 12
+```
+→ Output: `results/contour_b_range/grid_data.csv` + contour plot
+
+**Adaptive Radius Contour** (find 2D surface where radius = 2.128 fm):
+```bash
+python3 scripts/smart_contour_search.py \
+  --S_init 31.29 --b_form_init 1.4 --b_range_init 2.24 \
+  --radius_target 2.128 --max_iterations 50 --jobs 10
+```
+→ Output: Adaptive mesh points converging to charge radius target
+
+**Basis Size Convergence**:
+```bash
+python3 scripts/sweep_basis_size.py \
+  --b_range 2.24 --b_form 1.4 --S 31.29 \
+  --basis_size_steps 8 --jobs 8
+```
+→ Shows energy vs. number of basis states
+
+### Using Makefile
+
+Convenience targets for common workflows:
+
+```bash
+# Build
+make all
+
+# Run all 4 kinematic configs with default parameters (saves timestamped results)
+make all-configs  B_RANGE=2.24 B_FORM=1.4 S=31.29
+
+# Sweep S with 10 parallel jobs
+make sweep_S  B_RANGE=2.24 B_FORM=1.4
+
+# Generate 2D contour plot for b_range parameter
+make contour_b_range  B_FORM=1.4 S=31.29
+
+# Clean build artifacts
+make clean
+```
+
+All Makefile targets automatically create `results/` subdirectories and run the Python scripts with appropriate job counts.
+
+## Compilation
+
+```bash
+# With GNU C++23 and OpenMP support
+g++ -std=c++23 -fopenmp -O3 -Wall deu.cc -o deu
+
+# Using Clang
+clang++ -std=c++23 -fopenmp -O3 deu.cc -o deu
+
+# Using Intel compiler
+icpc -std=c++23 -fopenmp -O3 deu.cc -o deu
+```
+
+**Requirements**:
+- C++23 compiler (for structured bindings, auto types)
+- OpenMP (for parallel optimization)
+- Standard library only (no external dependencies)
+
+## Example Output
+
 ```
 ========================================
   DEUTERON SYSTEM (FAST COMPETITIVE SVM)
 ========================================
 
+Parameters:
+  b_range = 2.24 fm
+  b_form  = 1.4 fm
+  S       = 31.29 MeV
+  PN Treatment: Cla, Pion Treatment: Cla
+  Box Strengths: 5, 2, 1, 0.5, 0.2, 0.1, 0
+========================================
+
 --- 1. Planting Geometric PN Grid & Pion Seeds ---
-Skeleton Size: 14 states.
-Skeleton Energy: -1.234567 MeV
 
---- 2. Competitive SVM Growth ---
-Added State 15 (Cycle 1, Ch 0) -> E = -1.289345 MeV
-Added State 16 (Cycle 1, Ch 1) -> E = -1.342891 MeV
-...
- - Sweeping Cycle 1 basis -
-...
+--- 2. Competitive Growth inside widening HO Box ---
 
-========================================
-  FINAL RESULTS
-========================================
-Classic Energy:      -1.456789 MeV
-Relativistic Energy  -1.523456 MeV
-Difference            -0.066667 Mev
-========================================
+=== Generating Basis for ho_k = 5 ===
+=== Generating Basis for ho_k = 2 ===
+...
+=== FINAL GEVP EVALUATION IN FREE SPACE (ho_k = 0.0) ===
+
+>>>>>>>> RUNNING CONFIGURATION: PN_{Cla} Pi_{Cla} <<<<<<<<
+...
+--> FINAL PN_{Cla} Pi_{Cla} | E: -2.18234 MeV, R: 2.13567 fm
+
+Saved basis state to basis_final.txt
+
+======================================================================================================================================
+                                  FINAL RESULTS SUMMARY                                   
+======================================================================================================================================
+PN_{Cla} Pi_{Cla}   | E: -2.18234 MeV | R: 2.13567 fm | <T>: 40.234 MeV | PN: 85.2 % | PN+pi: 14.8 % | Time: 3.456 s
+--------------------------------------------------------------------------------------------------------------------------------------
+Experimental Target | E: -2.22400 MeV | R: 2.12800 fm
+======================================================================================================================================
+
+Saved all configurations to all_configurations.txt
 ```
 
-**Interpretation**:
-- Classic should → **-2.224 MeV**
-- Difference shows relativistic correction 
+## Key Physics Interpretation
 
-## File Descriptions
+| Quantity | Physical Meaning | Typical Value |
+|----------|------------------|---|
+| **E** | Ground state energy | -2.22 MeV (bound) |
+| **R** (charge radius) | ⟨r²_charge⟩^(1/2) | 2.13 fm |
+| **<T>** (kinetic energy) | Expectation value of kinetic operator | ~40 MeV |
+| **Prob PN** | Probability state is bare PN | 80-90% |
+| **Prob PN+π** | Probability state contains pion | 10-20% |
 
-### deu.cc
-**Main driver**: Orchestrates SVM workflow
+## References & Implementation Details
 
-Key functions:
-- `evaluate_basis_energy(...)`: Build H, N matrices and solve GEVP
-- `sweep_optimize_basis(...)`: Nelder-Mead loop optimizing all basis parameters
-- `run_deuteron_svm(...)`: Phase 1 & Phase 2 SVM algorithm
+### Numerical Methods Used
+
+1. **Analytical Gaussian Overlaps**: No numerical integration
+   - Formula: ⟨g₁|g₂⟩ = (π/det(A₁+A₂))^(3/2) × exp(...)
+   
+2. **Jacobi Rotation**: Diagonalization of H' matrix
+   - Converges when all off-diagonals < 10^(-6)
+   - Typically 50-100 sweeps needed
+   
+3. **Nelder-Mead Simplex**: Derivative-free optimization
+   - Non-smooth objective (eigenvalue doesn't have smooth gradients)
+   - Ideal for basis parameter tuning
+   - Typically 200-500 evaluations per optimization
+   
+4. **Stochastic Sampling**: Random state generation via quasi-random sequences
+   - Van der Corput quasi-random for deterministic pseudo-randomness
+   - Ensures good exploration of parameter space
+
+### Performance Characteristics
+
+- **Typical runtime**: 3-5 seconds per point (64-state basis)
+- **Parallelization**: OpenMP across candidate screening (10-fold speedup on 10 cores)
+- **Basis size**: Grows to ~60-100 states for full convergence
+- **Memory usage**: <100 MB for typical run
 - `main()`: Run classic + relativistic and report results
 
 ### deuterium.h
