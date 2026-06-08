@@ -74,13 +74,18 @@ sweep_size : deu scripts/sweep_basis_size.py Makefile
 
 contour_b_range : deu scripts/contour_plot_b_range.py Makefile
 	python3 scripts/contour_plot_b_range.py --b_range_min 2.0 --b_range_max 2.5 --b_range_steps 10 \
-	--S_init_anchor 30.0 --S_window 10.0 \
-	--b_form $(B_FORM) --S_steps 3 --jobs 10
+	--S_init_anchor 25.0 --S_window 5.0 \
+	--b_form $(B_FORM) --S_steps 4 --jobs 8
 
 contour_b_form : deu scripts/contour_plot_b_form.py Makefile
 	python3 scripts/contour_plot_b_form.py --b_form_min 1.0 --b_form_max 1.6 --b_form_steps 6 \
 	--S_init_anchor 40.0 --S_window 10.0 \
 	--b_range $(B_RANGE) --S_steps 10 --jobs 10
+
+contour_b_rel : deu scripts/contour_b_rel.py Makefile
+	python3 scripts/contour_b_rel.py --b_range_min 2.0 --b_range_max 2.5 --b_range_steps 10 \
+	--S_init_anchor 30.0 --S_window 5.0 \
+	--b_form $(B_FORM) --S_steps 4 --jobs 8
 
 clean :
 	$(RM) *.o *.log *.dat *.gpi *.out *.err

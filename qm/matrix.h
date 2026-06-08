@@ -329,7 +329,7 @@ struct matrix {
         
         if (n == 1) {
             T det = SELF(0, 0);
-            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(0,0);
+            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(n,n);
             matrix inv(1, 1);
             inv(0, 0) = T{1} / det;
             return inv;
@@ -338,7 +338,7 @@ struct matrix {
             T a = SELF(0, 0), b = SELF(0, 1);
             T c = SELF(1, 0), d = SELF(1, 1);
             T det = a * d - b * c;
-            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(0,0);
+            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(n,n);
             matrix inv(2, 2);
             T inv_det = T{1} / det;
             inv(0, 0) =  d * inv_det;
@@ -353,7 +353,7 @@ struct matrix {
             T g = SELF(2,0), h = SELF(2,1), i = SELF(2,2);
             
             T det = a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
-            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(0,0);
+            if (scalar_abs2(det) < ZERO_LIMIT) return matrix(n,n);
             
             matrix inv(3, 3);
             T inv_det = T{1} / det;
@@ -500,11 +500,12 @@ matrix<T> operator/(const matrix<T>& A, T x) { matrix<T> R = A; R /= x; return R
 // Matrix-vector product: M * v
 template<typename T>
 vector<T> operator*(const matrix<T>& M, const vector<T>& v) {
-    vector<T> r(M.size1());
-    for (size_t i = 0; i < M.size1(); i++) {
-        T s{0};
-        for (size_t j = 0; j < v.size(); j++) s += M(i,j) * v[j];
-        r[i] = s;
+    vector<T> r(M.size1()); 
+    for (size_t j = 0; j < v.size(); j++) {
+        T vj = v[j];
+        for (size_t i = 0; i < M.size1(); i++) {
+            r[i] += M(i,j) * vj;
+        }
     }
     return r;
 }
@@ -514,11 +515,16 @@ template<typename T>
 matrix<T> operator*(const matrix<T>& A, const matrix<T>& B) {
     assert(A.size2() == B.size1());
     matrix<T> R(A.size1(), B.size2());
-    // k-j-i loop order for better cache performance (column-major layout)
-    for (size_t k = 0; k < A.size2(); k++)
-        for (size_t j = 0; j < B.size2(); j++)
-            for (size_t i = 0; i < A.size1(); i++)
-                R(i,j) += A(i,k) * B(k,j);
+    
+    // j-k-i loop order guarantees R[j] stays in cache while accumulating
+    for (size_t j = 0; j < B.size2(); j++) {
+        for (size_t k = 0; k < A.size2(); k++) {
+            T b_val = B(k,j);
+            for (size_t i = 0; i < A.size1(); i++) {
+                R(i,j) += A(i,k) * b_val;
+            }
+        }
+    }
     return R;
 }
 
@@ -526,9 +532,12 @@ matrix<T> operator*(const matrix<T>& A, const matrix<T>& B) {
 template<typename T>
 matrix<T> outer(const vector<T>& v, const vector<T>& u) {
     matrix<T> R(v.size(), u.size());
-    for (size_t i = 0; i < v.size(); i++)
-        for (size_t j = 0; j < u.size(); j++)
-            R(i,j) = v[i] * scalar_conj(u[j]); // outer product with conjugation
+    for (size_t j = 0; j < u.size(); j++) {
+        T uj_conj = scalar_conj(u[j]);
+        for (size_t i = 0; i < v.size(); i++) {
+            R(i,j) = v[i] * uj_conj;
+        }
+    }
     return R;
 }
 
@@ -536,9 +545,12 @@ matrix<T> outer(const vector<T>& v, const vector<T>& u) {
 template<typename T>
 matrix<T> outer_no_conj(const vector<T>& v, const vector<T>& u) {
     matrix<T> R(v.size(), u.size());
-    for (size_t i = 0; i < v.size(); i++)
-        for (size_t j = 0; j < u.size(); j++)
-            R(i,j) = v[i] * u[j];
+    for (size_t j = 0; j < u.size(); j++) {
+        T uj = u[j];
+        for (size_t i = 0; i < v.size(); i++) {
+            R(i,j) = v[i] * uj;
+        }
+    }
     return R;
 }
 

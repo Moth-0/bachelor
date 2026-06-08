@@ -122,7 +122,7 @@ def plot_contour_b_range(grid_csv_path, b_form):
         return False
     
     # Filter out unbound states
-    valid_indices = [i for i, e in enumerate(E_plot) if e < -0.1]
+    valid_indices = [i for i, e in enumerate(E_plot) if (e > -10.0 and e < -0.0)]
     B_plot = [B_plot[i] for i in valid_indices]
     S_plot = [S_plot[i] for i in valid_indices]
     E_plot = [E_plot[i] for i in valid_indices]
@@ -151,16 +151,29 @@ def plot_contour_b_range(grid_csv_path, b_form):
     
     # Fit polynomials to the data
     xy_data = np.column_stack([B_array, S_array])
-    popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, maxfev=1000)
+    
+    # 1. ENERGY FIT WEIGHTING
+    # Calculate how far each point is from the target energy
+    dist_E = np.abs(E_array - ENERGY_TARGET)
+    # Create a Gaussian weight window (0.5 MeV width). Points near target get weight ~1.0. 
+    # Points far away drop toward 0.
+    weight_E = np.exp(-(dist_E / 0.5)**2)
+    weight_E = np.clip(weight_E, 1e-4, 1.0) # Prevent division by zero
+    # curve_fit uses sigma as 'uncertainty'. Smaller sigma = higher priority.
+    sigma_E_fit = 1.0 / weight_E 
+    
+    popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, sigma=sigma_E_fit, absolute_sigma=False, maxfev=10000)
 
-    # Radius is only reliable near the correct (bound-state) energy.
-    # Down-weight off-target energies so large-radius points don't distort the R fit.
-    dE = np.abs(E_array - ENERGY_TARGET)
-    sigma_E = 0.005  # MeV; controls how aggressively we ignore off-target points
-    w = np.exp(-(dE / sigma_E) ** 2)
-    w = np.clip(w, 1e-6, 1.0)
-    sigma_R = 1.0 / np.sqrt(w)
-    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R, maxfev=1000)
+    # 2. RADIUS FIT WEIGHTING
+    # Calculate how far each point is from the target radius
+    dist_R = np.abs(R_array - RADIUS_TARGET)
+    # Weight based primarily on being close to the radius target, but keep a soft 
+    # penalty for being wildly far off the energy target (since radius physics breaks down there)
+    weight_R = np.exp(-(dist_R / 0.2)**2) * np.exp(-(dist_E / 2.0)**2)
+    weight_R = np.clip(weight_R, 1e-4, 1.0)
+    sigma_R_fit = 1.0 / weight_R
+    
+    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R_fit, absolute_sigma=False, maxfev=10000)
     
     # Evaluate fitted polynomials on the mesh grid
     grid_E = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_E).reshape(grid_B.shape)
@@ -176,9 +189,9 @@ def plot_contour_b_range(grid_csv_path, b_form):
     cs_energy = ax.contour(grid_B, grid_S, grid_E, levels=[ENERGY_TARGET], colors='blue', linewidths=3)
     cs_radius = ax.contour(grid_B, grid_S, grid_R, levels=[RADIUS_TARGET], colors='red', linewidths=3)
     
-    ax.set_title(f"Target Contours: Energy = {ENERGY_TARGET} MeV (blue) & Radius = {RADIUS_TARGET} fm (red)\n($b_{{form}}$ = {b_form} fm)", 
+    ax.set_title(f"Target Contours: Energy = {ENERGY_TARGET} MeV (blue) & Radius = {RADIUS_TARGET} fm (red)\n($b_{{π}}$ = {b_form} fm)", 
                  fontsize=13, fontweight='bold')
-    ax.set_xlabel("$b_{{range}}$ (fm)", fontsize=12)
+    ax.set_xlabel("$b_{{N}}$ (fm)", fontsize=12)
     ax.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=12)
     ax.grid(True, linestyle=':', alpha=0.6)
     
@@ -234,6 +247,178 @@ def plot_contour_b_range(grid_csv_path, b_form):
                 
                 print(f"\nIntersection of Target Contours:")
                 print(f"  b_range = {b_intersect:.6f} fm")
+                print(f"  S       = {s_intersect:.6f} MeV")
+                print(f"  Energy  = {e_at_intersect:.6f} MeV (target: {ENERGY_TARGET}, error: {abs(e_at_intersect - ENERGY_TARGET):.6f} MeV)")
+                print(f"  Radius  = {r_at_intersect:.6f} fm  (target: {RADIUS_TARGET}, error: {abs(r_at_intersect - RADIUS_TARGET):.6f} fm)")
+                print(f"  Distance between contours: {min_dist:.6f}")
+        else:
+            print("Could not extract contour paths.")
+    except Exception as e:
+        print(f"Error extracting contours: {e}")
+    
+    print("="*80 + "\n")
+    return True
+
+def plot_contour_b_rel(grid_csv_path, fixed_param):
+    """Plot contour map for b_rel sweep (from pre-computed grid data)"""
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from scipy.interpolate import griddata
+        from scipy.optimize import curve_fit
+    except ImportError:
+        print("ERROR: matplotlib, numpy, or scipy not found. Install with: pip install matplotlib numpy scipy", file=sys.stderr)
+        return False
+    
+    ENERGY_TARGET = -2.224
+    RADIUS_TARGET = 2.128
+    
+    B_plot = []
+    S_plot = []
+    E_plot = []
+    R_plot = []
+    
+    try:
+        with open(grid_csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    # Look specifically for the b_rel column
+                    b_rel = float(row["b_range"])
+                    S = float(row["S"])
+                    energy = float(row["energy_mev"])
+                    radius = float(row["radius_fm"])
+                    
+                    B_plot.append(b_rel)
+                    S_plot.append(S)
+                    E_plot.append(energy)
+                    R_plot.append(radius)
+                except (KeyError, ValueError):
+                    pass
+    except Exception as e:
+        print(f"ERROR reading grid CSV: {e}", file=sys.stderr)
+        return False
+    
+    if not B_plot:
+        print("No data found in grid CSV", file=sys.stderr)
+        return False
+    
+    # Filter out unbound states (adjust these limits if needed for b_rel)
+    valid_indices = [i for i, e in enumerate(E_plot) if (e > -10.0 and e < -0.0)]
+    B_plot = [B_plot[i] for i in valid_indices]
+    S_plot = [S_plot[i] for i in valid_indices]
+    E_plot = [E_plot[i] for i in valid_indices]
+    R_plot = [R_plot[i] for i in valid_indices]
+    
+    if not B_plot:
+        print("ERROR: No bound states found in grid data", file=sys.stderr)
+        return False
+    
+    # Create interpolated grid for smooth target lines
+    B_array = np.array(B_plot)
+    S_array = np.array(S_plot)
+    E_array = np.array(E_plot)
+    R_array = np.array(R_plot)
+    
+    b_min, b_max = B_array.min(), B_array.max()
+    s_min, s_max = S_array.min(), S_array.max()
+    grid_b = np.linspace(b_min, b_max, 200)
+    grid_s = np.linspace(s_min, s_max, 200)
+    grid_B, grid_S = np.meshgrid(grid_b, grid_s)
+    
+    def poly2d(xy, c0, c1, c2, c3, c4, c5):
+        x, y = xy
+        return c0 + c1*x + c2*y + c3*x*y + c4*x**2 + c5*y**2
+    
+    xy_data = np.column_stack([B_array, S_array])
+    
+    # ENERGY FIT WEIGHTING
+    dist_E = np.abs(E_array - ENERGY_TARGET)
+    weight_E = np.exp(-(dist_E / 0.5)**2)
+    weight_E = np.clip(weight_E, 1e-4, 1.0)
+    sigma_E_fit = 1.0 / weight_E 
+    
+    popt_E, _ = curve_fit(poly2d, xy_data.T, E_array, sigma=sigma_E_fit, absolute_sigma=False, maxfev=10000)
+
+    # RADIUS FIT WEIGHTING
+    dist_R = np.abs(R_array - RADIUS_TARGET)
+    weight_R = np.exp(-(dist_R / 0.2)**2) * np.exp(-(dist_E / 2.0)**2)
+    weight_R = np.clip(weight_R, 1e-4, 1.0)
+    sigma_R_fit = 1.0 / weight_R
+    
+    popt_R, _ = curve_fit(poly2d, xy_data.T, R_array, sigma=sigma_R_fit, absolute_sigma=False, maxfev=10000)
+    
+    # Evaluate fitted polynomials on the mesh grid
+    grid_E = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_E).reshape(grid_B.shape)
+    grid_R = poly2d(np.column_stack([grid_B.ravel(), grid_S.ravel()]).T, *popt_R).reshape(grid_B.shape)
+
+    # Generate single plot with both target lines
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Use energy background for reference
+    ax.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='Blues', alpha=0.5)
+    
+    # Overlay both target lines from fitted curves
+    cs_energy = ax.contour(grid_B, grid_S, grid_E, levels=[ENERGY_TARGET], colors='blue', linewidths=3)
+    cs_radius = ax.contour(grid_B, grid_S, grid_R, levels=[RADIUS_TARGET], colors='red', linewidths=3)
+    
+    ax.set_title(f"Target Contours: Energy = {ENERGY_TARGET} MeV (blue) & Radius = {RADIUS_TARGET} fm (red)\n(Fixed param = {fixed_param})", 
+                 fontsize=13, fontweight='bold')
+    ax.set_xlabel("$b_{rel}$ (fm)", fontsize=12)
+    ax.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=12)
+    ax.grid(True, linestyle=':', alpha=0.6)
+    
+    # Add legend
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color='blue', linewidth=3, label=f"Energy = {ENERGY_TARGET} MeV"),
+        Line2D([0], [0], color='red', linewidth=3, label=f"Radius = {RADIUS_TARGET} fm")
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=11, framealpha=0.95)
+    
+    plt.tight_layout()
+    output_file = grid_csv_path.replace('grid_data.csv', 'contour_plot.png')
+    plt.savefig(output_file, dpi=150, bbox_inches='tight')
+    print(f"Contour plot saved to: {output_file}")
+    
+    # Find intersection of energy and radius target lines
+    print("\n" + "="*80)
+    print("TARGET LINE INTERSECTION (OPTIMAL PARAMETERS)")
+    print("="*80)
+    
+    try:
+        energy_lines = cs_energy.get_paths() if hasattr(cs_energy, 'get_paths') else []
+        radius_lines = cs_radius.get_paths() if hasattr(cs_radius, 'get_paths') else []
+        
+        if len(energy_lines) > 0 and len(radius_lines) > 0:
+            energy_verts = energy_lines[0].vertices
+            radius_verts = radius_lines[0].vertices
+            
+            min_dist = float('inf')
+            best_idx_e = None
+            best_idx_r = None
+            
+            for i, (b_e, s_e) in enumerate(energy_verts):
+                for j, (b_r, s_r) in enumerate(radius_verts):
+                    dist = np.sqrt((b_e - b_r)**2 + (s_e - s_r)**2)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_idx_e = i
+                        best_idx_r = j
+            
+            if best_idx_e is not None and best_idx_r is not None:
+                b_energy, s_energy = energy_verts[best_idx_e]
+                b_radius, s_radius = radius_verts[best_idx_r]
+                
+                b_intersect = (b_energy + b_radius) / 2.0
+                s_intersect = (s_energy + s_radius) / 2.0
+                
+                xy_intersect = np.array([[b_intersect, s_intersect]])
+                e_at_intersect = poly2d(xy_intersect.T, *popt_E)[0]
+                r_at_intersect = poly2d(xy_intersect.T, *popt_R)[0]
+                
+                print(f"\nIntersection of Target Contours:")
+                print(f"  b_rel   = {b_intersect:.6f} fm")
                 print(f"  S       = {s_intersect:.6f} MeV")
                 print(f"  Energy  = {e_at_intersect:.6f} MeV (target: {ENERGY_TARGET}, error: {abs(e_at_intersect - ENERGY_TARGET):.6f} MeV)")
                 print(f"  Radius  = {r_at_intersect:.6f} fm  (target: {RADIUS_TARGET}, error: {abs(r_at_intersect - RADIUS_TARGET):.6f} fm)")
@@ -951,13 +1136,12 @@ def plot_basis_size_convergence(csv_file):
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <scan_type> [fixed_param]", file=sys.stderr)
-        print(f"  scan_type: energy_sweep_b_range | energy_sweep_b_form | energy_sweep_S | energy_sweep_basis_size | energy_sweep_calibration | contour_map | contour_b_range | contour_b_form | smart_contour", file=sys.stderr)
-        print(f"  fixed_param: for contour_b_range, pass b_form value; for contour_b_form, pass b_range value", file=sys.stderr)
+        print(f"  scan_type: energy_sweep_b_range | energy_sweep_b_form | energy_sweep_S | energy_sweep_basis_size | energy_sweep_calibration | contour_map | contour_b_range | contour_b_form | contour_b_rel | smart_contour", file=sys.stderr)
+        print(f"  fixed_param: for contour_b_range/b_form/b_rel, pass the fixed value", file=sys.stderr)
         return 1
     
     scan_type = sys.argv[1]
     
-    # Special case for contour plots (use grid_data.csv instead of aggregated.csv)
     if scan_type == "contour_map":
         csv_file = "results/contour_map/grid_data.csv"
         if not os.path.exists(csv_file):
@@ -977,37 +1161,44 @@ def main():
     if scan_type == "contour_b_range":
         if len(sys.argv) < 3:
             print(f"ERROR: contour_b_range requires b_form parameter", file=sys.stderr)
-            print(f"Usage: {sys.argv[0]} contour_b_range <b_form>", file=sys.stderr)
             return 1
         csv_file = "results/contour_b_range/grid_data.csv"
         if not os.path.exists(csv_file):
             print(f"ERROR: Grid data file not found: {csv_file}", file=sys.stderr)
             return 1
-        try:
-            b_form = float(sys.argv[2])
-        except ValueError:
-            print(f"ERROR: b_form must be a number, got: {sys.argv[2]}", file=sys.stderr)
-            return 1
-        success = plot_contour_b_range(csv_file, b_form)
+        success = plot_contour_b_range(csv_file, float(sys.argv[2]))
         return 0 if success else 1
     
     if scan_type == "contour_b_form":
         if len(sys.argv) < 3:
             print(f"ERROR: contour_b_form requires b_range parameter", file=sys.stderr)
-            print(f"Usage: {sys.argv[0]} contour_b_form <b_range>", file=sys.stderr)
             return 1
         csv_file = "results/contour_b_form/grid_data.csv"
         if not os.path.exists(csv_file):
             print(f"ERROR: Grid data file not found: {csv_file}", file=sys.stderr)
             return 1
-        try:
-            b_range = float(sys.argv[2])
-        except ValueError:
-            print(f"ERROR: b_range must be a number, got: {sys.argv[2]}", file=sys.stderr)
-            return 1
-        success = plot_contour_b_form(csv_file, b_range)
+        success = plot_contour_b_form(csv_file, float(sys.argv[2]))
         return 0 if success else 1
-    
+
+    # --- NEW BLOCK FOR b_rel ---
+    if scan_type == "contour_b_rel":
+        if len(sys.argv) < 3:
+            print(f"ERROR: contour_b_rel requires a fixed parameter", file=sys.stderr)
+            print(f"Usage: {sys.argv[0]} contour_b_rel <fixed_param>", file=sys.stderr)
+            return 1
+        csv_file = "results/contour_b_rel/grid_data.csv"
+        if not os.path.exists(csv_file):
+            print(f"ERROR: Grid data file not found: {csv_file}", file=sys.stderr)
+            return 1
+        try:
+            fixed_param = float(sys.argv[2])
+        except ValueError:
+            print(f"ERROR: fixed parameter must be a number, got: {sys.argv[2]}", file=sys.stderr)
+            return 1
+        success = plot_contour_b_rel(csv_file, fixed_param)
+        return 0 if success else 1
+    # ---------------------------
+
     csv_file = f"results/{scan_type}/aggregated.csv"
     
     if not os.path.exists(csv_file):

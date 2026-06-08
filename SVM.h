@@ -255,7 +255,6 @@ SpatialWavefunction perturb_wavefunction(const SpatialWavefunction& original, ld
 
 // Performs one full cycle of competitive basis growth using ROBUST Matrix Caching
 // TEMPLATE VERSION: Works with any BasisState type
-// OPTIMIZES E0 ONLY (no E0+E1)
 template <typename BasisStateType>
 inline void competitive_search(std::vector<BasisStateType>& basis,
                                const std::vector<BasisStateType>& channel_templates,
@@ -263,18 +262,18 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
                                const std::vector<bool>& relativistic, ld ho_k = 0.0, size_t nvals = 0)
 {
     ld E_core = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
-    size_t K = basis.size();
+    size_t K = basis.size(); 
     auto [H_core, N_core] = build_matrices(basis, b_form, b_range, S, relativistic, ho_k);
-
-    const size_t MAX_TEST_SIZE = 300;
-    cmat H_test = zeros<cld>(MAX_TEST_SIZE, MAX_TEST_SIZE);
-    cmat N_test = zeros<cld>(MAX_TEST_SIZE, MAX_TEST_SIZE);
+    
 
     for (size_t t = 1; t < channel_templates.size(); ++t) {
         BasisStateType best_candidate = channel_templates[t];
 
         ld best_E = E_core;
         bool found_valid_dart = false;
+
+        cmat H_test = zeros<cld>(K + 1, K + 1);
+        cmat N_test = zeros<cld>(K + 1, K + 1);
 
         for (size_t i = 0; i < K; ++i) {
             for (size_t j = 0; j < K; ++j) {
@@ -345,7 +344,7 @@ inline void competitive_search(std::vector<BasisStateType>& basis,
             ld E_estimate = (E0 < 999999.0) ? E0 : 999999.0;
 
             // Strict improvement gate
-            if (E_estimate < best_E - 1e-6) {
+            if (E_estimate < best_E - 1e-9) {
                 best_E = E_estimate;
                 best_candidate = test_candidate;
                 found_valid_dart = true;
@@ -522,7 +521,7 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
             }
         }
 
-        ld current_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k, true);
+        ld current_E = evaluate_basis_energy(basis, b_form, b_range, S, relativistic, ho_k);
         convergence_energies.push_back(current_E);
 
         ld improvement = sweep_start_E - current_E;

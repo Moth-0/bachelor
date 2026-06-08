@@ -40,6 +40,7 @@
 #include <vector>
 #include <random>
 #include <atomic>
+#include <optional>
 #include "matrix.h"
 #include "jacobi.h"
 
@@ -250,6 +251,7 @@ template <typename Func>
 auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunction& ket, Func operation) {
     rmat B = bra.A + ket.A;
     
+    // Deduce the return type dynamically (ld or cld)
     using RetType = decltype(operation(Gaussian(bra.A, bra.s), Gaussian(ket.A, ket.s), 0.0L, B));
     
     if (std::abs(B.determinant()) < ZERO_LIMIT) return RetType{0}; 
@@ -265,25 +267,22 @@ auto apply_basis_expansion(const SpatialWavefunction& bra, const SpatialWavefunc
 
     RetType total_value{0};
 
-    int parity_factor[2][2];
     for (int i = 0; i < num_bra_terms; ++i) {
         for (int j = 0; j < num_ket_terms; ++j) {
-            parity_factor[i][j] = p_bra[i] * p_ket[j];
-        }
-    }
-
-    for (int i = 0; i < num_bra_terms; ++i) {
-        for (int j = 0; j < num_ket_terms; ++j) {
-            ld M_term = gaussian_overlap(bra.A, s_bra[i], ket.A, s_ket[j]);
+            int parity_factor = p_bra[i] * p_ket[j];
+            Gaussian g_b(bra.A, s_bra[i]);
+            Gaussian g_k(ket.A, s_ket[j]);
+            ld M_term = gaussian_overlap(g_b.A, g_b.s, g_k.A, g_k.s);
             
             if (std::abs(M_term) > 1e-25) {
-                Gaussian g_b(bra.A, s_bra[i]);
-                Gaussian g_k(ket.A, s_ket[j]);
-                total_value += static_cast<ld>(parity_factor[i][j]) * operation(g_b, g_k, M_term, R);
+                // Multiply the scalar parity_factor by the RetType result
+                total_value += static_cast<ld>(parity_factor) * operation(g_b, g_k, M_term, R);
             }
         }
     }
 
+    // Apply the 1/sqrt(2) normalization factors
+    // This might not matter because of GEVD
     ld norm_factor = 1.0L / std::sqrt(static_cast<ld>(num_bra_terms * num_ket_terms));
 
     return norm_factor * total_value;

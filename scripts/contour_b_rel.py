@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-contour_plot_b_range.py - Generates a SLANTED 2D grid by dynamically tracking the energy contour
+contour_b_rel.py - Generates a SLANTED 2D grid by dynamically tracking the energy contour with rel pion
 
 Usage:
   python3 scripts/contour_plot_b_range.py \
@@ -78,6 +78,7 @@ def run_single_point(args):
         "-b_form", f"{b_form:.4f}",
         "-S", f"{S:.4f}",
         "-box-strengths", "2.0,1.0,0.5,0.2,0.1,0.0",
+        "--pi-rel", 
         "--output-csv", csv_path
     ]
     
@@ -192,13 +193,13 @@ def main():
             )
             return 2
     
-    results_dir = "results/contour_b_range"
+    results_dir = "results/contour_b_rel"
     Path(results_dir).mkdir(parents=True, exist_ok=True)
     grid_csv_path = os.path.join(results_dir, "grid_data.csv")
     plot_path = os.path.join(results_dir, "calibration_contour.png")
     
     b_ranges = np.linspace(args.b_range_min, args.b_range_max, args.b_range_steps)
-    b_ranges = np.array([2.7,2.8,3.0,3.2,3.4,3.6])
+    b_ranges = np.array([2.0, 2.2, 2.23, 2.24, 2.25, 2.4, 2.6])
     args.b_range_steps = len(b_ranges)
     
     print(f"Starting Dynamic Grid Calculation ({args.b_range_steps} slices of {args.S_steps} runs)")

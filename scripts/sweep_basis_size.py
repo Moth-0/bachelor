@@ -40,7 +40,7 @@ class BasisSizeSweep:
         base_strengths = [0.0, 1.0, 0.1, 0.2, 0.5, 2.0, 0.01, 5.0, 3.0]
         combinations = []
         
-        for step in range(3, self.num_steps + 1):
+        for step in range(2, self.num_steps + 1):
             step_box_strengths = sorted(base_strengths[:step], reverse=True)
             params = dict(self.fixed_params)
             params.update({
@@ -69,6 +69,10 @@ class BasisSizeSweep:
         cmd.extend(["-b_form", str(params["b_form"])])
         cmd.extend(["-S", str(params["S"])])
         cmd.extend(["--output-csv", csv_path])
+        
+        rel = True
+        if rel:
+            cmd.extend(["--pi-rel"])
         
         if "box_strengths" in params:
             box_strengths_str = ",".join([str(x) for x in params["box_strengths"]])

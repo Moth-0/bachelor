@@ -100,7 +100,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
 
     // Do one final, shallow sweep of the grand basis at k=0
     // to let the core, pocket, and tail states slightly adjust to each other.
-    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 20, 1e-4, 0.0, 3);
+    sweep_optimize_basis(grand_basis, b_form, b_range, S, relativistic, convergence_energies, 10, 1e-4, 0.0, 3);
 
     
     SvmResult result = evaluate_observables(grand_basis, b_form, b_range, S, relativistic);
