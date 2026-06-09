@@ -190,9 +190,9 @@ def plot_contour_b_range(grid_csv_path, b_form):
     cs_radius = ax.contour(grid_B, grid_S, grid_R, levels=[RADIUS_TARGET], colors='red', linewidths=3)
     
     ax.set_title(f"Target Contours: Energy = {ENERGY_TARGET} MeV (blue) & Radius = {RADIUS_TARGET} fm (red)\n($b_{{π}}$ = {b_form} fm)", 
-                 fontsize=13, fontweight='bold')
-    ax.set_xlabel("$b_{{N}}$ (fm)", fontsize=12)
-    ax.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=12)
+                 fontsize=20, fontweight='bold')
+    ax.set_xlabel("$b_{{N}}$ (fm)", fontsize=16)
+    ax.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=16)
     ax.grid(True, linestyle=':', alpha=0.6)
     
     # Add legend

@@ -70,7 +70,7 @@ class BasisSizeSweep:
         cmd.extend(["-S", str(params["S"])])
         cmd.extend(["--output-csv", csv_path])
         
-        rel = True
+        rel = False
         if rel:
             cmd.extend(["--pi-rel"])
         
@@ -232,7 +232,7 @@ class BasisSizeSweep:
         sorted_data = sorted(zip(data["step"], data["num_boxes"], data["energy"], data["basis_size"], data["radius"], data["execution_time"]))
         steps, num_boxes, energies, basis_sizes, radii, exec_times = zip(*sorted_data)
         
-        fig, axes = plt.subplots(3, 1, figsize=(11, 10))
+        fig, axes = plt.subplots(3, 1, figsize=(12, 10))
         
         # Target values and tolerance
         ENERGY_TARGET = -2.224
@@ -245,11 +245,11 @@ class BasisSizeSweep:
         ax1.axhline(y=ENERGY_TARGET, color='r', linestyle='--', linewidth=2, label=f'Target ({ENERGY_TARGET} MeV)')
         ax1.fill_between(basis_sizes, ENERGY_TARGET - energy_tolerance, ENERGY_TARGET + energy_tolerance,
                         alpha=0.2, color='red', label='±0.1% Target Band')
-        ax1.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
-        ax1.set_ylabel('Energy (MeV)', fontsize=12, fontweight='bold')
-        ax1.set_title('Basis Size Convergence: Ground State Energy', fontsize=14, fontweight='bold')
+        ax1.set_xlabel('Basis Size', fontsize=14, fontweight='bold')
+        ax1.set_ylabel('Energy (MeV)', fontsize=14, fontweight='bold')
+        ax1.set_title('Basis Size Convergence: Ground State Energy', fontsize=20, fontweight='bold')
         ax1.grid(True, alpha=0.3, linestyle=':')
-        ax1.legend(fontsize=11, loc='best')
+        ax1.legend(fontsize=12, loc='best')
         ax1.set_xticks(basis_sizes)
         
         if radii and any(r is not None and r > 0 for r in radii):
