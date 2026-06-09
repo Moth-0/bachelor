@@ -186,10 +186,10 @@ def plot_contour_b_range(grid_csv_path, b_form):
     ax.tricontourf(B_plot, S_plot, E_plot, levels=20, cmap='Blues', alpha=0.5)
     
     # Overlay both target lines from fitted curves
-    cs_energy = ax.contour(grid_B, grid_S, grid_E, levels=[ENERGY_TARGET], colors='blue', linewidths=3)
-    cs_radius = ax.contour(grid_B, grid_S, grid_R, levels=[RADIUS_TARGET], colors='red', linewidths=3)
+    cs_energy = ax.contour(grid_B, grid_S, grid_E, levels=[ENERGY_TARGET], colors='blue', linewidths=4)
+    cs_radius = ax.contour(grid_B, grid_S, grid_R, levels=[RADIUS_TARGET], colors='red', linewidths=4)
     
-    ax.set_title(f"Target Contours: Energy = {ENERGY_TARGET} MeV (blue) & Radius = {RADIUS_TARGET} fm (red)\n($b_{{π}}$ = {b_form} fm)", 
+    ax.set_title(f"Target Contours: Energy = {ENERGY_TARGET} MeV & Radius = {RADIUS_TARGET} fm \n($b_{{π}}$ = {b_form} fm)", 
                  fontsize=20, fontweight='bold')
     ax.set_xlabel("$b_{{N}}$ (fm)", fontsize=16)
     ax.set_ylabel("Interaction Strength $S$ (MeV)", fontsize=16)
@@ -198,8 +198,8 @@ def plot_contour_b_range(grid_csv_path, b_form):
     # Add legend
     from matplotlib.lines import Line2D
     legend_elements = [
-        Line2D([0], [0], color='blue', linewidth=3, label=f"Energy = {ENERGY_TARGET} MeV"),
-        Line2D([0], [0], color='red', linewidth=3, label=f"Radius = {RADIUS_TARGET} fm")
+        Line2D([0], [0], color='blue', linewidth=2, label=f"Energy = {ENERGY_TARGET} MeV", linestyle="--"),
+        Line2D([0], [0], color='red', linewidth=2, label=f"Radius = {RADIUS_TARGET} fm")
     ]
     ax.legend(handles=legend_elements, loc='upper right', fontsize=11, framealpha=0.95)
     
