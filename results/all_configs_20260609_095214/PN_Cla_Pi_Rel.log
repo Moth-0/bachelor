@@ -1,0 +1,601 @@
+========================================
+  DEUTERON SYSTEM (FAST COMPETITIVE SVM)
+========================================
+Parameters:
+  b_range = 2.24 fm
+  b_form  = 1.4 fm
+  S       = 31.29 MeV
+  PN Treatment: Cla, Pion Treatment: Rel
+  Box Strengths: 5, 2, 1, 0.5, 0.2, 0.1, 0
+========================================
+
+
+>>>>>>>> RUNNING CONFIGURATION: PN_{Cla} Pi_{Rel} <<<<<<<<
+--- 1. Planting Geometric PN Grid & Pion Seeds ---
+--- 2. Competitive Growth inside widening HO Box ---
+
+=== Generating Basis for ho_k = 5 ===
+Added State 6 (Ch 1) -> E0 = 138.97849 MeV    Added State 7 (Ch 2) -> E0 = 137.90189 MeV    Added State 8 (Ch 3) -> E0 = 136.69829 MeV    Added State 9 (Ch 4) -> E0 = 136.53930 MeV    Added State 10 (Ch 5) -> E0 = 134.44816 MeV    Added State 11 (Ch 6) -> E0 = 132.25786 MeV    Added State 12 (Ch 8) -> E0 = 130.33173 MeV    Added State 13 (Ch 9) -> E0 = 128.60319 MeV    
+Added State 14 (Ch 1) -> E0 = 128.55514 MeV    Added State 15 (Ch 2) -> E0 = 127.44997 MeV    Added State 16 (Ch 3) -> E0 = 126.42170 MeV    Added State 17 (Ch 4) -> E0 = 126.27409 MeV    Added State 18 (Ch 5) -> E0 = 124.08451 MeV    Added State 19 (Ch 6) -> E0 = 122.40418 MeV    Added State 20 (Ch 7) -> E0 = 122.35673 MeV    Added State 21 (Ch 8) -> E0 = 120.16732 MeV    Added State 22 (Ch 9) -> E0 = 118.31502 MeV    
+Sweep 1 (Basis=22): E0 = 7.08325 MeV  (ΔE = 111.33601)     Sweep 2 (Basis=22): E0 = 6.59370 MeV  (ΔE = 0.48954)     Sweep 3 (Basis=22): E0 = 6.56166 MeV  (ΔE = 0.03204)     Sweep 4 (Basis=22): E0 = 6.55549 MeV  (ΔE = 0.00617)     Sweep 5 (Basis=22): E0 = 6.55410 MeV  (ΔE = 0.00140)     Sweep 6 (Basis=22): E0 = 6.55037 MeV  (ΔE = 0.00373)     Sweep 7 (Basis=22): E0 = 6.54802 MeV  (ΔE = 0.00234)     Sweep 8 (Basis=22): E0 = 6.54781 MeV  (ΔE = 0.00021)     Sweep 9 (Basis=22): E0 = 6.54771 MeV  (ΔE = 0.00010)     Sweep 10 (Basis=22): E0 = 6.54748 MeV  (ΔE = 0.00023)     Sweep 11 (Basis=22): E0 = 6.54745 MeV  (ΔE = 0.00003)     Sweep 12 (Basis=22): E0 = 6.54745 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== Generating Basis for ho_k = 2.00000 ===
+Added State 6 (Ch 1) -> E0 = 155.22411 MeV    Added State 7 (Ch 2) -> E0 = 153.52095 MeV    Added State 8 (Ch 3) -> E0 = 151.90121 MeV    Added State 9 (Ch 4) -> E0 = 151.72083 MeV    Added State 10 (Ch 5) -> E0 = 148.71469 MeV    Added State 11 (Ch 6) -> E0 = 145.66565 MeV    Added State 12 (Ch 7) -> E0 = 145.47453 MeV    Added State 13 (Ch 8) -> E0 = 142.33513 MeV    Added State 14 (Ch 9) -> E0 = 139.09770 MeV    
+Added State 15 (Ch 1) -> E0 = 139.07967 MeV    Added State 16 (Ch 2) -> E0 = 137.66893 MeV    Added State 17 (Ch 3) -> E0 = 136.20055 MeV    Added State 18 (Ch 4) -> E0 = 136.04940 MeV    Added State 19 (Ch 5) -> E0 = 132.97630 MeV    Added State 20 (Ch 6) -> E0 = 130.45311 MeV    Added State 21 (Ch 7) -> E0 = 130.42610 MeV    Added State 22 (Ch 8) -> E0 = 127.89635 MeV    Added State 23 (Ch 9) -> E0 = 124.79307 MeV    
+Sweep 1 (Basis=23): E0 = 0.40937 MeV  (ΔE = 124.44302)     Sweep 2 (Basis=23): E0 = -0.67274 MeV  (ΔE = 1.08211)     Sweep 3 (Basis=23): E0 = -0.93959 MeV  (ΔE = 0.26685)     Sweep 4 (Basis=23): E0 = -0.96425 MeV  (ΔE = 0.02466)     Sweep 5 (Basis=23): E0 = -0.97759 MeV  (ΔE = 0.01334)     Sweep 6 (Basis=23): E0 = -0.97873 MeV  (ΔE = 0.00114)     Sweep 7 (Basis=23): E0 = -0.97876 MeV  (ΔE = 0.00002)     Sweep 8 (Basis=23): E0 = -0.97876 MeV  (ΔE = 0.00000)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== Generating Basis for ho_k = 1.00000 ===
+Added State 6 (Ch 1) -> E0 = 152.85549 MeV    Added State 7 (Ch 2) -> E0 = 150.66134 MeV    Added State 8 (Ch 3) -> E0 = 148.92159 MeV    Added State 9 (Ch 4) -> E0 = 148.61283 MeV    Added State 10 (Ch 5) -> E0 = 144.75961 MeV    Added State 11 (Ch 6) -> E0 = 141.67783 MeV    Added State 12 (Ch 7) -> E0 = 141.40761 MeV    Added State 13 (Ch 8) -> E0 = 138.16544 MeV    Added State 14 (Ch 9) -> E0 = 135.64325 MeV    
+Added State 15 (Ch 1) -> E0 = 135.58255 MeV    Added State 16 (Ch 2) -> E0 = 134.11675 MeV    Added State 17 (Ch 3) -> E0 = 132.82233 MeV    Added State 18 (Ch 4) -> E0 = 132.62512 MeV    Added State 19 (Ch 5) -> E0 = 129.62040 MeV    Added State 20 (Ch 6) -> E0 = 126.85719 MeV    Added State 21 (Ch 7) -> E0 = 126.73427 MeV    Added State 22 (Ch 8) -> E0 = 124.43110 MeV    Added State 23 (Ch 9) -> E0 = 121.43570 MeV    
+Sweep 1 (Basis=23): E0 = -2.83941 MeV  (ΔE = 124.32228)     Sweep 2 (Basis=23): E0 = -3.44180 MeV  (ΔE = 0.60238)     Sweep 3 (Basis=23): E0 = -3.48529 MeV  (ΔE = 0.04349)     Sweep 4 (Basis=23): E0 = -3.49276 MeV  (ΔE = 0.00747)     Sweep 5 (Basis=23): E0 = -3.49543 MeV  (ΔE = 0.00267)     Sweep 6 (Basis=23): E0 = -3.49642 MeV  (ΔE = 0.00099)     Sweep 7 (Basis=23): E0 = -3.49658 MeV  (ΔE = 0.00015)     Sweep 8 (Basis=23): E0 = -3.49662 MeV  (ΔE = 0.00004)     Sweep 9 (Basis=23): E0 = -3.49669 MeV  (ΔE = 0.00006)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== Generating Basis for ho_k = 0.50000 ===
+Added State 6 (Ch 1) -> E0 = 153.52096 MeV    Added State 7 (Ch 2) -> E0 = 151.76488 MeV    Added State 8 (Ch 3) -> E0 = 149.75777 MeV    Added State 9 (Ch 4) -> E0 = 149.42751 MeV    Added State 10 (Ch 5) -> E0 = 145.87578 MeV    Added State 11 (Ch 6) -> E0 = 142.83898 MeV    Added State 12 (Ch 7) -> E0 = 142.56388 MeV    Added State 13 (Ch 8) -> E0 = 139.08364 MeV    Added State 14 (Ch 9) -> E0 = 135.84893 MeV    
+Added State 15 (Ch 1) -> E0 = 135.78668 MeV    Added State 16 (Ch 2) -> E0 = 134.38610 MeV    Added State 17 (Ch 3) -> E0 = 132.95957 MeV    Added State 18 (Ch 4) -> E0 = 132.78905 MeV    Added State 19 (Ch 5) -> E0 = 130.46081 MeV    Added State 20 (Ch 6) -> E0 = 127.86891 MeV    Added State 21 (Ch 7) -> E0 = 127.72249 MeV    Added State 22 (Ch 8) -> E0 = 125.61274 MeV    Added State 23 (Ch 9) -> E0 = 123.40798 MeV    
+Sweep 1 (Basis=23): E0 = -4.01629 MeV  (ΔE = 127.43262)     Sweep 2 (Basis=23): E0 = -4.37450 MeV  (ΔE = 0.35821)     Sweep 3 (Basis=23): E0 = -4.35909 MeV  (ΔE = -0.01541)     Sweep 4 (Basis=23): E0 = -4.38131 MeV  (ΔE = 0.02221)     Sweep 5 (Basis=23): E0 = -4.41096 MeV  (ΔE = 0.02965)     Sweep 6 (Basis=23): E0 = -4.43169 MeV  (ΔE = 0.02074)     Sweep 7 (Basis=23): E0 = -4.43550 MeV  (ΔE = 0.00381)     Sweep 8 (Basis=23): E0 = -4.44914 MeV  (ΔE = 0.01364)     Sweep 9 (Basis=23): E0 = -4.44044 MeV  (ΔE = -0.00870)     Sweep 10 (Basis=23): E0 = -4.44346 MeV  (ΔE = 0.00302)     Sweep 11 (Basis=23): E0 = -4.45513 MeV  (ΔE = 0.01167)     Sweep 12 (Basis=23): E0 = -4.44349 MeV  (ΔE = -0.01164)     Sweep 13 (Basis=23): E0 = -4.44970 MeV  (ΔE = 0.00621)     Sweep 14 (Basis=23): E0 = -4.45099 MeV  (ΔE = 0.00130)     Sweep 15 (Basis=23): E0 = -4.45046 MeV  (ΔE = -0.00053)     Sweep 16 (Basis=23): E0 = -4.45251 MeV  (ΔE = 0.00206)     Sweep 17 (Basis=23): E0 = -4.45289 MeV  (ΔE = 0.00037)     Sweep 18 (Basis=23): E0 = -4.45166 MeV  (ΔE = -0.00123)     Sweep 19 (Basis=23): E0 = -4.45173 MeV  (ΔE = 0.00007)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== Generating Basis for ho_k = 0.20000 ===
+Added State 6 (Ch 1) -> E0 = 152.69523 MeV    Added State 7 (Ch 2) -> E0 = 150.62452 MeV    Added State 8 (Ch 3) -> E0 = 148.61598 MeV    Added State 9 (Ch 4) -> E0 = 148.35048 MeV    Added State 10 (Ch 5) -> E0 = 144.95267 MeV    Added State 11 (Ch 6) -> E0 = 141.40449 MeV    Added State 12 (Ch 7) -> E0 = 141.06664 MeV    Added State 13 (Ch 8) -> E0 = 137.82517 MeV    Added State 14 (Ch 9) -> E0 = 134.49518 MeV    
+Added State 15 (Ch 1) -> E0 = 134.40253 MeV    Added State 16 (Ch 2) -> E0 = 133.10286 MeV    Added State 17 (Ch 3) -> E0 = 131.82736 MeV    Added State 18 (Ch 4) -> E0 = 131.56127 MeV    Added State 19 (Ch 5) -> E0 = 129.19907 MeV    Added State 20 (Ch 6) -> E0 = 126.78926 MeV    Added State 21 (Ch 7) -> E0 = 126.61287 MeV    Added State 22 (Ch 8) -> E0 = 123.64815 MeV    Added State 23 (Ch 9) -> E0 = 121.38759 MeV    
+Sweep 1 (Basis=23): E0 = -5.24383 MeV  (ΔE = 126.63514)     Sweep 2 (Basis=23): E0 = -5.37093 MeV  (ΔE = 0.12710)     Sweep 3 (Basis=23): E0 = -5.37622 MeV  (ΔE = 0.00529)     Sweep 4 (Basis=23): E0 = -5.38407 MeV  (ΔE = 0.00785)     Sweep 5 (Basis=23): E0 = -5.38555 MeV  (ΔE = 0.00149)     Sweep 6 (Basis=23): E0 = -5.38817 MeV  (ΔE = 0.00261)     Sweep 7 (Basis=23): E0 = -5.39705 MeV  (ΔE = 0.00888)     Sweep 8 (Basis=23): E0 = -5.40468 MeV  (ΔE = 0.00763)     Sweep 9 (Basis=23): E0 = -5.40744 MeV  (ΔE = 0.00277)     Sweep 10 (Basis=23): E0 = -5.40821 MeV  (ΔE = 0.00077)     Sweep 11 (Basis=23): E0 = -5.40852 MeV  (ΔE = 0.00031)     Sweep 12 (Basis=23): E0 = -5.40860 MeV  (ΔE = 0.00009)     Sweep 13 (Basis=23): E0 = -5.40871 MeV  (ΔE = 0.00011)     Sweep 14 (Basis=23): E0 = -5.40926 MeV  (ΔE = 0.00055)     Sweep 15 (Basis=23): E0 = -5.40910 MeV  (ΔE = -0.00016)     Sweep 16 (Basis=23): E0 = -5.40929 MeV  (ΔE = 0.00019)     Sweep 17 (Basis=23): E0 = -5.40906 MeV  (ΔE = -0.00023)     Sweep 18 (Basis=23): E0 = -5.40907 MeV  (ΔE = 0.00001)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== Generating Basis for ho_k = 0.10000 ===
+Added State 6 (Ch 1) -> E0 = 152.46884 MeV    Added State 7 (Ch 2) -> E0 = 150.80096 MeV    Added State 8 (Ch 3) -> E0 = 148.89612 MeV    Added State 9 (Ch 4) -> E0 = 148.57021 MeV    Added State 10 (Ch 5) -> E0 = 145.29729 MeV    Added State 11 (Ch 6) -> E0 = 141.73390 MeV    Added State 12 (Ch 7) -> E0 = 141.46359 MeV    Added State 13 (Ch 8) -> E0 = 137.94008 MeV    Added State 14 (Ch 9) -> E0 = 135.19993 MeV    
+Added State 15 (Ch 1) -> E0 = 135.12853 MeV    Added State 16 (Ch 2) -> E0 = 133.77183 MeV    Added State 17 (Ch 3) -> E0 = 132.50242 MeV    Added State 18 (Ch 4) -> E0 = 132.29222 MeV    Added State 19 (Ch 5) -> E0 = 129.77253 MeV    Added State 20 (Ch 6) -> E0 = 126.63500 MeV    Added State 21 (Ch 7) -> E0 = 126.47764 MeV    Added State 22 (Ch 8) -> E0 = 123.29863 MeV    Added State 23 (Ch 9) -> E0 = 120.58745 MeV    
+Sweep 1 (Basis=23): E0 = -5.64976 MeV  (ΔE = 126.23951)     Sweep 2 (Basis=23): E0 = -6.14061 MeV  (ΔE = 0.49085)     Sweep 3 (Basis=23): E0 = -6.17126 MeV  (ΔE = 0.03065)     Sweep 4 (Basis=23): E0 = -6.18567 MeV  (ΔE = 0.01441)     Sweep 5 (Basis=23): E0 = -6.18996 MeV  (ΔE = 0.00429)     Sweep 6 (Basis=23): E0 = -6.18996 MeV  (ΔE = 0.00000)     Sweep 7 (Basis=23): E0 = -6.19000 MeV  (ΔE = 0.00004)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== Generating Basis for ho_k = 0.00000 ===
+Added State 6 (Ch 1) -> E0 = 152.32873 MeV    Added State 7 (Ch 2) -> E0 = 150.07231 MeV    Added State 8 (Ch 3) -> E0 = 148.32545 MeV    Added State 9 (Ch 4) -> E0 = 148.02105 MeV    Added State 10 (Ch 5) -> E0 = 144.46879 MeV    Added State 11 (Ch 6) -> E0 = 141.20067 MeV    Added State 12 (Ch 7) -> E0 = 140.89490 MeV    Added State 13 (Ch 8) -> E0 = 136.67595 MeV    Added State 14 (Ch 9) -> E0 = 133.79787 MeV    
+Added State 15 (Ch 1) -> E0 = 133.68686 MeV    Added State 16 (Ch 2) -> E0 = 132.01075 MeV    Added State 17 (Ch 3) -> E0 = 130.62390 MeV    Added State 18 (Ch 4) -> E0 = 130.39558 MeV    Added State 19 (Ch 5) -> E0 = 128.15095 MeV    Added State 20 (Ch 6) -> E0 = 125.19135 MeV    Added State 21 (Ch 7) -> E0 = 125.04685 MeV    Added State 22 (Ch 8) -> E0 = 121.75775 MeV    Added State 23 (Ch 9) -> E0 = 119.48473 MeV    
+Sweep 1 (Basis=23): E0 = -0.03897 MeV  (ΔE = 119.52370)     Sweep 2 (Basis=23): E0 = -1.59913 MeV  (ΔE = 1.56016)     Sweep 3 (Basis=23): E0 = -2.00948 MeV  (ΔE = 0.41035)     Sweep 4 (Basis=23): E0 = -6.34122 MeV  (ΔE = 4.33174)     Sweep 5 (Basis=23): E0 = -6.51803 MeV  (ΔE = 0.17680)     Sweep 6 (Basis=23): E0 = -6.53357 MeV  (ΔE = 0.01554)     Sweep 7 (Basis=23): E0 = -6.53968 MeV  (ΔE = 0.00610)     Sweep 8 (Basis=23): E0 = -6.55003 MeV  (ΔE = 0.01035)     Sweep 9 (Basis=23): E0 = -6.55159 MeV  (ΔE = 0.00156)     Sweep 10 (Basis=23): E0 = -6.55176 MeV  (ΔE = 0.00017)     Sweep 11 (Basis=23): E0 = -6.55181 MeV  (ΔE = 0.00006)     Sweep 12 (Basis=23): E0 = -6.55196 MeV  (ΔE = 0.00014)     Sweep 13 (Basis=23): E0 = -6.55198 MeV  (ΔE = 0.00002)     Sweep 14 (Basis=23): E0 = -6.55200 MeV  (ΔE = 0.00002)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+=== FINAL GEVP EVALUATION IN FREE SPACE (ho_k = 0.0) ===
+Sweep 1 (Basis=130): E0 = -6.66216 MeV  (ΔE = 116.16331)     Sweep 2 (Basis=130): E0 = -6.67625 MeV  (ΔE = 0.01409)     Sweep 3 (Basis=130): E0 = -6.68064 MeV  (ΔE = 0.00439)     Sweep 4 (Basis=130): E0 = -6.69302 MeV  (ΔE = 0.01238)     Sweep 5 (Basis=130): E0 = -6.69374 MeV  (ΔE = 0.00072)     Sweep 6 (Basis=130): E0 = -6.69415 MeV  (ΔE = 0.00041)     Sweep 7 (Basis=130): E0 = -6.69438 MeV  (ΔE = 0.00022)     Sweep 8 (Basis=130): E0 = -6.69446 MeV  (ΔE = 0.00008)     Sweep 9 (Basis=130): E0 = -6.69454 MeV  (ΔE = 0.00008)     
+  - Converged: improvement < 0.00010 MeV for 2 sweeps
+
+
+ === FINAL BASIS STATE (ALL CYCLES COMPLETE) === 
+Basis Size: 130
+========================================================================================================================
+
+State 0 (Type 0) c_i: 0.0739324:
+  Gaussian[0] width r≈ 1.76753 fm | Total Shift: 0.251886 fm | 
+
+State 1 (Type 0) c_i: 0.0410543:
+  Gaussian[0] width r≈ 3.02392 fm | Total Shift: 0.0407114 fm | 
+
+State 2 (Type 0) c_i: 0.0113043:
+  Gaussian[0] width r≈ 5.35243 fm | Total Shift: 0.0178371 fm | 
+
+State 3 (Type 0) c_i: 0.000442145:
+  Gaussian[0] width r≈ 10.3299 fm | Total Shift: 0.0116937 fm | 
+
+State 4 (Type 0) c_i: 1.72564e-05:
+  Gaussian[0] width r≈ 16.6667 fm | Total Shift: 0 fm | 
+
+State 5 (Type 1) c_i: 0.00579639:
+  Gaussian[0] width r≈ 1.25561 fm | Total Shift: 0.174815 fm | 
+  Gaussian[1] width r≈ 1.32939 fm | Total Shift: 0.40074 fm | 
+
+State 6 (Type 2) c_i: 0.00477953:
+  Gaussian[0] width r≈ 1.28242 fm | Total Shift: 0.141093 fm | 
+  Gaussian[1] width r≈ 1.19079 fm | Total Shift: 0.234412 fm | 
+
+State 7 (Type 3) c_i: 0.00238286:
+  Gaussian[0] width r≈ 1.18808 fm | Total Shift: 0.213377 fm | 
+  Gaussian[1] width r≈ 1.17117 fm | Total Shift: 0.352443 fm | 
+
+State 8 (Type 4) c_i: 0.0794323:
+  Gaussian[0] width r≈ 1.46867 fm | Total Shift: 0.210345 fm | 
+  Gaussian[1] width r≈ 1.50282 fm | Total Shift: 0.428399 fm | 
+
+State 9 (Type 5) c_i: 0.00395446:
+  Gaussian[0] width r≈ 1.40528 fm | Total Shift: 0.130266 fm | 
+  Gaussian[1] width r≈ 1.19955 fm | Total Shift: 0.316844 fm | 
+
+State 10 (Type 6) c_i: 0.00851864:
+  Gaussian[0] width r≈ 1.32188 fm | Total Shift: 0.0871784 fm | 
+  Gaussian[1] width r≈ 1.29235 fm | Total Shift: 0.156485 fm | 
+
+State 11 (Type 8) c_i: 0.00592301:
+  Gaussian[0] width r≈ 1.29959 fm | Total Shift: 0.122686 fm | 
+  Gaussian[1] width r≈ 1.19173 fm | Total Shift: 0.209609 fm | 
+
+State 12 (Type 9) c_i: 0.00282865:
+  Gaussian[0] width r≈ 1.0852 fm | Total Shift: 0.150616 fm | 
+  Gaussian[1] width r≈ 1.31942 fm | Total Shift: 0.376147 fm | 
+
+State 13 (Type 1) c_i: 0.0100885:
+  Gaussian[0] width r≈ 1.25204 fm | Total Shift: 0.074154 fm | 
+  Gaussian[1] width r≈ 1.37742 fm | Total Shift: 0.140864 fm | 
+
+State 14 (Type 2) c_i: 0.00311916:
+  Gaussian[0] width r≈ 1.27087 fm | Total Shift: 0.109136 fm | 
+  Gaussian[1] width r≈ 1.2905 fm | Total Shift: 0.350918 fm | 
+
+State 15 (Type 3) c_i: 0.00150381:
+  Gaussian[0] width r≈ 1.03965 fm | Total Shift: 0.176273 fm | 
+  Gaussian[1] width r≈ 1.05573 fm | Total Shift: 0.435267 fm | 
+
+State 16 (Type 4) c_i: 0.00767805:
+  Gaussian[0] width r≈ 1.27348 fm | Total Shift: 0.145931 fm | 
+  Gaussian[1] width r≈ 1.3883 fm | Total Shift: 0.363736 fm | 
+
+State 17 (Type 5) c_i: 0.00424824:
+  Gaussian[0] width r≈ 1.14541 fm | Total Shift: 0.126061 fm | 
+  Gaussian[1] width r≈ 1.07486 fm | Total Shift: 0.314721 fm | 
+
+State 18 (Type 6) c_i: 0.00886685:
+  Gaussian[0] width r≈ 1.23981 fm | Total Shift: 0.124956 fm | 
+  Gaussian[1] width r≈ 1.2588 fm | Total Shift: 0.212206 fm | 
+
+State 19 (Type 7) c_i: 0.000599049:
+  Gaussian[0] width r≈ 1.51864 fm | Total Shift: 0.275533 fm | 
+  Gaussian[1] width r≈ 1.55093 fm | Total Shift: 0.186543 fm | 
+
+State 20 (Type 8) c_i: 0.00723623:
+  Gaussian[0] width r≈ 1.17696 fm | Total Shift: 0.118338 fm | 
+  Gaussian[1] width r≈ 1.23439 fm | Total Shift: 0.257503 fm | 
+
+State 21 (Type 9) c_i: 0.00887675:
+  Gaussian[0] width r≈ 1.213 fm | Total Shift: 0.105291 fm | 
+  Gaussian[1] width r≈ 1.2527 fm | Total Shift: 0.214361 fm | 
+
+State 22 (Type 1) c_i: 0.00673878:
+  Gaussian[0] width r≈ 1.4188 fm | Total Shift: 0.280832 fm | 
+  Gaussian[1] width r≈ 1.48464 fm | Total Shift: 0.567961 fm | 
+
+State 23 (Type 2) c_i: 0.00739336:
+  Gaussian[0] width r≈ 1.5648 fm | Total Shift: 0.142848 fm | 
+  Gaussian[1] width r≈ 1.52871 fm | Total Shift: 0.240517 fm | 
+
+State 24 (Type 3) c_i: 0.017244:
+  Gaussian[0] width r≈ 1.54498 fm | Total Shift: 0.0617475 fm | 
+  Gaussian[1] width r≈ 1.62133 fm | Total Shift: 0.155578 fm | 
+
+State 25 (Type 4) c_i: 0.00186925:
+  Gaussian[0] width r≈ 1.34856 fm | Total Shift: 0.128399 fm | 
+  Gaussian[1] width r≈ 1.66689 fm | Total Shift: 0.344072 fm | 
+
+State 26 (Type 5) c_i: 0.000587679:
+  Gaussian[0] width r≈ 2.10559 fm | Total Shift: 0.0610015 fm | 
+  Gaussian[1] width r≈ 2.88686 fm | Total Shift: 0.219576 fm | 
+
+State 27 (Type 6) c_i: 0.00116773:
+  Gaussian[0] width r≈ 1.95806 fm | Total Shift: 0.0872945 fm | 
+  Gaussian[1] width r≈ 2.48772 fm | Total Shift: 0.260137 fm | 
+
+State 28 (Type 7) c_i: 0.0057102:
+  Gaussian[0] width r≈ 1.15377 fm | Total Shift: 0.23009 fm | 
+  Gaussian[1] width r≈ 1.29741 fm | Total Shift: 0.426395 fm | 
+
+State 29 (Type 8) c_i: 0.0317911:
+  Gaussian[0] width r≈ 1.53327 fm | Total Shift: 0.0689376 fm | 
+  Gaussian[1] width r≈ 1.6014 fm | Total Shift: 0.161161 fm | 
+
+State 30 (Type 9) c_i: 0.0071748:
+  Gaussian[0] width r≈ 1.60994 fm | Total Shift: 0.150909 fm | 
+  Gaussian[1] width r≈ 1.42036 fm | Total Shift: 0.307104 fm | 
+
+State 31 (Type 1) c_i: 0.00351198:
+  Gaussian[0] width r≈ 1.51696 fm | Total Shift: 0.206489 fm | 
+  Gaussian[1] width r≈ 1.48356 fm | Total Shift: 0.477015 fm | 
+
+State 32 (Type 2) c_i: 0.000543142:
+  Gaussian[0] width r≈ 1.99564 fm | Total Shift: 0.105619 fm | 
+  Gaussian[1] width r≈ 2.58237 fm | Total Shift: 0.306455 fm | 
+
+State 33 (Type 3) c_i: 0.00638903:
+  Gaussian[0] width r≈ 1.54195 fm | Total Shift: 0.120408 fm | 
+  Gaussian[1] width r≈ 1.58105 fm | Total Shift: 0.235366 fm | 
+
+State 34 (Type 4) c_i: 0.128063:
+  Gaussian[0] width r≈ 1.51009 fm | Total Shift: 0.180518 fm | 
+  Gaussian[1] width r≈ 1.52165 fm | Total Shift: 0.361809 fm | 
+
+State 35 (Type 5) c_i: 0.0092766:
+  Gaussian[0] width r≈ 1.51573 fm | Total Shift: 0.177527 fm | 
+  Gaussian[1] width r≈ 1.60754 fm | Total Shift: 0.399021 fm | 
+
+State 36 (Type 6) c_i: 0.00930012:
+  Gaussian[0] width r≈ 1.54023 fm | Total Shift: 0.104372 fm | 
+  Gaussian[1] width r≈ 1.55491 fm | Total Shift: 0.245831 fm | 
+
+State 37 (Type 7) c_i: 0.0103541:
+  Gaussian[0] width r≈ 1.30847 fm | Total Shift: 0.126416 fm | 
+  Gaussian[1] width r≈ 1.4658 fm | Total Shift: 0.248572 fm | 
+
+State 38 (Type 8) c_i: 0.00223873:
+  Gaussian[0] width r≈ 1.54329 fm | Total Shift: 0.164197 fm | 
+  Gaussian[1] width r≈ 1.3597 fm | Total Shift: 0.45284 fm | 
+
+State 39 (Type 9) c_i: 0.031948:
+  Gaussian[0] width r≈ 1.6561 fm | Total Shift: 0.0213749 fm | 
+  Gaussian[1] width r≈ 1.43303 fm | Total Shift: 0.0446208 fm | 
+
+State 40 (Type 1) c_i: 0.00440737:
+  Gaussian[0] width r≈ 1.63039 fm | Total Shift: 0.213136 fm | 
+  Gaussian[1] width r≈ 1.73035 fm | Total Shift: 0.411099 fm | 
+
+State 41 (Type 2) c_i: 0.00287488:
+  Gaussian[0] width r≈ 1.28834 fm | Total Shift: 0.14207 fm | 
+  Gaussian[1] width r≈ 1.67903 fm | Total Shift: 0.363919 fm | 
+
+State 42 (Type 3) c_i: 0.00129539:
+  Gaussian[0] width r≈ 1.99144 fm | Total Shift: 0.0532934 fm | 
+  Gaussian[1] width r≈ 2.56686 fm | Total Shift: 0.157757 fm | 
+
+State 43 (Type 4) c_i: 0.0346243:
+  Gaussian[0] width r≈ 1.52623 fm | Total Shift: 0.222645 fm | 
+  Gaussian[1] width r≈ 1.52388 fm | Total Shift: 0.448938 fm | 
+
+State 44 (Type 5) c_i: 0.0209:
+  Gaussian[0] width r≈ 1.56305 fm | Total Shift: 0.151936 fm | 
+  Gaussian[1] width r≈ 1.58568 fm | Total Shift: 0.347704 fm | 
+
+State 45 (Type 6) c_i: 0.00493004:
+  Gaussian[0] width r≈ 1.76229 fm | Total Shift: 0.0666123 fm | 
+  Gaussian[1] width r≈ 1.95537 fm | Total Shift: 0.131289 fm | 
+
+State 46 (Type 7) c_i: 0.00609701:
+  Gaussian[0] width r≈ 1.44665 fm | Total Shift: 0.206861 fm | 
+  Gaussian[1] width r≈ 1.4716 fm | Total Shift: 0.375666 fm | 
+
+State 47 (Type 8) c_i: 0.00343057:
+  Gaussian[0] width r≈ 1.94959 fm | Total Shift: 0.0624616 fm | 
+  Gaussian[1] width r≈ 1.61191 fm | Total Shift: 0.100866 fm | 
+
+State 48 (Type 9) c_i: 0.0022622:
+  Gaussian[0] width r≈ 1.98092 fm | Total Shift: 0.0606166 fm | 
+  Gaussian[1] width r≈ 2.50114 fm | Total Shift: 0.155537 fm | 
+
+State 49 (Type 1) c_i: 0.0101441:
+  Gaussian[0] width r≈ 1.46603 fm | Total Shift: 0.148736 fm | 
+  Gaussian[1] width r≈ 1.66055 fm | Total Shift: 0.300455 fm | 
+
+State 50 (Type 2) c_i: 0.0066841:
+  Gaussian[0] width r≈ 1.50859 fm | Total Shift: 0.174616 fm | 
+  Gaussian[1] width r≈ 1.587 fm | Total Shift: 0.41515 fm | 
+
+State 51 (Type 3) c_i: 0.00155098:
+  Gaussian[0] width r≈ 2.16315 fm | Total Shift: 0.0311473 fm | 
+  Gaussian[1] width r≈ 2.71703 fm | Total Shift: 0.0832795 fm | 
+
+State 52 (Type 4) c_i: 0.000365093:
+  Gaussian[0] width r≈ 2.01784 fm | Total Shift: 0.20313 fm | 
+  Gaussian[1] width r≈ 2.40312 fm | Total Shift: 0.401687 fm | 
+
+State 53 (Type 5) c_i: 0.0256466:
+  Gaussian[0] width r≈ 1.55708 fm | Total Shift: 0.154242 fm | 
+  Gaussian[1] width r≈ 1.58454 fm | Total Shift: 0.354073 fm | 
+
+State 54 (Type 6) c_i: 0.00979525:
+  Gaussian[0] width r≈ 1.28847 fm | Total Shift: 0.0888097 fm | 
+  Gaussian[1] width r≈ 1.51865 fm | Total Shift: 0.212607 fm | 
+
+State 55 (Type 7) c_i: 0.00340872:
+  Gaussian[0] width r≈ 1.39218 fm | Total Shift: 0.233265 fm | 
+  Gaussian[1] width r≈ 1.30361 fm | Total Shift: 0.482605 fm | 
+
+State 56 (Type 8) c_i: 0.0372568:
+  Gaussian[0] width r≈ 1.61329 fm | Total Shift: 0.0674199 fm | 
+  Gaussian[1] width r≈ 1.55497 fm | Total Shift: 0.137048 fm | 
+
+State 57 (Type 9) c_i: 0.00389876:
+  Gaussian[0] width r≈ 1.61321 fm | Total Shift: 0.0597984 fm | 
+  Gaussian[1] width r≈ 1.52156 fm | Total Shift: 0.120469 fm | 
+
+State 58 (Type 1) c_i: 0.000579648:
+  Gaussian[0] width r≈ 1.51359 fm | Total Shift: 0.340611 fm | 
+  Gaussian[1] width r≈ 1.60264 fm | Total Shift: 0.599626 fm | 
+
+State 59 (Type 2) c_i: 0.000774561:
+  Gaussian[0] width r≈ 1.51728 fm | Total Shift: 0.362873 fm | 
+  Gaussian[1] width r≈ 1.52885 fm | Total Shift: 0.748504 fm | 
+
+State 60 (Type 3) c_i: 0.00212829:
+  Gaussian[0] width r≈ 1.66571 fm | Total Shift: 0.044679 fm | 
+  Gaussian[1] width r≈ 1.76855 fm | Total Shift: 0.0607986 fm | 
+
+State 61 (Type 4) c_i: 0.000552343:
+  Gaussian[0] width r≈ 1.432 fm | Total Shift: 0.461492 fm | 
+  Gaussian[1] width r≈ 1.47256 fm | Total Shift: 0.323558 fm | 
+
+State 62 (Type 5) c_i: 0.00045128:
+  Gaussian[0] width r≈ 2.0486 fm | Total Shift: 0.110897 fm | 
+  Gaussian[1] width r≈ 2.71737 fm | Total Shift: 0.32899 fm | 
+
+State 63 (Type 6) c_i: 0.00339346:
+  Gaussian[0] width r≈ 1.47179 fm | Total Shift: 0.165054 fm | 
+  Gaussian[1] width r≈ 1.55458 fm | Total Shift: 0.347629 fm | 
+
+State 64 (Type 7) c_i: 0.00230545:
+  Gaussian[0] width r≈ 1.5496 fm | Total Shift: 0.416253 fm | 
+  Gaussian[1] width r≈ 1.44792 fm | Total Shift: 0.757774 fm | 
+
+State 65 (Type 8) c_i: 0.00237342:
+  Gaussian[0] width r≈ 1.24137 fm | Total Shift: 0.19409 fm | 
+  Gaussian[1] width r≈ 1.60103 fm | Total Shift: 0.453006 fm | 
+
+State 66 (Type 9) c_i: 0.000934821:
+  Gaussian[0] width r≈ 1.06305 fm | Total Shift: 0.347132 fm | 
+  Gaussian[1] width r≈ 1.55361 fm | Total Shift: 0.549113 fm | 
+
+State 67 (Type 1) c_i: 0.00176902:
+  Gaussian[0] width r≈ 1.24181 fm | Total Shift: 0.271662 fm | 
+  Gaussian[1] width r≈ 1.45018 fm | Total Shift: 0.475531 fm | 
+
+State 68 (Type 2) c_i: 0.000795033:
+  Gaussian[0] width r≈ 1.20422 fm | Total Shift: 0.220288 fm | 
+  Gaussian[1] width r≈ 1.82897 fm | Total Shift: 0.4765 fm | 
+
+State 69 (Type 3) c_i: 0.0114085:
+  Gaussian[0] width r≈ 1.23615 fm | Total Shift: 0.059743 fm | 
+  Gaussian[1] width r≈ 1.59112 fm | Total Shift: 0.140497 fm | 
+
+State 70 (Type 4) c_i: 0.00316348:
+  Gaussian[0] width r≈ 1.39816 fm | Total Shift: 0.354388 fm | 
+  Gaussian[1] width r≈ 1.45843 fm | Total Shift: 0.70683 fm | 
+
+State 71 (Type 5) c_i: 0.00966239:
+  Gaussian[0] width r≈ 1.27484 fm | Total Shift: 0.0949493 fm | 
+  Gaussian[1] width r≈ 1.57406 fm | Total Shift: 0.20248 fm | 
+
+State 72 (Type 6) c_i: 0.000603734:
+  Gaussian[0] width r≈ 1.02761 fm | Total Shift: 0.179939 fm | 
+  Gaussian[1] width r≈ 1.51073 fm | Total Shift: 0.407765 fm | 
+
+State 73 (Type 7) c_i: 0.0011953:
+  Gaussian[0] width r≈ 1.44733 fm | Total Shift: 0.47559 fm | 
+  Gaussian[1] width r≈ 1.39976 fm | Total Shift: 0.856326 fm | 
+
+State 74 (Type 8) c_i: 0.00182813:
+  Gaussian[0] width r≈ 1.46166 fm | Total Shift: 0.299797 fm | 
+  Gaussian[1] width r≈ 1.29403 fm | Total Shift: 0.676347 fm | 
+
+State 75 (Type 9) c_i: 0.00583283:
+  Gaussian[0] width r≈ 1.48836 fm | Total Shift: 0.154154 fm | 
+  Gaussian[1] width r≈ 1.53929 fm | Total Shift: 0.365104 fm | 
+
+State 76 (Type 1) c_i: 0.000136395:
+  Gaussian[0] width r≈ 1.40167 fm | Total Shift: 0.759513 fm | 
+  Gaussian[1] width r≈ 1.11662 fm | Total Shift: 0.812833 fm | 
+
+State 77 (Type 2) c_i: 0.0102663:
+  Gaussian[0] width r≈ 1.4054 fm | Total Shift: 0.123113 fm | 
+  Gaussian[1] width r≈ 1.50346 fm | Total Shift: 0.297303 fm | 
+
+State 78 (Type 3) c_i: 0.00829908:
+  Gaussian[0] width r≈ 1.20827 fm | Total Shift: 0.0453698 fm | 
+  Gaussian[1] width r≈ 1.59369 fm | Total Shift: 0.128349 fm | 
+
+State 79 (Type 4) c_i: 0.000768685:
+  Gaussian[0] width r≈ 1.18369 fm | Total Shift: 0.448395 fm | 
+  Gaussian[1] width r≈ 1.07021 fm | Total Shift: 0.801195 fm | 
+
+State 80 (Type 5) c_i: 0.00460687:
+  Gaussian[0] width r≈ 1.17761 fm | Total Shift: 0.229284 fm | 
+  Gaussian[1] width r≈ 1.40361 fm | Total Shift: 0.432226 fm | 
+
+State 81 (Type 6) c_i: 0.00157571:
+  Gaussian[0] width r≈ 1.43578 fm | Total Shift: 0.227855 fm | 
+  Gaussian[1] width r≈ 1.4662 fm | Total Shift: 0.487699 fm | 
+
+State 82 (Type 7) c_i: 0.000188036:
+  Gaussian[0] width r≈ 1.89203 fm | Total Shift: 0.349839 fm | 
+  Gaussian[1] width r≈ 2.33314 fm | Total Shift: 0.607774 fm | 
+
+State 83 (Type 8) c_i: 0.00165671:
+  Gaussian[0] width r≈ 1.37359 fm | Total Shift: 0.065689 fm | 
+  Gaussian[1] width r≈ 1.99729 fm | Total Shift: 0.254504 fm | 
+
+State 84 (Type 9) c_i: 0.0391854:
+  Gaussian[0] width r≈ 1.49023 fm | Total Shift: 0.0688168 fm | 
+  Gaussian[1] width r≈ 1.6173 fm | Total Shift: 0.156539 fm | 
+
+State 85 (Type 1) c_i: 0.00237416:
+  Gaussian[0] width r≈ 1.43946 fm | Total Shift: 0.469287 fm | 
+  Gaussian[1] width r≈ 1.44881 fm | Total Shift: 0.811491 fm | 
+
+State 86 (Type 2) c_i: 0.000492196:
+  Gaussian[0] width r≈ 2.0999 fm | Total Shift: 0.112864 fm | 
+  Gaussian[1] width r≈ 2.66714 fm | Total Shift: 0.259272 fm | 
+
+State 87 (Type 3) c_i: 0.000528007:
+  Gaussian[0] width r≈ 1.04467 fm | Total Shift: 0.186804 fm | 
+  Gaussian[1] width r≈ 1.58388 fm | Total Shift: 0.348438 fm | 
+
+State 88 (Type 4) c_i: 0.000292048:
+  Gaussian[0] width r≈ 1.38896 fm | Total Shift: 0.776165 fm | 
+  Gaussian[1] width r≈ 1.35143 fm | Total Shift: 1.42789 fm | 
+
+State 89 (Type 5) c_i: 0.00105675:
+  Gaussian[0] width r≈ 1.45492 fm | Total Shift: 0.252002 fm | 
+  Gaussian[1] width r≈ 1.64651 fm | Total Shift: 0.633233 fm | 
+
+State 90 (Type 6) c_i: 0.0168599:
+  Gaussian[0] width r≈ 1.42716 fm | Total Shift: 0.0427941 fm | 
+  Gaussian[1] width r≈ 1.65851 fm | Total Shift: 0.115544 fm | 
+
+State 91 (Type 7) c_i: 0.00200106:
+  Gaussian[0] width r≈ 1.62429 fm | Total Shift: 0.41884 fm | 
+  Gaussian[1] width r≈ 1.3798 fm | Total Shift: 0.73066 fm | 
+
+State 92 (Type 8) c_i: 0.0011281:
+  Gaussian[0] width r≈ 2.01206 fm | Total Shift: 0.0764526 fm | 
+  Gaussian[1] width r≈ 2.59802 fm | Total Shift: 0.206004 fm | 
+
+State 93 (Type 9) c_i: 0.0126145:
+  Gaussian[0] width r≈ 1.45118 fm | Total Shift: 0.143706 fm | 
+  Gaussian[1] width r≈ 1.54293 fm | Total Shift: 0.326743 fm | 
+
+State 94 (Type 1) c_i: 0.00833478:
+  Gaussian[0] width r≈ 1.56915 fm | Total Shift: 0.204632 fm | 
+  Gaussian[1] width r≈ 1.47642 fm | Total Shift: 0.426692 fm | 
+
+State 95 (Type 2) c_i: 0.00781545:
+  Gaussian[0] width r≈ 1.60394 fm | Total Shift: 0.149838 fm | 
+  Gaussian[1] width r≈ 1.59986 fm | Total Shift: 0.358885 fm | 
+
+State 96 (Type 3) c_i: 0.022585:
+  Gaussian[0] width r≈ 1.708 fm | Total Shift: 0.0249841 fm | 
+  Gaussian[1] width r≈ 1.43581 fm | Total Shift: 0.052639 fm | 
+
+State 97 (Type 4) c_i: 0.0116478:
+  Gaussian[0] width r≈ 1.66003 fm | Total Shift: 0.139606 fm | 
+  Gaussian[1] width r≈ 1.58287 fm | Total Shift: 0.311069 fm | 
+
+State 98 (Type 5) c_i: 0.0636785:
+  Gaussian[0] width r≈ 1.58868 fm | Total Shift: 0.103179 fm | 
+  Gaussian[1] width r≈ 1.60328 fm | Total Shift: 0.232516 fm | 
+
+State 99 (Type 6) c_i: 0.024439:
+  Gaussian[0] width r≈ 1.67131 fm | Total Shift: 0.0614481 fm | 
+  Gaussian[1] width r≈ 1.52764 fm | Total Shift: 0.15001 fm | 
+
+State 100 (Type 7) c_i: 0.000550096:
+  Gaussian[0] width r≈ 1.83934 fm | Total Shift: 0.189932 fm | 
+  Gaussian[1] width r≈ 2.4329 fm | Total Shift: 0.30383 fm | 
+
+State 101 (Type 8) c_i: 0.000862476:
+  Gaussian[0] width r≈ 2.15872 fm | Total Shift: 0.0658345 fm | 
+  Gaussian[1] width r≈ 2.59896 fm | Total Shift: 0.212648 fm | 
+
+State 102 (Type 9) c_i: 0.00609618:
+  Gaussian[0] width r≈ 1.69318 fm | Total Shift: 0.08986 fm | 
+  Gaussian[1] width r≈ 1.60454 fm | Total Shift: 0.250965 fm | 
+
+State 103 (Type 1) c_i: 0.00119154:
+  Gaussian[0] width r≈ 1.79393 fm | Total Shift: 0.19714 fm | 
+  Gaussian[1] width r≈ 1.54682 fm | Total Shift: 0.430706 fm | 
+
+State 104 (Type 2) c_i: 0.00101003:
+  Gaussian[0] width r≈ 1.37286 fm | Total Shift: 0.164727 fm | 
+  Gaussian[1] width r≈ 1.12613 fm | Total Shift: 0.300503 fm | 
+
+State 105 (Type 3) c_i: 0.00147533:
+  Gaussian[0] width r≈ 1.97884 fm | Total Shift: 0.0982698 fm | 
+  Gaussian[1] width r≈ 1.45895 fm | Total Shift: 0.202919 fm | 
+
+State 106 (Type 4) c_i: 0.000470748:
+  Gaussian[0] width r≈ 1.91549 fm | Total Shift: 0.182565 fm | 
+  Gaussian[1] width r≈ 2.41513 fm | Total Shift: 0.393419 fm | 
+
+State 107 (Type 5) c_i: 0.000672336:
+  Gaussian[0] width r≈ 2.08227 fm | Total Shift: 0.139505 fm | 
+  Gaussian[1] width r≈ 1.48897 fm | Total Shift: 0.344635 fm | 
+
+State 108 (Type 6) c_i: 0.000253733:
+  Gaussian[0] width r≈ 2.16621 fm | Total Shift: 0.144054 fm | 
+  Gaussian[1] width r≈ 2.83836 fm | Total Shift: 0.358396 fm | 
+
+State 109 (Type 7) c_i: 0.0025474:
+  Gaussian[0] width r≈ 1.51647 fm | Total Shift: 0.0955368 fm | 
+  Gaussian[1] width r≈ 1.5226 fm | Total Shift: 0.0982782 fm | 
+
+State 110 (Type 8) c_i: 0.00275823:
+  Gaussian[0] width r≈ 1.8441 fm | Total Shift: 0.0921092 fm | 
+  Gaussian[1] width r≈ 1.53294 fm | Total Shift: 0.228753 fm | 
+
+State 111 (Type 9) c_i: 0.00122697:
+  Gaussian[0] width r≈ 1.58557 fm | Total Shift: 0.0831746 fm | 
+  Gaussian[1] width r≈ 1.17984 fm | Total Shift: 0.129236 fm | 
+
+State 112 (Type 1) c_i: 0.00151604:
+  Gaussian[0] width r≈ 1.55903 fm | Total Shift: 0.238343 fm | 
+  Gaussian[1] width r≈ 1.23892 fm | Total Shift: 0.484487 fm | 
+
+State 113 (Type 2) c_i: 0.00258698:
+  Gaussian[0] width r≈ 1.75838 fm | Total Shift: 0.109291 fm | 
+  Gaussian[1] width r≈ 1.58619 fm | Total Shift: 0.383586 fm | 
+
+State 114 (Type 3) c_i: 0.000711136:
+  Gaussian[0] width r≈ 1.58144 fm | Total Shift: 0.173465 fm | 
+  Gaussian[1] width r≈ 1.54886 fm | Total Shift: 0.339059 fm | 
+
+State 115 (Type 4) c_i: 0.00111837:
+  Gaussian[0] width r≈ 1.56708 fm | Total Shift: 0.128652 fm | 
+  Gaussian[1] width r≈ 1.15527 fm | Total Shift: 0.356861 fm | 
+
+State 116 (Type 5) c_i: 0.042455:
+  Gaussian[0] width r≈ 1.58546 fm | Total Shift: 0.134809 fm | 
+  Gaussian[1] width r≈ 1.60069 fm | Total Shift: 0.309257 fm | 
+
+State 117 (Type 6) c_i: 0.00708683:
+  Gaussian[0] width r≈ 1.75874 fm | Total Shift: 0.103588 fm | 
+  Gaussian[1] width r≈ 1.50247 fm | Total Shift: 0.25222 fm | 
+
+State 118 (Type 7) c_i: 0.0136801:
+  Gaussian[0] width r≈ 1.66565 fm | Total Shift: 0.221798 fm | 
+  Gaussian[1] width r≈ 1.52619 fm | Total Shift: 0.426971 fm | 
+
+State 119 (Type 8) c_i: 0.00162486:
+  Gaussian[0] width r≈ 1.53652 fm | Total Shift: 0.189875 fm | 
+  Gaussian[1] width r≈ 1.57358 fm | Total Shift: 0.439837 fm | 
+
+State 120 (Type 9) c_i: 0.000622617:
+  Gaussian[0] width r≈ 2.05237 fm | Total Shift: 0.149031 fm | 
+  Gaussian[1] width r≈ 2.50481 fm | Total Shift: 0.395895 fm | 
+
+State 121 (Type 1) c_i: 0.000479672:
+  Gaussian[0] width r≈ 2.00211 fm | Total Shift: 0.189473 fm | 
+  Gaussian[1] width r≈ 2.0457 fm | Total Shift: 0.419776 fm | 
+
+State 122 (Type 2) c_i: 0.00885503:
+  Gaussian[0] width r≈ 1.66181 fm | Total Shift: 0.131971 fm | 
+  Gaussian[1] width r≈ 1.59129 fm | Total Shift: 0.294037 fm | 
+
+State 123 (Type 3) c_i: 0.00986361:
+  Gaussian[0] width r≈ 1.54855 fm | Total Shift: 0.0771679 fm | 
+  Gaussian[1] width r≈ 1.5505 fm | Total Shift: 0.196536 fm | 
+
+State 124 (Type 4) c_i: 0.118723:
+  Gaussian[0] width r≈ 1.57089 fm | Total Shift: 0.134133 fm | 
+  Gaussian[1] width r≈ 1.54807 fm | Total Shift: 0.270754 fm | 
+
+State 125 (Type 5) c_i: 0.00851172:
+  Gaussian[0] width r≈ 1.58548 fm | Total Shift: 0.131969 fm | 
+  Gaussian[1] width r≈ 1.60173 fm | Total Shift: 0.3063 fm | 
+
+State 126 (Type 6) c_i: 0.00305746:
+  Gaussian[0] width r≈ 1.7248 fm | Total Shift: 0.0580786 fm | 
+  Gaussian[1] width r≈ 1.8317 fm | Total Shift: 0.106762 fm | 
+
+State 127 (Type 7) c_i: 0.0311569:
+  Gaussian[0] width r≈ 1.56647 fm | Total Shift: 0.128176 fm | 
+  Gaussian[1] width r≈ 1.54011 fm | Total Shift: 0.258419 fm | 
+
+State 128 (Type 8) c_i: 0.00254571:
+  Gaussian[0] width r≈ 1.58583 fm | Total Shift: 0.164914 fm | 
+  Gaussian[1] width r≈ 1.63638 fm | Total Shift: 0.349401 fm | 
+
+State 129 (Type 9) c_i: 0.00741581:
+  Gaussian[0] width r≈ 1.69386 fm | Total Shift: 0.15878 fm | 
+  Gaussian[1] width r≈ 1.50145 fm | Total Shift: 0.30692 fm | 
+========================================================================================================================
+
+Saved basis state to basis_final.txt
+--> FINAL PN_{Cla} Pi_{Rel} | E: -6.69454 MeV, R: 1.54961 fm
+
+======================================================================================================================================
+                                  FINAL RESULTS SUMMARY                                   
+======================================================================================================================================
+PN_{Cla} Pi_{Rel}        | E: -6.69454 MeV | R: 1.54961 fm | <T>: 27.38388 MeV | PN: 94.29498 % | PN+pi: 5.70502 % | Time: 1055.567 s
+--------------------------------------------------------------------------------------------------------------------------------------
+Experimental Target      | E: -2.22400 MeV | R: 2.12800 fm
+======================================================================================================================================
+Saved all configurations to all_configurations.txt

@@ -166,6 +166,11 @@ bool is_physical_gaussian(const SpatialWavefunction& psi, bool debug = false) {
     for (size_t i = 0; i < psi.A.size1(); ++i) {
         ld width = psi.A(i, i);
 
+        if (std::isnan(width)) {
+            if (debug) std::cerr << "  [REJECT] Width is NaN!\n";
+            return false;
+        }
+
         if (width < min_width) {
             if (debug) std::cerr << "  [REJECT] Width[" << i << "]=" << width << " < min=" << min_width << "\n";
             return false;
@@ -481,7 +486,19 @@ void sweep_optimize_basis(std::vector<BasisStateType>& basis, ld b_form, ld b_ra
                 N_test(k, k) = calc_N_elem(test_candidate, test_candidate);
                 H_test(k, k) = calc_H_elem(test_candidate, test_candidate, N_test(k,k), b_form, b_range, S, relativistic, ho_k);
 
-                return solve_ground_state_energy(H_test, N_test, nvals);
+                // CRITICAL SAFETY CATCH: Prevent solver crash on singular matrices
+                cmat L = N_test.cholesky();
+                if (L.size1() == 0) {
+                    return 99999.0; // Silently reject this step, guide NM away
+                }
+
+                // SOLVE AND TRAP NaN
+                ld test_E = solve_ground_state_energy(H_test, N_test, nvals);
+                if (std::isnan(test_E)) {
+                    return 99999.0; // Treat NaN as a terrible energy
+                }
+                
+                return test_E;
             };
 
             // Run Nelder-Mead

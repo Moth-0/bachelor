@@ -216,7 +216,12 @@ ld relativistic_kinetic_energy(const Gaussian& g_bra, const Gaussian& g_ket,
     rvec A_ket_c = g_ket.A * c;
     rvec R_A_ket_c = R * A_ket_c;
     rvec A_bra_R_A_ket_c = g_bra.A * R_A_ket_c;
+    
     ld inv_gamma = 4.0 * dot_no_conj(c, A_bra_R_A_ket_c);
+    if (inv_gamma < ZERO_LIMIT*ZERO_LIMIT) {
+        inv_gamma = ZERO_LIMIT*ZERO_LIMIT; 
+    }
+
     ld gamma = 1.0 / inv_gamma;
 
     // Calculate the shift magnitude eta (Units: fm^-1)

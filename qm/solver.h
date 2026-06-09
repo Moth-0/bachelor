@@ -87,7 +87,6 @@ namespace qm {
 // Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
 std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_t nvals = 0) {
     size_t n = A.size1();
-    //ld tolerance = 0.1;
 
     // If nvals is 0 or too large, sweep the whole matrix (up to n-1).
     size_t p_max = (nvals == 0 || nvals >= n) ? n - 1 : nvals;
@@ -100,6 +99,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
     for (size_t p = 0; p < p_max; ++p) {
         for (size_t q = p + 1; q < n; ++q) sum_off_diag += std::abs(A(p, q));
     }
+    
     // Adjust denominator to match the number of elements we checked
     ld threshold = sum_off_diag / (p_max * n); 
     int total_rotations;
@@ -123,8 +123,14 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
                     cld apq = A(p, q);
 
                     ld tau = (aqq - app) / (2.0 * off_diag_mag);
-                    ld t = (tau >= 0.0) ? 1.0 / (tau + std::sqrt(1.0 + tau * tau)) 
-                                        : -1.0 / (-tau + std::sqrt(1.0 + tau * tau));
+
+                    ld t;
+                    if (tau >= 0.0) {
+                        t = 1.0 / (tau + std::sqrt(1.0 + tau * tau));
+                    } else {
+                        t = -tau + std::sqrt(1.0 + tau * tau);
+                    }
+
                     ld cos_t = 1.0 / std::sqrt(1.0 + t * t);
                     ld sin_t = t * cos_t;
                     cld phase = std::conj(apq) / off_diag_mag; // Phase to handle complex elements
@@ -165,8 +171,6 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_
         }    
     }
 
-    // Find the lowest eigenvalue and its index
-    // Even if we only swept row 0, we still scan the whole diagonal just in case
     ld lowest_E = std::real(A(0, 0));
 
     // Extract the corresponding eigenvector from V
@@ -322,7 +326,7 @@ rvec nelder_mead(const rvec& p0, const ObjectiveFunc& objective, int max_iter = 
             continue;
         }
 
-        // 6. Contraction (FIXED: Added Outside vs Inside logic)
+        // 6. Contraction 
         bool contracted_successfully = false;
         if (f_ref < f_vals[worst]) {
             // Outside Contraction (reflection was better than worst)
@@ -331,8 +335,12 @@ rvec nelder_mead(const rvec& p0, const ObjectiveFunc& objective, int max_iter = 
             if (f_con <= f_ref) {
                 simplex[worst] = contracted;
                 f_vals[worst] = f_con;
-                contracted_successfully = true;
+            } else {
+                simplex[worst] = reflected;
+                f_vals[worst] = f_ref;
             }
+            contracted_successfully = true;
+
         } else {
             // Inside Contraction (reflection was worse than worst)
             rvec contracted = centroid - direction * rho; 
@@ -364,7 +372,6 @@ rvec nelder_mead(const rvec& p0, const ObjectiveFunc& objective, int max_iter = 
         }
     }
 
-    //size_t absolute_best_idx = indices[0]; 
     return simplex[best_idx];
 }
 }
