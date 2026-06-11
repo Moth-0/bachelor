@@ -300,24 +300,6 @@ make clean
 
 All Makefile targets automatically create `results/` subdirectories and run the Python scripts with appropriate job counts.
 
-## Compilation
-
-```bash
-# With GNU C++23 and OpenMP support
-g++ -std=c++23 -fopenmp -O3 -Wall deu.cc -o deu
-
-# Using Clang
-clang++ -std=c++23 -fopenmp -O3 deu.cc -o deu
-
-# Using Intel compiler
-icpc -std=c++23 -fopenmp -O3 deu.cc -o deu
-```
-
-**Requirements**:
-- C++23 compiler (for structured bindings, auto types)
-- OpenMP (for parallel optimization)
-- Standard library only (no external dependencies)
-
 ## Example Output
 
 ```
@@ -351,7 +333,7 @@ Saved basis state to basis_final.txt
 ======================================================================================================================================
                                   FINAL RESULTS SUMMARY                                   
 ======================================================================================================================================
-PN_{Cla} Pi_{Cla}   | E: -2.18234 MeV | R: 2.13567 fm | <T>: 40.234 MeV | PN: 85.2 % | PN+pi: 14.8 % | Time: 3.456 s
+PN_{Cla} Pi_{Cla}   | E: -2.18234 MeV | R: 2.13567 fm | <T>: 40.234 MeV | PN: 97.2 % | PN+pi: 2.8 % | Time: 300.45 s
 --------------------------------------------------------------------------------------------------------------------------------------
 Experimental Target | E: -2.22400 MeV | R: 2.12800 fm
 ======================================================================================================================================
