@@ -1079,7 +1079,7 @@ def plot_basis_size_convergence(csv_file):
     sorted_data = sorted(zip(data["step"], data["num_boxes"], data["energy"], data["basis_size"], data["radius"], data["execution_time"]))
     steps, num_boxes, energies, basis_sizes, radii, exec_times = zip(*sorted_data)
     
-    fig, axes = plt.subplots(3, 1, figsize=(11, 10))
+    fig, axes = plt.subplots(3, 1, figsize=(12, 10))
     
     # Target values and tolerance
     ENERGY_TARGET = -2.224
@@ -1089,43 +1089,47 @@ def plot_basis_size_convergence(csv_file):
     # Plot 1: Energy convergence with ±0.1% band
     ax1 = axes[0]
     energy_tolerance = abs(ENERGY_TARGET * TOLERANCE_PERCENT)
-    ax1.plot(basis_sizes, energies, 'o-', linewidth=2.5, markersize=10, label='Computed', color='steelblue')
+    ax1.plot(basis_sizes, energies, 'o-', linewidth=4, markersize=10, label='Computed', color='steelblue')
     ax1.axhline(y=ENERGY_TARGET, color='r', linestyle='--', linewidth=2, label=f'Target ({ENERGY_TARGET} MeV)')
     ax1.fill_between(basis_sizes, ENERGY_TARGET - energy_tolerance, ENERGY_TARGET + energy_tolerance, 
                      alpha=0.2, color='red', label='±0.1% Target Band')
-    ax1.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('Energy (MeV)', fontsize=12, fontweight='bold')
-    ax1.set_title('Basis Size Convergence: Ground State Energy', fontsize=14, fontweight='bold')
-    ax1.grid(True, alpha=0.3, linestyle=':')
-    ax1.legend(fontsize=11, loc='best')
+    ax1.set_xlabel('Basis Size', fontsize=16, fontweight='bold')
+    ax1.set_ylabel('Energy (MeV)', fontsize=16, fontweight='bold')
+    ax1.set_title('Basis Size Convergence: Ground State Energy', fontsize=20, fontweight='bold')
+    ax1.grid(True, alpha=0.2, linestyle=':')
+    ax1.legend(fontsize=16, loc='upper right')
     ax1.set_xticks(basis_sizes)
+    ax1.tick_params(axis='both', labelsize=16)
     
     # Plot 2: Radius convergence with ±0.1% band
     if radii and any(r is not None and r > 0 for r in radii):
         ax2 = axes[1]
         radii_clean = [r if r is not None else 0 for r in radii]
         radius_tolerance = RADIUS_TARGET * TOLERANCE_PERCENT
-        ax2.plot(basis_sizes, radii_clean, 's-', linewidth=2.5, markersize=10, color='green', label='Computed')
+        ax2.plot(basis_sizes, radii_clean, 's-', linewidth=4, markersize=10, color='green', label='Computed')
         ax2.axhline(y=RADIUS_TARGET, color='r', linestyle='--', linewidth=2, label=f'Target ({RADIUS_TARGET} fm)')
         ax2.fill_between(basis_sizes, RADIUS_TARGET - radius_tolerance, RADIUS_TARGET + radius_tolerance,
                         alpha=0.2, color='red', label='±0.1% Target Band')
-        ax2.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
-        ax2.set_ylabel('Charge Radius (fm)', fontsize=12, fontweight='bold')
-        ax2.set_title('Basis Size Convergence: Charge Radius', fontsize=14, fontweight='bold')
-        ax2.grid(True, alpha=0.3, linestyle=':')
-        ax2.legend(fontsize=11, loc='best')
+        ax2.set_xlabel('Basis Size', fontsize=16, fontweight='bold')
+        ax2.set_ylabel('Charge Radius (fm)', fontsize=16, fontweight='bold')
+        ax2.set_title('Basis Size Convergence: Charge Radius', fontsize=20, fontweight='bold')
+        ax2.grid(True, alpha=0.2, linestyle=':')
+        ax2.legend(fontsize=16, loc='upper right')
         ax2.set_xticks(basis_sizes)
+        ax2.tick_params(axis='both', labelsize=16)
     
     # Plot 3: Execution time convergence
     if exec_times and any(t > 0 for t in exec_times):
         ax3 = axes[2]
-        ax3.plot(basis_sizes, exec_times, '^-', linewidth=2.5, markersize=10, color='darkorange', label='Execution Time')
-        ax3.set_xlabel('Basis Size', fontsize=12, fontweight='bold')
-        ax3.set_ylabel('Execution Time (seconds)', fontsize=12, fontweight='bold')
-        ax3.set_title('Basis Size Convergence: Execution Time', fontsize=14, fontweight='bold')
+        times = [t/60 for t in exec_times]
+        ax3.plot(basis_sizes, times, '^-', linewidth=4, markersize=10, color='darkorange', label='Execution Time')
+        ax3.set_xlabel('Basis Size', fontsize=16, fontweight='bold')
+        ax3.set_ylabel('Execution Time (min)', fontsize=16, fontweight='bold')
+        ax3.set_title('Basis Size Convergence: Execution Time', fontsize=20, fontweight='bold')
         ax3.grid(True, alpha=0.3, linestyle=':')
-        ax3.legend(fontsize=11, loc='best')
+        ax3.legend(fontsize=16, loc='upper left')
         ax3.set_xticks(basis_sizes)
+        ax3.tick_params(axis='both', labelsize=16)
     
     plt.tight_layout()
     output_file = csv_file.replace('aggregated.csv', 'basis_convergence.png')

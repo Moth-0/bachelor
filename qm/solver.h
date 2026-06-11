@@ -83,107 +83,106 @@
 
 namespace qm {
 
-// Helper function to find lowest eigenvalue and eigenvector using Jacobi diagonalization
-// Returns: pair of (eigenvalue, eigenvector) where eigenvector is normalized
-std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, int max_sweeps = 100, size_t nvals = 0) {
+// ---------------------------------------------------------
+// VERSION 1: Returns ONLY lowest eigenvalue and eigenvector
+// ---------------------------------------------------------
+std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 1000, size_t nvals = 0) {
     size_t n = A.size1();
-
-    // If nvals is 0 or too large, sweep the whole matrix (up to n-1).
     size_t p_max = (nvals == 0 || nvals >= n) ? n - 1 : nvals;
 
-    // Initialize eigenvector matrix as identity (tracks rotations)
     cmat V = eye<cld>(n);
 
-    // 1. Setup Phase: Only calculate average error for the rows we actually sweep!
+    // 1. Setup Phase: Calculate average error
     ld sum_off_diag = 0.0;
     for (size_t p = 0; p < p_max; ++p) {
         for (size_t q = p + 1; q < n; ++q) sum_off_diag += std::abs(A(p, q));
     }
     
-    // Adjust denominator to match the number of elements we checked
     ld threshold = sum_off_diag / (p_max * n); 
     int total_rotations;
 
     for (int sweep = 0; sweep < max_sweeps; ++sweep) {
         ld max_off_diag = 0.0;
-        total_rotations = 0; // Track if we actually did anything this sweep
+        total_rotations = 0;
 
-        // PARTIAL Jacobi sweep: only go up to p_max
         for (size_t p = 0; p < p_max; ++p) {
             for (size_t q = p + 1; q < n; ++q) {
-                ld off_diag_mag = std::abs(A(p, q));
-                if (off_diag_mag > max_off_diag) max_off_diag = off_diag_mag;
+                
+                cld apq = A(p, q);
+                ld mag_apq = std::abs(apq);
+                if (mag_apq > max_off_diag) max_off_diag = mag_apq;
 
-                if (off_diag_mag > threshold) {
+                if (mag_apq > threshold && mag_apq > 1e-15) {
                     total_rotations++;
                     
-                    // Calculate the rotation angles
                     ld app = std::real(A(p, p));
                     ld aqq = std::real(A(q, q));
-                    cld apq = A(p, q);
 
-                    ld tau = (aqq - app) / (2.0 * off_diag_mag);
+                    // atan2 naturally sorts the matrix! Smaller elements bubble up to 'p'
+                    ld phi = 0.5 * std::atan2(2.0 * mag_apq, aqq - app);
+                    ld c = std::cos(phi);
+                    ld s = std::sin(phi);
+                    
+                    cld phase = apq / mag_apq; // Phase to handle complex elements
 
-                    ld t;
-                    if (tau >= 0.0) {
-                        t = 1.0 / (tau + std::sqrt(1.0 + tau * tau));
-                    } else {
-                        t = -tau + std::sqrt(1.0 + tau * tau);
-                    }
+                    ld app1 = c * c * app - 2.0 * s * c * mag_apq + s * s * aqq;
+                    ld aqq1 = s * s * app + 2.0 * s * c * mag_apq + c * c * aqq;
 
-                    ld cos_t = 1.0 / std::sqrt(1.0 + t * t);
-                    ld sin_t = t * cos_t;
-                    cld phase = std::conj(apq) / off_diag_mag; // Phase to handle complex elements
+                    // Apply rotation if mathematically meaningful
+                    if (app1 != app || aqq1 != aqq) {
+                        A(p, p) = app1;
+                        A(q, q) = aqq1;
+                        A(p, q) = 0.0;
+                        A(q, p) = 0.0;
 
-                    // Apply Givens rotation to A
-                    for (size_t i = 0; i < n; ++i) {
-                        cld ip = A(i, p);
-                        cld iq = A(i, q);
-                        A(i, p) = cos_t * ip - sin_t * phase * iq;
-                        A(i, q) = sin_t * std::conj(phase) * ip + cos_t * iq;
-                    }
-                    for (size_t i = 0; i < n; ++i) {
-                        cld pi = A(p, i);
-                        cld qi = A(q, i);
-                        A(p, i) = cos_t * pi - sin_t * std::conj(phase) * qi;
-                        A(q, i) = sin_t * phase * pi + cos_t * qi;
-                    }
+                        // Uniform row/col updates to enforce strict Hermitian symmetry
+                        for (size_t i = 0; i < n; ++i) {
+                            if (i == p || i == q) continue;
+                            
+                            cld aip = A(i, p);
+                            cld aiq = A(i, q);
+                            
+                            A(i, p) = c * aip - s * std::conj(phase) * aiq;
+                            A(i, q) = s * phase * aip + c * aiq;
+                            
+                            A(p, i) = std::conj(A(i, p));
+                            A(q, i) = std::conj(A(i, q));
+                        }
 
-                    // Apply same rotation to eigenvector matrix V
-                    for (size_t i = 0; i < n; ++i) {
-                        cld vip = V(i, p);
-                        cld viq = V(i, q);
-                        V(i, p) = cos_t * vip - sin_t * phase * viq;
-                        V(i, q) = sin_t * std::conj(phase) * vip + cos_t * viq;
+                        // Apply same rotation to eigenvector matrix V
+                        for (size_t i = 0; i < n; ++i) {
+                            cld vip = V(i, p);
+                            cld viq = V(i, q);
+                            
+                            V(i, p) = c * vip - s * std::conj(phase) * viq;
+                            V(i, q) = s * phase * vip + c * viq;
+                        }
                     }
                 }
             }
         }
         
-        // 3. Lower the threshold for the next sweep
-        if (threshold > ZERO_LIMIT) {
-            threshold *= 0.2; 
-        }
-
-        // 4. Convergence Check (We hit the floor AND found no errors)
-        if (max_off_diag < ZERO_LIMIT && total_rotations == 0) {
-            break; 
-        }    
+        // Lower the threshold for the next sweep
+        if (threshold > 1e-15) threshold *= 0.2; 
+        
+        // Convergence Check
+        if (max_off_diag < 1e-15 && total_rotations == 0) break;     
     }
 
+    // Because atan2 sorted the matrix, lowest E is perfectly positioned at (0,0)
     ld lowest_E = std::real(A(0, 0));
 
-    // Extract the corresponding eigenvector from V
-    cvec eigvec = V[0];
-
-    // Normalize the eigenvector
-    cld norm = 0.0;
+    // Extract the corresponding eigenvector from COLUMN 0 of V
+    cvec eigvec(n);
+    ld norm_sq = 0.0;
     for (size_t i = 0; i < n; ++i) {
-        norm += std::conj(eigvec[i]) * eigvec[i];
+        eigvec[i] = V(i, 0); 
+        norm_sq += std::norm(eigvec[i]); // std::norm is |z|^2 in C++
     }
-    norm = std::sqrt(norm);
 
-    if (std::abs(norm) > ZERO_LIMIT) {
+    // Normalize
+    ld norm = std::sqrt(norm_sq);
+    if (norm > 1e-15) {
         for (size_t i = 0; i < n; ++i) {
             eigvec[i] /= norm;
         }

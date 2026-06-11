@@ -5,7 +5,7 @@ import glob
 # CONFIGURATION
 # ==========================================
 # Folder containing the CSV files
-DATA_FOLDER = "results/all_configs_20260609_113523" 
+DATA_FOLDER = "results/all_configs_20260609_142217" 
 OUTPUT_FILE = "latex_tables_output.txt"
 
 # Expected file substrings and their corresponding table labels
