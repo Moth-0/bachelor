@@ -79,7 +79,7 @@ std::pair<std::vector<BasisState>, SvmResult> run_deuteron_svm(const std::vector
     
     std::vector<BasisState> grand_basis;
     grand_basis.insert(grand_basis.end(), bare_basis.begin(), bare_basis.end());
-    size_t n_vals = 5;
+    size_t n_vals = 1;
 
     for (ld ho_k : box_strengths) {
         std::cout << "\n=== Generating Basis for ho_k = " << ho_k << " ===\n";

@@ -86,8 +86,8 @@ namespace qm {
 // Jacobi diagonalization of a complex Hermitian matrix M.
 // Iteratively zeroes off-diagonal elements via complex Givens rotations.
 // Returns real eigenvalues (diagonal of rotated M) and complex eigenvector matrix V.
-std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
-    int n = A.size1();
+std::pair<ld, cvec> jacobi_with_eigenvector(cmat& A, size_t nvals = 0) {
+    size_t n = A.size1();
     if (nvals == 0) nvals = n;
 
     rvec w(n);
@@ -97,8 +97,8 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
     bool changed;
     do {
         changed = false;
-        for (int p = 0; p < nvals; p++) {
-            for (int q = p + 1; q < n; q++) {
+        for (size_t p = 0; p < nvals; p++) {
+            for (size_t q = p + 1; q < n; q++) {
                 // Diagonals of a Hermitian matrix are strictly real
                 ld app_real = std::real(A(p, p));
                 ld aqq_real = std::real(A(q, q));
@@ -131,7 +131,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
                     A(p, q) = std::complex<ld>(0.0, 0.0);
 
                     // Upper-left block bounds
-                    for (int i = 0; i < p; i++) {
+                    for (size_t i = 0; i < p; i++) {
                         std::complex<ld> aip = A(i, p);
                         std::complex<ld> aiq = A(i, q);
                         A(i, p) = c * aip - sc_conj * aiq;
@@ -139,7 +139,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
                     }
 
                     // Middle block bounds (conjugates required for Hermitian symmetry)
-                    for (int i = p + 1; i < q; i++) {
+                    for (size_t i = p + 1; i < q; i++) {
                         std::complex<ld> api = A(p, i);
                         std::complex<ld> aiq = A(i, q);
                         A(p, i) = c * api - sc * std::conj(aiq);
@@ -147,7 +147,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
                     }
 
                     // Lower-right block bounds
-                    for (int i = q + 1; i < n; i++) {
+                    for (size_t i = q + 1; i < n; i++) {
                         std::complex<ld> api = A(p, i);
                         std::complex<ld> aqi = A(q, i);
                         A(p, i) = c * api - sc * aqi;
@@ -155,7 +155,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
                     }
 
                     // Update the unitary eigenvector matrix
-                    for (int i = 0; i < n; i++) {
+                    for (size_t i = 0; i < n; i++) {
                         std::complex<ld> vip = V(i, p);
                         std::complex<ld> viq = V(i, q);
                         V(i, p) = c * vip - sc_conj * viq;
@@ -167,7 +167,7 @@ std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
     } while (changed);
 
     // Extract real eigenvalues
-    for(int i = 0; i < n; i++) {
+    for(size_t i = 0; i < n; i++) {
         w[i] = std::real(A(i, i));
     }
     
