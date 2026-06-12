@@ -83,112 +83,95 @@
 
 namespace qm {
 
-// ---------------------------------------------------------
-// VERSION 1: Returns ONLY lowest eigenvalue and eigenvector
-// ---------------------------------------------------------
-std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int max_sweeps = 1000, size_t nvals = 0) {
-    size_t n = A.size1();
-    size_t p_max = (nvals == 0 || nvals >= n) ? n - 1 : nvals;
+// Jacobi diagonalization of a complex Hermitian matrix M.
+// Iteratively zeroes off-diagonal elements via complex Givens rotations.
+// Returns real eigenvalues (diagonal of rotated M) and complex eigenvector matrix V.
+std::pair<ld, cvec> jacobi_with_eigenvector(cmat A, int nvals = 0) {
+    int n = A.size1();
+    if (nvals == 0) nvals = n;
 
-    cmat V = eye<cld>(n);
+    rvec w(n);
+    cmat V(n, n);
+    V.setid(); // Assuming cmat has a setid() method like rmat
 
-    // 1. Setup Phase: Calculate average error
-    ld sum_off_diag = 0.0;
-    for (size_t p = 0; p < p_max; ++p) {
-        for (size_t q = p + 1; q < n; ++q) sum_off_diag += std::abs(A(p, q));
-    }
-    
-    ld threshold = sum_off_diag / (p_max * n); 
-    int total_rotations;
-
-    for (int sweep = 0; sweep < max_sweeps; ++sweep) {
-        ld max_off_diag = 0.0;
-        total_rotations = 0;
-
-        for (size_t p = 0; p < p_max; ++p) {
-            for (size_t q = p + 1; q < n; ++q) {
+    bool changed;
+    do {
+        changed = false;
+        for (int p = 0; p < nvals; p++) {
+            for (int q = p + 1; q < n; q++) {
+                // Diagonals of a Hermitian matrix are strictly real
+                ld app_real = std::real(A(p, p));
+                ld aqq_real = std::real(A(q, q));
                 
-                cld apq = A(p, q);
-                ld mag_apq = std::abs(apq);
-                if (mag_apq > max_off_diag) max_off_diag = mag_apq;
+                std::complex<ld> apq = A(p, q);
+                ld apq_mag = std::abs(apq);
 
-                if (mag_apq > threshold && mag_apq > 1e-15) {
-                    total_rotations++;
+                // Skip if the off-diagonal is effectively zero to prevent division by zero
+                if (apq_mag == 0.0) continue; 
+
+                // The standard rotation angle uses the magnitude of the complex element
+                ld phi = 0.5 * std::atan2(2.0 * apq_mag, aqq_real - app_real);
+                ld c = std::cos(phi);
+                ld s_real = std::sin(phi);
+
+                // Derive the complex rotation scalar and its conjugate
+                std::complex<ld> sc = s_real * (apq / apq_mag);
+                std::complex<ld> sc_conj = std::conj(sc);
+
+                // Update the diagonals (which remain purely real)
+                ld app1 = c * c * app_real - 2.0 * s_real * c * apq_mag + s_real * s_real * aqq_real;
+                ld aqq1 = s_real * s_real * app_real + 2.0 * s_real * c * apq_mag + c * c * aqq_real;
+
+                if (app1 != app_real || aqq1 != aqq_real) {
+                    changed = true;
                     
-                    ld app = std::real(A(p, p));
-                    ld aqq = std::real(A(q, q));
+                    // Assign updated reals back as complex types
+                    A(p, p) = std::complex<ld>(app1, 0.0);
+                    A(q, q) = std::complex<ld>(aqq1, 0.0);
+                    A(p, q) = std::complex<ld>(0.0, 0.0);
 
-                    // atan2 naturally sorts the matrix! Smaller elements bubble up to 'p'
-                    ld phi = 0.5 * std::atan2(2.0 * mag_apq, aqq - app);
-                    ld c = std::cos(phi);
-                    ld s = std::sin(phi);
-                    
-                    cld phase = apq / mag_apq; // Phase to handle complex elements
+                    // Upper-left block bounds
+                    for (int i = 0; i < p; i++) {
+                        std::complex<ld> aip = A(i, p);
+                        std::complex<ld> aiq = A(i, q);
+                        A(i, p) = c * aip - sc_conj * aiq;
+                        A(i, q) = c * aiq + sc * aip;
+                    }
 
-                    ld app1 = c * c * app - 2.0 * s * c * mag_apq + s * s * aqq;
-                    ld aqq1 = s * s * app + 2.0 * s * c * mag_apq + c * c * aqq;
+                    // Middle block bounds (conjugates required for Hermitian symmetry)
+                    for (int i = p + 1; i < q; i++) {
+                        std::complex<ld> api = A(p, i);
+                        std::complex<ld> aiq = A(i, q);
+                        A(p, i) = c * api - sc * std::conj(aiq);
+                        A(i, q) = c * aiq + sc * std::conj(api);
+                    }
 
-                    // Apply rotation if mathematically meaningful
-                    if (app1 != app || aqq1 != aqq) {
-                        A(p, p) = app1;
-                        A(q, q) = aqq1;
-                        A(p, q) = 0.0;
-                        A(q, p) = 0.0;
+                    // Lower-right block bounds
+                    for (int i = q + 1; i < n; i++) {
+                        std::complex<ld> api = A(p, i);
+                        std::complex<ld> aqi = A(q, i);
+                        A(p, i) = c * api - sc * aqi;
+                        A(q, i) = c * aqi + sc_conj * api;
+                    }
 
-                        // Uniform row/col updates to enforce strict Hermitian symmetry
-                        for (size_t i = 0; i < n; ++i) {
-                            if (i == p || i == q) continue;
-                            
-                            cld aip = A(i, p);
-                            cld aiq = A(i, q);
-                            
-                            A(i, p) = c * aip - s * std::conj(phase) * aiq;
-                            A(i, q) = s * phase * aip + c * aiq;
-                            
-                            A(p, i) = std::conj(A(i, p));
-                            A(q, i) = std::conj(A(i, q));
-                        }
-
-                        // Apply same rotation to eigenvector matrix V
-                        for (size_t i = 0; i < n; ++i) {
-                            cld vip = V(i, p);
-                            cld viq = V(i, q);
-                            
-                            V(i, p) = c * vip - s * std::conj(phase) * viq;
-                            V(i, q) = s * phase * vip + c * viq;
-                        }
+                    // Update the unitary eigenvector matrix
+                    for (int i = 0; i < n; i++) {
+                        std::complex<ld> vip = V(i, p);
+                        std::complex<ld> viq = V(i, q);
+                        V(i, p) = c * vip - sc_conj * viq;
+                        V(i, q) = c * viq + sc * vip;
                     }
                 }
             }
         }
-        
-        // Lower the threshold for the next sweep
-        if (threshold > 1e-15) threshold *= 0.2; 
-        
-        // Convergence Check
-        if (max_off_diag < 1e-15 && total_rotations == 0) break;     
+    } while (changed);
+
+    // Extract real eigenvalues
+    for(int i = 0; i < n; i++) {
+        w[i] = std::real(A(i, i));
     }
-
-    // Because atan2 sorted the matrix, lowest E is perfectly positioned at (0,0)
-    ld lowest_E = std::real(A(0, 0));
-
-    // Extract the corresponding eigenvector from COLUMN 0 of V
-    cvec eigvec(n);
-    ld norm_sq = 0.0;
-    for (size_t i = 0; i < n; ++i) {
-        eigvec[i] = V(i, 0); 
-        norm_sq += std::norm(eigvec[i]); // std::norm is |z|^2 in C++
-    }
-
-    // Normalize
-    ld norm = std::sqrt(norm_sq);
-    if (norm > 1e-15) {
-        for (size_t i = 0; i < n; ++i) {
-            eigvec[i] /= norm;
-        }
-    }
-
-    return {lowest_E, eigvec};
+    
+    return {w[0], V[0]};
 }
 
 // The Main GEVP Solver - with eigenvector
@@ -212,7 +195,7 @@ std::pair<ld, cvec> solve_ground_state_with_eigenvector(const cmat& H, const cma
     cmat H_prime = L_inv * H * L_inv_dag;
 
     // 4. Diagonalize to find the ground state with eigenvector!
-    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, 2000, nvals);
+    auto [E0, c_prime] = jacobi_with_eigenvector(H_prime, nvals);
 
     // 5. Transform back to original basis: c = L^{-dag} * c'
     cvec c = L_inv_dag * c_prime;

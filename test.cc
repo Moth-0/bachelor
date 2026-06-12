@@ -151,7 +151,7 @@ bool test_w_coupling() {
     rvec w_nn = {1.0, 0.0};
 
     // 3. Setup the Bare State (1D)
-    rmat A_bare = eye<ld>(1) * 0.5L;
+    rmat A_bare = eye<ld>(1) * 0.5;
     rmat s_bare = zeros<ld>(1, 3);
     SpatialWavefunction psi_bare(A_bare, s_bare, 1); // P = +1
 
@@ -199,7 +199,7 @@ void test_relativistic_explosion() {
 
     // 1. Setup a simple 1D-like environment
     ld mass = 938.0;
-    rmat A = eye<ld>(1) * 1.0L; // 1.0 fm width
+    rmat A = eye<ld>(1) * 1.0; // 1.0 fm width
 
     // Gaussian 1: Sitting perfectly at the origin
     Gaussian g1;
@@ -211,7 +211,7 @@ void test_relativistic_explosion() {
     g2.A = A;
     g2.s = zeros<ld>(1, 3);
 
-    rmat R = eye<ld>(1) * 0.5L; // Simple inverse matrix
+    rmat R = eye<ld>(1) * 0.5; // Simple inverse matrix
     rvec c = {1.0};            // Simple coordinate transform
     ld M_overlap = 1.0;        // Assume normalized for the test
 
@@ -273,7 +273,7 @@ bool test_promote_and_absorb() {
     std::cout << " w_nn dimension:  " << w_nn.size() << " (should be 2 for 3-body)\n\n";
 
     // 3. Setup a bare PN state (1D)
-    rmat A_bare = eye<ld>(1) * 0.5L;
+    rmat A_bare = eye<ld>(1) * 0.5;
     rmat s_bare = zeros<ld>(1, 3);
     Gaussian g_bare(A_bare, s_bare);
 
