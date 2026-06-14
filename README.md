@@ -83,9 +83,9 @@ W[i,j] = S × g(b) × f(w_π·r) × Tensor_operator
 ```
 
 Where:
-- **S** = Coupling strength (tuning parameter, typically 25-45 MeV)
-- **b_form** = Form factor range controlling interaction localization (fm)
-- **b_range** = Search space width for basis function widths (fm)
+- **S** = Coupling strength (tuning parameter)
+- **b_form** = Form factor range controlling pion interaction localization (b_π) (fm)
+- **b_range** = Nucleon interaction range (b_N) (fm)
 - **Tensor operator** = Spin structure (3 types per pion channel)
 
 ### Basis Functions (Correlated Shifted Gaussians)
@@ -130,7 +130,7 @@ bachelor/
 │   ├── sweep_basis_size.py      # Basis convergence study
 │   ├── contour_plot_b_form.py  # Generate b_form contour
 │   ├── contour_plot_b_range.py  # Generate b_range contour
-│   ├── smart_contour_search.py  # Adaptive mesh for radius target
+│   ├── contour_b_rel.py         # Generate b_range contour for relative pion
 │   ├── plot_results.py          # Publication-quality plotting
 │   └── plot_wavefunction.py     # Visualize ground state wavefunction
 └── results/                     # Output directory
@@ -333,7 +333,7 @@ Saved basis state to basis_final.txt
 ======================================================================================================================================
                                   FINAL RESULTS SUMMARY                                   
 ======================================================================================================================================
-PN_{Cla} Pi_{Cla}   | E: -2.18234 MeV | R: 2.13567 fm | <T>: 40.234 MeV | PN: 97.2 % | PN+pi: 2.8 % | Time: 300.45 s
+PN_{Cla} Pi_{Cla}   | E: -2.18234 MeV | R: 2.13567 fm | <T>: 15.234 MeV | PN: 97.2 % | PN+pi: 2.8 % | Time: 300.45 s
 --------------------------------------------------------------------------------------------------------------------------------------
 Experimental Target | E: -2.22400 MeV | R: 2.12800 fm
 ======================================================================================================================================
@@ -440,10 +440,18 @@ Numerical methods:
 ### qm/matrix.h
 **Linear algebra library**
 
-Templated for `long double` (real) and `std::complex<long double>` (complex)
+Templated for `double` (real) and `std::complex<double>` (complex)
 
 Capabilities:
 - Vector/matrix arithmetic: +, -, ×, /, determinant, inverse
 - Specialized: `cholesky()`, `inverse_lower()`, block operations
 - Output: Pretty-printed formatting
 
+
+## To Do
+Continued research could include 
+- Varying of b_range, to include sepperated pion exchange. 
+- Optimization of minimization algorithm. 
+- The effect of using spin. 
+- The effect of using pion isospin vector. 
+- The effect of another pion. 

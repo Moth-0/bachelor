@@ -3,10 +3,10 @@
     \hline
     \textbf{Nucleons} & \textbf{Pion} & \textbf{$E_0$ (MeV)} & \textbf{$r_d$ (fm)} & \textbf{$\langle K \rangle$ (MeV)} & \textbf{$P_\pi$ (\%)} \\
     \hline
-    Classic & Classic & -0.219 & 4.794 &  5.10 & 0.744 \\
-    Relat.  & Classic & -0.325 & 4.265 &  6.49 & 0.958 \\
+    Classic & Classic & -0.219 & 4.730 &  5.10 & 0.743 \\
+    Relat.  & Classic & -0.326 & 4.263 &  6.49 & 0.959 \\
     Classic & Relat.  & -2.220 & 2.127 & 15.81 & 3.110 \\
-    Relat.  & Relat.  & -2.653 & 1.986 & 17.56 & 3.502 \\
+    Relat.  & Relat.  & -2.653 & 1.986 & 17.57 & 3.505 \\
     \hline
 \end{tabular}
 
@@ -16,10 +16,10 @@
     \hline
     \textbf{Nucleons} & \textbf{Pion} & \textbf{$\Delta E$ (MeV)} & \textbf{Deviation (\%)} & \textbf{Runtime (min)} \\
     \hline
-    Classic & Classic &    0.000 &  0.00 &    8.6 \\
-    Relat.  & Classic &   -0.106 & 48.40 &   19.3 \\
-    Classic & Relat.  &   -2.001 & 912.65 &   19.3 \\
-    Relat.  & Relat.  &   -2.433 & 1110.00 &   32.3 \\
+    Classic & Classic &    0.000 &  0.00 &   15.7 \\
+    Relat.  & Classic &   -0.106 & 48.52 &   27.1 \\
+    Classic & Relat.  &   -2.001 & 911.53 &   18.8 \\
+    Relat.  & Relat.  &   -2.434 & 1109.00 &   28.3 \\
     \hline
 \end{tabular}
 
@@ -29,9 +29,9 @@
     \hline
     \textbf{Nucleons} & \textbf{Pion} & \textbf{$E_0$ (MeV)} & \textbf{$\Delta E$ (MeV)} & \textbf{Deviation (\%)} \\
     \hline
-    Classic & Classic & -0.219 &    2.001 & 90.12 \\
-    Relat.  & Classic & -0.325 &    1.895 & 85.35 \\
+    Classic & Classic & -0.219 &    2.001 & 90.11 \\
+    Relat.  & Classic & -0.326 &    1.894 & 85.32 \\
     Classic & Relat.  & -2.220 &    0.000 &  0.00 \\
-    Relat.  & Relat.  & -2.653 &   -0.433 & 19.49 \\
+    Relat.  & Relat.  & -2.653 &   -0.433 & 19.52 \\
     \hline
 \end{tabular}
